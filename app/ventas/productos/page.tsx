@@ -78,8 +78,8 @@ function ProductForm({ item, onClose, onSaved, createItem, updateItem }: Product
     setForm((prev) => ({ ...prev, [k]: v }))
 
   const validate = (): string | null => {
-    if (!form.codigo.trim()) return 'El codigo es requerido'
-    if (!form.descripcion.trim()) return 'La descripcion es requerida'
+    if (!form.codigo.trim()) return 'El código es requerido'
+    if (!form.descripcion.trim()) return 'La descripción es requerida'
     return null
   }
 

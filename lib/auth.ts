@@ -1,7 +1,5 @@
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://jygtddlvzaojekyvdyan.supabase.co'
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp5Z3RkZGx2emFvamVreXZkeWFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxMTYwMTMsImV4cCI6MjA4NzY5MjAxM30.CLtVTvJAcwVbrg_jii-nwyE4pm9k9beefOz0a_guUH4'
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 const TOKEN_KEY = 'zulu_token'
 
@@ -15,6 +13,9 @@ export function isAuthenticated(): boolean {
 }
 
 export async function login(email: string, password: string): Promise<void> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Supabase no está configurado. Verifique las variables de entorno NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY.')
+  }
   const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: 'POST',
     headers: {
