@@ -1,0 +1,200 @@
+{
+  "folders": [
+    {
+      "name": "🌐 ZuluERP — Frontend (Next.js)",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    },
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.enablePromptUseWorkspaceTsdk": true,
+    "tailwindCSS.experimental.classRegex": [
+      ["clsx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"],
+      ["cn\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"],
+      ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"]
+    ],
+    "tailwindCSS.includeLanguages": {
+      "typescript": "javascript",
+      "typescriptreact": "javascript"
+    },
+    "files.associations": {
+      "*.css": "tailwindcss"
+    },
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/.next": true,
+      "**/pnpm-lock.yaml": true
+    },
+    "files.exclude": {
+      "**/.next": true,
+      "**/node_modules": false
+    },
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.patterns": {
+      "package.json": "pnpm-lock.yaml, .npmrc, .nvmrc, .node-version",
+      "next.config.*": "next-env.d.ts",
+      "tsconfig.json": "tsconfig.*.json",
+      "*.tsx": "${capture}.test.tsx, ${capture}.stories.tsx",
+      "components.json": ".eslintrc*, eslint.config.*"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "esbenp.prettier-vscode",
+      "dbaeumer.vscode-eslint",
+      "bradlc.vscode-tailwindcss",
+      "ms-vscode.vscode-typescript-next",
+      "formulahendry.auto-rename-tag",
+      "christian-kohler.path-intellisense",
+      "ms-vscode.live-server",
+      "github.copilot",
+      "github.copilot-chat",
+      "eamodio.gitlens",
+      "usernamehw.errorlens",
+      "streetsidesoftware.code-spell-checker",
+      "streetsidesoftware.code-spell-checker-spanish",
+      "naumovs.color-highlight",
+      "mikestead.dotenv",
+      "pkief.material-icons-theme"
+    ],
+    "unwantedRecommendations": []
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "🚀 Next.js Dev Server",
+        "type": "node",
+        "request": "launch",
+        "program": "${workspaceFolder}/node_modules/.bin/next",
+        "args": ["dev"],
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "NODE_ENV": "development"
+        },
+        "console": "integratedTerminal",
+        "skipFiles": ["<node_internals>/**"]
+      },
+      {
+        "name": "🔍 Next.js Debug (Chrome)",
+        "type": "chrome",
+        "request": "launch",
+        "url": "http://localhost:3000",
+        "webRoot": "${workspaceFolder}",
+        "sourceMaps": true,
+        "sourceMapPathOverrides": {
+          "webpack://_N_E/*": "${webRoot}/*"
+        }
+      },
+      {
+        "name": "🔍 Next.js Debug (Edge)",
+        "type": "msedge",
+        "request": "launch",
+        "url": "http://localhost:3000",
+        "webRoot": "${workspaceFolder}",
+        "sourceMaps": true,
+        "sourceMapPathOverrides": {
+          "webpack://_N_E/*": "${webRoot}/*"
+        }
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "📦 Install Dependencies",
+        "type": "shell",
+        "command": "pnpm install",
+        "group": "build",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      },
+      {
+        "label": "🚀 Dev Server",
+        "type": "shell",
+        "command": "pnpm dev",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated",
+          "clear": true
+        },
+        "isBackground": true,
+        "problemMatcher": {
+          "owner": "nextjs",
+          "pattern": {
+            "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4,
+            "message": 5
+          },
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".*Starting.*",
+            "endsPattern": ".*Ready on.*"
+          }
+        }
+      },
+      {
+        "label": "🏗️ Build Production",
+        "type": "shell",
+        "command": "pnpm build",
+        "group": "build",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      },
+      {
+        "label": "▶️ Start Production",
+        "type": "shell",
+        "command": "pnpm start",
+        "group": "build",
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated"
+        }
+      },
+      {
+        "label": "🔎 Lint",
+        "type": "shell",
+        "command": "pnpm lint",
+        "group": "test",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      },
+      {
+        "label": "🎨 Add shadcn Component",
+        "type": "shell",
+        "command": "pnpm dlx shadcn@latest add ${input:componentName}",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      }
+    ],
+    "inputs": [
+      {
+        "id": "componentName",
+        "type": "promptString",
+        "description": "shadcn/ui component name (e.g: button, dialog, table)"
+      }
+    ]
+  }
+}

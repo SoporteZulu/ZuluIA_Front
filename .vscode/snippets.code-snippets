@@ -1,0 +1,77 @@
+{
+  "Next.js Page Component": {
+    "prefix": "npage",
+    "body": [
+      "export default function ${1:PageName}Page() {",
+      "  return (",
+      "    <div className=\"space-y-6\">",
+      "      <div>",
+      "        <h1 className=\"text-2xl font-bold tracking-tight\">${2:Título}</h1>",
+      "        <p className=\"text-muted-foreground\">${3:Descripción}</p>",
+      "      </div>",
+      "      $0",
+      "    </div>",
+      "  )",
+      "}"
+    ],
+    "description": "Next.js page component (ZULU ERP style)"
+  },
+  "Next.js Client Component": {
+    "prefix": "nclient",
+    "body": [
+      "\"use client\"",
+      "",
+      "import { useState } from \"react\"",
+      "",
+      "export function ${1:ComponentName}() {",
+      "  $0",
+      "  return (",
+      "    <div>",
+      "    </div>",
+      "  )",
+      "}"
+    ],
+    "description": "Next.js client component with useState"
+  },
+  "shadcn Card Block": {
+    "prefix": "uicard",
+    "body": [
+      "import { Card, CardContent, CardDescription, CardHeader, CardTitle } from \"@/components/ui/card\"",
+      "",
+      "<Card>",
+      "  <CardHeader>",
+      "    <CardTitle>${1:Título}</CardTitle>",
+      "    <CardDescription>${2:Descripción}</CardDescription>",
+      "  </CardHeader>",
+      "  <CardContent>",
+      "    $0",
+      "  </CardContent>",
+      "</Card>"
+    ],
+    "description": "shadcn/ui Card block"
+  },
+  "API Fetch with Error Handling": {
+    "prefix": "apifetch",
+    "body": [
+      "const [data, setData] = useState<${1:Type} | null>(null)",
+      "const [loading, setLoading] = useState(false)",
+      "const [error, setError] = useState<string | null>(null)",
+      "",
+      "async function fetch${2:Resource}() {",
+      "  setLoading(true)",
+      "  setError(null)",
+      "  try {",
+      "    const res = await fetch('/api-proxy/${3:endpoint}')",
+      "    if (!res.ok) throw new Error(`Error: ${res.status}`)",
+      "    const json = await res.json()",
+      "    setData(json)",
+      "  } catch (err) {",
+      "    setError(err instanceof Error ? err.message : 'Error desconocido')",
+      "  } finally {",
+      "    setLoading(false)",
+      "  }",
+      "}"
+    ],
+    "description": "API fetch pattern with loading/error state (uses /api-proxy/ to reach .NET backend)"
+  }
+}
