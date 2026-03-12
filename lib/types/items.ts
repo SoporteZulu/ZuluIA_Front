@@ -18,6 +18,7 @@ export interface Item {
   manejaStock: boolean
   precioCosto: number
   precioVenta: number
+  stock?: number
   stockMinimo: number
   stockMaximo: number | null
   codigoAfip: string | null

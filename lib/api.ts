@@ -1,6 +1,11 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000'
+import { getToken } from '@/lib/auth'
 
-// TODO: Add JWT Bearer token when authentication is implemented
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5065'
+
+function authHeaders(): Record<string, string> {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -19,40 +24,38 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json()
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'GET',
     mode: 'cors',
-    headers: { 'Content-Type': 'application/json' },
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+      ...(options?.headers as Record<string, string> | undefined),
+    },
   })
   return handleResponse<T>(res)
+}
+
+export async function apiGet<T>(path: string): Promise<T> {
+  return apiFetch<T>(path, { method: 'GET' })
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    mode: 'cors',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  return handleResponse<T>(res)
+  return apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body) })
 }
 
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'PUT',
-    mode: 'cors',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  return handleResponse<T>(res)
+  return apiFetch<T>(path, { method: 'PUT', body: JSON.stringify(body) })
 }
 
 export async function apiDelete(path: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'DELETE',
-    mode: 'cors',
-    headers: { 'Content-Type': 'application/json' },
-  })
-  return handleResponse<void>(res)
+  return apiFetch<void>(path, { method: 'DELETE' })
+}
+
+export const api = {
+  get: <T>(path: string) => apiGet<T>(path),
+  post: <T>(path: string, body: unknown) => apiPost<T>(path, body),
+  put: <T>(path: string, body: unknown) => apiPut<T>(path, body),
+  delete: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
 }
