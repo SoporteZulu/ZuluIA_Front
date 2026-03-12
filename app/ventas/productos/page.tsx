@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Plus, Search, Edit, Trash2, Eye, Save, X, AlertTriangle } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, Eye, Save, X, AlertTriangle, RefreshCw, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -13,131 +13,481 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { products as initialProducts } from '@/lib/sales-data'
-import type { Product } from '@/lib/sales-types'
+import { Switch } from '@/components/ui/switch'
+import { useItems, useItemsConfig } from '@/lib/hooks/useItems'
+import type { Item, CreateItemDto } from '@/lib/types/items'
+
+// --- Empty form ---
+
+const EMPTY_FORM: CreateItemDto = {
+  codigo: '',
+  descripcion: '',
+  descripcionAdicional: null,
+  categoriaId: null,
+  unidadMedidaId: 0,
+  alicuotaIvaId: 0,
+  monedaId: 0,
+  esProducto: true,
+  esServicio: false,
+  esFinanciero: false,
+  manejaStock: true,
+  precioCosto: 0,
+  precioVenta: 0,
+  stockMinimo: 0,
+}
+
+// --- ProductForm ---
+
+interface ProductFormProps {
+  item: Item | null
+  onClose: () => void
+  onSaved: () => void
+  createItem: (dto: CreateItemDto) => Promise<boolean>
+  updateItem: (id: number, dto: Partial<CreateItemDto>) => Promise<boolean>
+}
+
+function ProductForm({ item, onClose, onSaved, createItem, updateItem }: ProductFormProps) {
+  const { categorias, unidades, alicuotas, monedas } = useItemsConfig()
+  const [form, setForm] = useState<CreateItemDto>(
+    item
+      ? {
+          codigo: item.codigo,
+          descripcion: item.descripcion,
+          descripcionAdicional: item.descripcionAdicional,
+          categoriaId: item.categoriaId,
+          unidadMedidaId: item.unidadMedidaId,
+          alicuotaIvaId: item.alicuotaIvaId,
+          monedaId: item.monedaId,
+          esProducto: item.esProducto,
+          esServicio: item.esServicio,
+          esFinanciero: item.esFinanciero,
+          manejaStock: item.manejaStock,
+          precioCosto: item.precioCosto,
+          precioVenta: item.precioVenta,
+          stockMinimo: item.stockMinimo,
+          stockMaximo: item.stockMaximo,
+          codigoBarras: item.codigoBarras,
+          codigoAfip: item.codigoAfip,
+        }
+      : { ...EMPTY_FORM }
+  )
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const set = (k: keyof CreateItemDto, v: unknown) =>
+    setForm((prev) => ({ ...prev, [k]: v }))
+
+  const validate = (): string | null => {
+    if (!form.codigo.trim()) return 'El codigo es requerido'
+    if (!form.descripcion.trim()) return 'La descripcion es requerida'
+    return null
+  }
+
+  const handleSave = async () => {
+    const err = validate()
+    if (err) { setFormError(err); return }
+    setSaving(true)
+    setFormError(null)
+    const ok = item
+      ? await updateItem(item.id, form)
+      : await createItem(form)
+    setSaving(false)
+    if (ok) onSaved()
+    else setFormError('No se pudo guardar el producto')
+  }
+
+  return (
+    <div className="space-y-4">
+      <Tabs defaultValue="basicos" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="basicos">Datos Basicos</TabsTrigger>
+          <TabsTrigger value="precios">Precios</TabsTrigger>
+          <TabsTrigger value="inventario">Inventario</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="basicos" className="space-y-4 mt-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Codigo (SKU) <span className="text-red-500">*</span></Label>
+              <Input placeholder="PROD-001" value={form.codigo} onChange={(e) => set('codigo', e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Descripcion <span className="text-red-500">*</span></Label>
+              <Input placeholder="Nombre del producto" value={form.descripcion} onChange={(e) => set('descripcion', e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Categoria</Label>
+              <Select
+                value={form.categoriaId ? String(form.categoriaId) : ''}
+                onValueChange={(v) => set('categoriaId', v ? Number(v) : null)}
+              >
+                <SelectTrigger><SelectValue placeholder="Seleccionar categoria" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Sin categoria</SelectItem>
+                  {categorias.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.descripcion}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Unidad de Medida</Label>
+              <Select
+                value={form.unidadMedidaId ? String(form.unidadMedidaId) : ''}
+                onValueChange={(v) => set('unidadMedidaId', v ? Number(v) : 0)}
+              >
+                <SelectTrigger><SelectValue placeholder="Seleccionar unidad" /></SelectTrigger>
+                <SelectContent>
+                  {unidades.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.descripcion} ({u.codigo})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Alicuota IVA</Label>
+              <Select
+                value={form.alicuotaIvaId ? String(form.alicuotaIvaId) : ''}
+                onValueChange={(v) => set('alicuotaIvaId', v ? Number(v) : 0)}
+              >
+                <SelectTrigger><SelectValue placeholder="Seleccionar IVA" /></SelectTrigger>
+                <SelectContent>
+                  {alicuotas.map((a) => <SelectItem key={a.id} value={String(a.id)}>{a.descripcion} ({a.porcentaje}%)</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Moneda</Label>
+              <Select
+                value={form.monedaId ? String(form.monedaId) : ''}
+                onValueChange={(v) => set('monedaId', v ? Number(v) : 0)}
+              >
+                <SelectTrigger><SelectValue placeholder="Seleccionar moneda" /></SelectTrigger>
+                <SelectContent>
+                  {monedas.map((m) => <SelectItem key={m.id} value={String(m.id)}>{m.descripcion} ({m.simbolo})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Codigo de Barras</Label>
+              <Input placeholder="7790000000000" value={form.codigoBarras ?? ''} onChange={(e) => set('codigoBarras', e.target.value || null)} />
+            </div>
+            <div className="space-y-2 col-span-2">
+              <Label>Descripcion Adicional</Label>
+              <Textarea
+                placeholder="Descripcion detallada del producto"
+                value={form.descripcionAdicional ?? ''}
+                onChange={(e) => set('descripcionAdicional', e.target.value || null)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-6 pt-2">
+            <div className="flex items-center gap-2">
+              <Switch id="esProducto" checked={form.esProducto} onCheckedChange={(v) => set('esProducto', v)} />
+              <Label htmlFor="esProducto">Es Producto</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch id="esServicio" checked={form.esServicio} onCheckedChange={(v) => set('esServicio', v)} />
+              <Label htmlFor="esServicio">Es Servicio</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch id="manejaStock" checked={form.manejaStock} onCheckedChange={(v) => set('manejaStock', v)} />
+              <Label htmlFor="manejaStock">Maneja Stock</Label>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="precios" className="space-y-4 mt-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Precio Costo</Label>
+              <Input
+                type="number"
+                placeholder="0.00"
+                value={form.precioCosto}
+                onChange={(e) => set('precioCosto', parseFloat(e.target.value) || 0)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Precio de Venta</Label>
+              <Input
+                type="number"
+                placeholder="0.00"
+                value={form.precioVenta}
+                onChange={(e) => set('precioVenta', parseFloat(e.target.value) || 0)}
+              />
+            </div>
+          </div>
+          {form.precioCosto > 0 && form.precioVenta > 0 && (
+            <Card className="bg-muted/50">
+              <CardContent className="pt-6">
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground block mb-1">Margen</span>
+                    <p className="text-lg font-bold text-orange-600">
+                      {((form.precioVenta - form.precioCosto) / form.precioVenta * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">Ganancia Unitaria</span>
+                    <p className="text-lg font-bold text-green-600">
+                      ${(form.precioVenta - form.precioCosto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">Markup</span>
+                    <p className="text-lg font-bold">
+                      {((form.precioVenta / form.precioCosto - 1) * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="inventario" className="space-y-4 mt-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Stock Minimo</Label>
+              <Input
+                type="number"
+                placeholder="0"
+                value={form.stockMinimo}
+                onChange={(e) => set('stockMinimo', parseInt(e.target.value) || 0)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Stock Maximo</Label>
+              <Input
+                type="number"
+                placeholder="Sin limite"
+                value={form.stockMaximo ?? ''}
+                onChange={(e) => set('stockMaximo', e.target.value ? parseInt(e.target.value) : null)}
+              />
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      {formError && (
+        <p className="text-sm text-red-500 flex items-center gap-1">
+          <AlertCircle className="h-4 w-4" /> {formError}
+        </p>
+      )}
+
+      <div className="flex justify-end gap-2 pt-2 border-t">
+        <Button variant="outline" onClick={onClose} className="bg-transparent">
+          <X className="h-4 w-4 mr-2" />Cancelar
+        </Button>
+        <Button onClick={handleSave} disabled={saving}>
+          <Save className="h-4 w-4 mr-2" />
+          {saving ? 'Guardando...' : item ? 'Guardar Cambios' : 'Crear Producto'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// --- Detail Dialog ---
+
+function ProductDetail({ item, onClose, onEdit }: { item: Item; onClose: () => void; onEdit: () => void }) {
+  const stock = item.stock ?? 0
+  const margen = item.precioVenta > 0 && item.precioCosto > 0
+    ? ((item.precioVenta - item.precioCosto) / item.precioVenta * 100).toFixed(1)
+    : '0'
+
+  return (
+    <Tabs defaultValue="general" className="w-full">
+      <TabsList className="grid w-full grid-cols-3">
+        <TabsTrigger value="general">General</TabsTrigger>
+        <TabsTrigger value="precios">Precios y Costos</TabsTrigger>
+        <TabsTrigger value="inventario">Inventario</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="general" className="space-y-4">
+        <Card>
+          <CardHeader className="pb-3"><CardTitle className="text-base">Informacion General</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground block mb-1">Nombre</span>
+                <p className="font-medium">{item.descripcion}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground block mb-1">SKU</span>
+                <p className="font-mono font-medium">{item.codigo}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground block mb-1">Categoria</span>
+                <p className="font-medium">{item.categoriaDescripcion || '-'}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground block mb-1">Unidad de Medida</span>
+                <p className="font-medium uppercase">{item.unidadMedidaDescripcion || '-'}</p>
+              </div>
+              {item.codigoBarras && (
+                <div>
+                  <span className="text-muted-foreground block mb-1">Codigo de Barras</span>
+                  <p className="font-mono font-medium">{item.codigoBarras}</p>
+                </div>
+              )}
+              <div className="flex gap-2 flex-wrap col-span-2">
+                {item.esProducto && <Badge variant="outline">Producto</Badge>}
+                {item.esServicio && <Badge variant="outline">Servicio</Badge>}
+                {item.manejaStock && <Badge variant="outline">Maneja Stock</Badge>}
+                <Badge variant="secondary" className={item.activo ? 'bg-green-500/10 text-green-600' : 'bg-gray-500/10 text-gray-500'}>
+                  {item.activo ? 'Activo' : 'Inactivo'}
+                </Badge>
+              </div>
+              {item.descripcionAdicional && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground block mb-1">Descripcion</span>
+                  <p className="text-sm">{item.descripcionAdicional}</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="precios" className="space-y-4">
+        <div className="grid grid-cols-3 gap-4">
+          <Card>
+            <CardHeader className="pb-3"><CardTitle className="text-sm text-muted-foreground">Costo</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-blue-600">${item.precioCosto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3"><CardTitle className="text-sm text-muted-foreground">Precio de Venta</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-purple-600">${item.precioVenta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3"><CardTitle className="text-sm text-muted-foreground">Margen</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-orange-600">{margen}%</p>
+            </CardContent>
+          </Card>
+        </div>
+        <Card>
+          <CardHeader className="pb-3"><CardTitle className="text-base">Analisis de Rentabilidad</CardTitle></CardHeader>
+          <CardContent>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Ganancia Unitaria:</span>
+                <span className="font-semibold">${(item.precioVenta - item.precioCosto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Valor Stock al Costo:</span>
+                <span className="font-semibold">${(item.precioCosto * stock).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Valor Stock al Precio:</span>
+                <span className="font-semibold text-green-600">${(item.precioVenta * stock).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="inventario" className="space-y-4">
+        <Card>
+          <CardHeader className="pb-3"><CardTitle className="text-base">Stock Actual</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-4xl font-bold text-green-600">{stock}</p>
+                <p className="text-sm text-muted-foreground mt-1">{item.unidadMedidaDescripcion || 'unidades'}</p>
+              </div>
+              {item.manejaStock && stock <= item.stockMinimo && (
+                <Alert className="w-[200px]">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">Stock por debajo del minimo</AlertDescription>
+                </Alert>
+              )}
+            </div>
+            <div className="mt-4 text-sm text-muted-foreground">Stock minimo: {item.stockMinimo}</div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <DialogFooter className="gap-2 mt-4">
+        <Button variant="outline" onClick={onClose}>Cerrar</Button>
+        <Button onClick={onEdit}><Edit className="h-4 w-4 mr-2" />Editar</Button>
+      </DialogFooter>
+    </Tabs>
+  )
+}
+
+// --- Main Page ---
 
 const ProductosPage = () => {
-  const [products, setProducts] = useState(initialProducts)
+  const {
+    items, loading, error, totalCount, page, setPage, totalPages,
+    search, setSearch, createItem, updateItem, deleteItem, refetch,
+  } = useItems()
+
   const [searchTerm, setSearchTerm] = useState('')
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [detailProduct, setDetailProduct] = useState<Product | null>(null)
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
-  const [productToDelete, setProductToDelete] = useState<Product | null>(null)
-  
-  const [formData, setFormData] = useState({
-    sku: '',
-    nombre: '',
-    descripcion: '',
-    categoria: '',
-    linea: '',
-    marca: '',
-    uom: 'unid',
-    costoProm: 0,
-    precioVenta: 0,
-    stock: 0,
-    foto: '',
-    proveedor: '',
-  })
+  const [detailItem, setDetailItem] = useState<Item | null>(null)
+  const [editingItem, setEditingItem] = useState<Item | null>(null)
+  const [itemToDelete, setItemToDelete] = useState<Item | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
-  const filteredProducts = products.filter(p =>
-    p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const handleSearchChange = (val: string) => {
+    setSearchTerm(val)
+    setSearch(val)
+  }
 
-  const handleViewDetail = (product: Product) => {
-    setDetailProduct(product)
+  const handleViewDetail = (item: Item) => {
+    setDetailItem(item)
     setIsDetailOpen(true)
   }
 
-  const handleEdit = (product: Product) => {
-    setEditingProduct(product)
-    setFormData({
-      sku: product.sku,
-      nombre: product.nombre,
-      descripcion: product.descripcion || '',
-      categoria: product.categoria || '',
-      linea: product.linea || '',
-      marca: product.marca || '',
-      uom: product.uom,
-      costoProm: product.costoProm,
-      precioVenta: product.precioVenta,
-      stock: product.stock,
-      foto: product.foto || '',
-      proveedor: product.proveedor || '',
-    })
+  const handleEdit = (item: Item) => {
+    setEditingItem(item)
     setIsFormOpen(true)
   }
 
-  const handleDelete = (product: Product) => {
-    setProductToDelete(product)
+  const handleDelete = (item: Item) => {
+    setItemToDelete(item)
     setIsDeleteDialogOpen(true)
   }
 
-  const confirmDelete = () => {
-    if (productToDelete) {
-      setProducts(products.filter(p => p.id !== productToDelete.id))
-      setIsDeleteDialogOpen(false)
-      setProductToDelete(null)
-    }
+  const confirmDelete = async () => {
+    if (!itemToDelete) return
+    setDeleting(true)
+    await deleteItem(itemToDelete.id)
+    setDeleting(false)
+    setIsDeleteDialogOpen(false)
+    setItemToDelete(null)
+    refetch()
   }
 
-  const handleSubmit = () => {
-    if (editingProduct) {
-      // Update existing product
-      setProducts(products.map(p => 
-        p.id === editingProduct.id 
-          ? { ...p, ...formData, updatedAt: new Date() }
-          : p
-      ))
-    } else {
-      // Create new product
-      const newProduct: Product = {
-        id: `prod-${Date.now()}`,
-        ...formData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setProducts([...products, newProduct])
-    }
-    
+  const handleSaved = () => {
     setIsFormOpen(false)
-    setEditingProduct(null)
-    resetForm()
+    setEditingItem(null)
+    refetch()
   }
 
-  const resetForm = () => {
-    setFormData({
-      sku: '',
-      nombre: '',
-      descripcion: '',
-      categoria: '',
-      linea: '',
-      marca: '',
-      uom: 'unid',
-      costoProm: 0,
-      precioVenta: 0,
-      stock: 0,
-      foto: '',
-      proveedor: '',
-    })
-  }
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5065'
 
-  const handleOpenNewForm = () => {
-    setEditingProduct(null)
-    resetForm()
-    setIsFormOpen(true)
-  }
+  const stockBajo = items.filter((p) => p.manejaStock && (p.stock ?? 0) <= p.stockMinimo).length
+  const valorStock = items.reduce((sum, p) => sum + p.precioCosto * (p.stock ?? 0), 0)
+  const margenProm = items.length > 0
+    ? items.reduce((sum, p) => sum + (p.precioVenta > 0 ? (p.precioVenta - p.precioCosto) / p.precioVenta * 100 : 0), 0) / items.length
+    : 0
 
   return (
     <div className="space-y-6 pb-6">
       <div className="flex justify-between items-start">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight">Productos</h1>
-          <p className="text-muted-foreground">Catálogo de productos y gestión de precios</p>
+          <p className="text-muted-foreground">Catalogo de productos y gestion de precios</p>
         </div>
-        <Button onClick={handleOpenNewForm}>
+        <Button onClick={() => { setEditingItem(null); setIsFormOpen(true) }}>
           <Plus className="h-4 w-4 mr-2" />
           Nuevo Producto
         </Button>
@@ -149,7 +499,7 @@ const ProductosPage = () => {
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Productos</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{products.length}</div>
+            <div className="text-2xl font-bold">{totalCount}</div>
           </CardContent>
         </Card>
         <Card>
@@ -157,7 +507,7 @@ const ProductosPage = () => {
             <CardTitle className="text-sm font-medium text-muted-foreground">Stock Bajo</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{products.filter(p => p.stock < 50).length}</div>
+            <div className="text-2xl font-bold text-orange-600">{stockBajo}</div>
           </CardContent>
         </Card>
         <Card>
@@ -165,9 +515,7 @@ const ProductosPage = () => {
             <CardTitle className="text-sm font-medium text-muted-foreground">Valor Total Stock</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              ${products.reduce((sum, p) => sum + (p.costoProm * p.stock), 0).toLocaleString('es-AR')}
-            </div>
+            <div className="text-2xl font-bold">${valorStock.toLocaleString('es-AR')}</div>
           </CardContent>
         </Card>
         <Card>
@@ -175,9 +523,7 @@ const ProductosPage = () => {
             <CardTitle className="text-sm font-medium text-muted-foreground">Margen Promedio</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {(products.reduce((sum, p) => sum + ((p.precioVenta - p.costoProm) / p.precioVenta * 100), 0) / products.length).toFixed(1)}%
-            </div>
+            <div className="text-2xl font-bold">{margenProm.toFixed(1)}%</div>
           </CardContent>
         </Card>
       </div>
@@ -189,62 +535,124 @@ const ProductosPage = () => {
             <Input
               placeholder="Buscar por SKU o nombre..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-10"
             />
           </div>
+          {!loading && !error && (
+            <p className="text-xs text-muted-foreground mt-2">{totalCount} productos encontrados</p>
+          )}
         </CardContent>
       </Card>
 
       <Card>
-        <CardContent className="pt-6">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>SKU</TableHead>
-                <TableHead>Nombre</TableHead>
-                <TableHead>Categoría</TableHead>
-                <TableHead className="text-right">Stock</TableHead>
-                <TableHead className="text-right">Costo</TableHead>
-                <TableHead className="text-right">Precio</TableHead>
-                <TableHead className="text-right">Margen</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredProducts.map((product) => {
-                const margen = ((product.precioVenta - product.costoProm) / product.precioVenta * 100).toFixed(1)
-                return (
-                  <TableRow key={product.id} onClick={() => handleViewDetail(product)} className="cursor-pointer hover:bg-muted/50">
-                    <TableCell className="font-mono text-sm">{product.sku}</TableCell>
-                    <TableCell className="font-medium">{product.nombre}</TableCell>
-                    <TableCell>{product.categoria || '-'}</TableCell>
-                    <TableCell className="text-right">
-                      <Badge variant={product.stock < 50 ? 'destructive' : 'outline'}>
-                        {product.stock} {product.uom}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">${product.costoProm.toLocaleString('es-AR')}</TableCell>
-                    <TableCell className="text-right font-medium">${product.precioVenta.toLocaleString('es-AR')}</TableCell>
-                    <TableCell className="text-right">{margen}%</TableCell>
-                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => handleViewDetail(product)} title="Ver detalle">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(product)} title="Editar">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(product)} title="Eliminar">
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
+        <CardContent className="pt-0">
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">Cargando productos...</span>
+            </div>
+          )}
+
+          {error && !loading && (
+            <div className="flex flex-col items-center gap-3 py-12">
+              <div className="flex items-center gap-2 text-red-500">
+                <AlertCircle className="h-5 w-5" />
+                <p className="text-sm font-medium">
+                  {error.includes('fetch') || error.includes('network') || error.includes('Failed')
+                    ? 'No se pudo conectar con el servidor. Verifica que el backend este corriendo en ' + apiUrl + '.'
+                    : error}
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={refetch}>
+                <RefreshCw className="h-4 w-4 mr-2" /> Reintentar
+              </Button>
+            </div>
+          )}
+
+          {!loading && !error && (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>SKU</TableHead>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>Categoria</TableHead>
+                    <TableHead className="text-right">Stock</TableHead>
+                    <TableHead className="text-right">Costo</TableHead>
+                    <TableHead className="text-right">Precio</TableHead>
+                    <TableHead className="text-right">Margen</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+                </TableHeader>
+                <TableBody>
+                  {items.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                        No se encontraron productos
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    items.map((item) => {
+                      const stock = item.stock ?? 0
+                      const bajStock = item.manejaStock && stock <= item.stockMinimo
+                      const margen = item.precioVenta > 0 && item.precioCosto > 0
+                        ? ((item.precioVenta - item.precioCosto) / item.precioVenta * 100).toFixed(1)
+                        : '-'
+                      return (
+                        <TableRow key={item.id} onClick={() => handleViewDetail(item)} className="cursor-pointer hover:bg-muted/50">
+                          <TableCell className="font-mono text-sm">{item.codigo}</TableCell>
+                          <TableCell className="font-medium">{item.descripcion}</TableCell>
+                          <TableCell>{item.categoriaDescripcion || '-'}</TableCell>
+                          <TableCell className="text-right">
+                            {item.manejaStock ? (
+                              <Badge variant={bajStock ? 'destructive' : 'outline'}>
+                                {stock} {item.unidadMedidaDescripcion || ''}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">N/A</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">${item.precioCosto.toLocaleString('es-AR')}</TableCell>
+                          <TableCell className="text-right font-medium">${item.precioVenta.toLocaleString('es-AR')}</TableCell>
+                          <TableCell className="text-right">{margen !== '-' ? margen + '%' : '-'}</TableCell>
+                          <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-end gap-2">
+                              <Button variant="ghost" size="icon" onClick={() => handleViewDetail(item)} title="Ver detalle">
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => handleEdit(item)} title="Editar">
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => handleDelete(item)} title="Eliminar">
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
+                  )}
+                </TableBody>
+              </Table>
+
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Pagina {page} de {totalPages}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                      Anterior
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -253,379 +661,41 @@ const ProductosPage = () => {
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              {detailProduct?.nombre}
-              <Badge variant={detailProduct && detailProduct.stock < 50 ? 'destructive' : 'default'}>
-                {detailProduct && detailProduct.stock < 50 ? 'Stock Bajo' : 'Stock OK'}
-              </Badge>
+              {detailItem?.descripcion}
+              {detailItem && (
+                <Badge variant="secondary" className={detailItem.activo ? 'bg-green-500/10 text-green-600' : 'bg-gray-500/10 text-gray-500'}>
+                  {detailItem.activo ? 'Activo' : 'Inactivo'}
+                </Badge>
+              )}
             </DialogTitle>
-            <DialogDescription>SKU: {detailProduct?.sku}</DialogDescription>
+            <DialogDescription>SKU: {detailItem?.codigo}</DialogDescription>
           </DialogHeader>
-
-          <Tabs defaultValue="general" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="precios">Precios y Costos</TabsTrigger>
-              <TabsTrigger value="inventario">Inventario</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="general" className="space-y-4">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Información General</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground block mb-1">Nombre</span>
-                      <p className="font-medium">{detailProduct?.nombre}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground block mb-1">SKU</span>
-                      <p className="font-mono font-medium">{detailProduct?.sku}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground block mb-1">Categoría</span>
-                      <p className="font-medium">{detailProduct?.categoria || '-'}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground block mb-1">Línea</span>
-                      <p className="font-medium">{detailProduct?.linea || '-'}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground block mb-1">Marca</span>
-                      <p className="font-medium">{detailProduct?.marca || '-'}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground block mb-1">Unidad de Medida</span>
-                      <p className="font-medium uppercase">{detailProduct?.uom}</p>
-                    </div>
-                    {detailProduct?.proveedor && (
-                      <div className="col-span-2">
-                        <span className="text-muted-foreground block mb-1">Proveedor</span>
-                        <p className="font-medium">{detailProduct.proveedor}</p>
-                      </div>
-                    )}
-                    {detailProduct?.descripcion && (
-                      <div className="col-span-2">
-                        <span className="text-muted-foreground block mb-1">Descripción</span>
-                        <p className="text-sm">{detailProduct.descripcion}</p>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="precios" className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm text-muted-foreground">Costo Promedio</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-2xl font-bold text-blue-600">
-                      ${detailProduct?.costoProm.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm text-muted-foreground">Precio de Venta</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-2xl font-bold text-purple-600">
-                      ${detailProduct?.precioVenta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm text-muted-foreground">Margen</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-2xl font-bold text-orange-600">
-                      {detailProduct ? ((detailProduct.precioVenta - detailProduct.costoProm) / detailProduct.precioVenta * 100).toFixed(1) : 0}%
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Análisis de Rentabilidad</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3 text-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Ganancia Unitaria:</span>
-                      <span className="font-semibold">
-                        ${detailProduct ? (detailProduct.precioVenta - detailProduct.costoProm).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '0'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Valor Stock al Costo:</span>
-                      <span className="font-semibold">
-                        ${detailProduct ? (detailProduct.costoProm * detailProduct.stock).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '0'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Valor Stock al Precio:</span>
-                      <span className="font-semibold text-green-600">
-                        ${detailProduct ? (detailProduct.precioVenta * detailProduct.stock).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '0'}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="inventario" className="space-y-4">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Stock Actual</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-4xl font-bold text-green-600">{detailProduct?.stock}</p>
-                      <p className="text-sm text-muted-foreground mt-1">{detailProduct?.uom}</p>
-                    </div>
-                    {detailProduct && detailProduct.stock < 50 && (
-                      <Alert className="w-[200px]">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertDescription className="text-xs">
-                          Stock por debajo del mínimo
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Movimientos Recientes</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-center py-8 text-muted-foreground">
-                    <p className="text-sm">No hay movimientos recientes registrados</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
-              Cerrar
-            </Button>
-            <Button onClick={() => {
-              setIsDetailOpen(false)
-              detailProduct && handleEdit(detailProduct)
-            }}>
-              <Edit className="h-4 w-4 mr-2" />
-              Editar
-            </Button>
-          </DialogFooter>
+          {detailItem && (
+            <ProductDetail
+              item={detailItem}
+              onClose={() => setIsDetailOpen(false)}
+              onEdit={() => { setIsDetailOpen(false); handleEdit(detailItem) }}
+            />
+          )}
         </DialogContent>
       </Dialog>
 
       {/* Form Dialog */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+      <Dialog open={isFormOpen} onOpenChange={(open) => { if (!open) { setIsFormOpen(false); setEditingItem(null) } }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingProduct ? 'Editar Producto' : 'Nuevo Producto'}</DialogTitle>
+            <DialogTitle>{editingItem ? 'Editar Producto' : 'Nuevo Producto'}</DialogTitle>
             <DialogDescription>
-              {editingProduct ? `Editando ${editingProduct.nombre}` : 'Completa los datos para crear un nuevo producto'}
+              {editingItem ? 'Editando ' + editingItem.descripcion : 'Completa los datos para crear un nuevo producto'}
             </DialogDescription>
           </DialogHeader>
-
-          <Tabs defaultValue="basicos" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="basicos">Datos Básicos</TabsTrigger>
-              <TabsTrigger value="precios">Precios</TabsTrigger>
-              <TabsTrigger value="inventario">Inventario</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="basicos" className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>SKU *</Label>
-                  <Input 
-                    placeholder="PROD-001" 
-                    value={formData.sku}
-                    onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Nombre *</Label>
-                  <Input 
-                    placeholder="Nombre del producto" 
-                    value={formData.nombre}
-                    onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Categoría</Label>
-                  <Input 
-                    placeholder="Electrónica, Indumentaria, etc." 
-                    value={formData.categoria}
-                    onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Línea</Label>
-                  <Input 
-                    placeholder="Línea del producto" 
-                    value={formData.linea}
-                    onChange={(e) => setFormData({ ...formData, linea: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Marca</Label>
-                  <Input 
-                    placeholder="Marca" 
-                    value={formData.marca}
-                    onChange={(e) => setFormData({ ...formData, marca: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Unidad de Medida *</Label>
-                  <Select value={formData.uom} onValueChange={(value) => setFormData({ ...formData, uom: value })}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="unid">Unidad</SelectItem>
-                      <SelectItem value="kg">Kilogramo</SelectItem>
-                      <SelectItem value="lts">Litros</SelectItem>
-                      <SelectItem value="mts">Metros</SelectItem>
-                      <SelectItem value="caja">Caja</SelectItem>
-                      <SelectItem value="pallet">Pallet</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Proveedor</Label>
-                  <Input 
-                    placeholder="Proveedor principal" 
-                    value={formData.proveedor}
-                    onChange={(e) => setFormData({ ...formData, proveedor: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Foto URL</Label>
-                  <Input 
-                    placeholder="https://..." 
-                    value={formData.foto}
-                    onChange={(e) => setFormData({ ...formData, foto: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2 col-span-2">
-                  <Label>Descripción</Label>
-                  <Textarea 
-                    placeholder="Descripción detallada del producto" 
-                    value={formData.descripcion}
-                    onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
-                    rows={3}
-                  />
-                </div>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="precios" className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Costo Promedio *</Label>
-                  <Input 
-                    type="number" 
-                    placeholder="0.00" 
-                    value={formData.costoProm}
-                    onChange={(e) => setFormData({ ...formData, costoProm: Number.parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Precio de Venta *</Label>
-                  <Input 
-                    type="number" 
-                    placeholder="0.00" 
-                    value={formData.precioVenta}
-                    onChange={(e) => setFormData({ ...formData, precioVenta: Number.parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-              </div>
-              
-              {formData.costoProm > 0 && formData.precioVenta > 0 && (
-                <Card className="bg-muted/50">
-                  <CardContent className="pt-6">
-                    <div className="grid grid-cols-3 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground block mb-1">Margen</span>
-                        <p className="text-lg font-bold text-orange-600">
-                          {((formData.precioVenta - formData.costoProm) / formData.precioVenta * 100).toFixed(1)}%
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground block mb-1">Ganancia Unitaria</span>
-                        <p className="text-lg font-bold text-green-600">
-                          ${(formData.precioVenta - formData.costoProm).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground block mb-1">Markup</span>
-                        <p className="text-lg font-bold">
-                          {((formData.precioVenta / formData.costoProm - 1) * 100).toFixed(1)}%
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </TabsContent>
-
-            <TabsContent value="inventario" className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Stock Inicial *</Label>
-                  <Input 
-                    type="number" 
-                    placeholder="0" 
-                    value={formData.stock}
-                    onChange={(e) => setFormData({ ...formData, stock: Number.parseInt(e.target.value) || 0 })}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Cantidad disponible en inventario
-                  </p>
-                </div>
-              </div>
-              
-              {formData.stock > 0 && formData.costoProm > 0 && (
-                <Card className="bg-blue-50 border-blue-200">
-                  <CardContent className="pt-6">
-                    <div className="text-sm">
-                      <span className="text-muted-foreground block mb-1">Valor Total del Stock</span>
-                      <p className="text-2xl font-bold text-blue-600">
-                        ${(formData.stock * formData.costoProm).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </TabsContent>
-          </Tabs>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => {
-              setIsFormOpen(false)
-              setEditingProduct(null)
-              resetForm()
-            }}>
-              <X className="h-4 w-4 mr-2" />
-              Cancelar
-            </Button>
-            <Button onClick={handleSubmit} disabled={!formData.sku || !formData.nombre}>
-              <Save className="h-4 w-4 mr-2" />
-              {editingProduct ? 'Guardar Cambios' : 'Crear Producto'}
-            </Button>
-          </DialogFooter>
+          <ProductForm
+            item={editingItem}
+            onClose={() => { setIsFormOpen(false); setEditingItem(null) }}
+            onSaved={handleSaved}
+            createItem={createItem}
+            updateItem={updateItem}
+          />
         </DialogContent>
       </Dialog>
 
@@ -635,44 +705,41 @@ const ProductosPage = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              Confirmar Eliminación
+              Confirmar Eliminacion
             </DialogTitle>
             <DialogDescription>
-              Esta acción no se puede deshacer. El producto será eliminado permanentemente.
+              Esta accion no se puede deshacer. El producto sera eliminado permanentemente.
             </DialogDescription>
           </DialogHeader>
-          
-          {productToDelete && (
+          {itemToDelete && (
             <Card>
               <CardContent className="pt-6">
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">SKU:</span>
-                    <span className="font-mono font-medium">{productToDelete.sku}</span>
+                    <span className="font-mono font-medium">{itemToDelete.codigo}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Nombre:</span>
-                    <span className="font-medium">{productToDelete.nombre}</span>
+                    <span className="font-medium">{itemToDelete.descripcion}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Stock:</span>
-                    <span className="font-medium">{productToDelete.stock} {productToDelete.uom}</span>
-                  </div>
+                  {itemToDelete.manejaStock && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Stock:</span>
+                      <span className="font-medium">{itemToDelete.stock ?? 0} {itemToDelete.unidadMedidaDescripcion || ''}</span>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
           )}
-
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => {
-              setIsDeleteDialogOpen(false)
-              setProductToDelete(null)
-            }}>
+            <Button variant="outline" onClick={() => { setIsDeleteDialogOpen(false); setItemToDelete(null) }}>
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
               <Trash2 className="h-4 w-4 mr-2" />
-              Eliminar Producto
+              {deleting ? 'Eliminando...' : 'Eliminar Producto'}
             </Button>
           </DialogFooter>
         </DialogContent>
