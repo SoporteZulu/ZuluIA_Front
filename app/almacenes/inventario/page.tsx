@@ -23,26 +23,29 @@ import {
   Search,
   BarChart3,
 } from 'lucide-react'
-import { products } from '@/lib/wms-data'
+import { useItems } from '@/lib/hooks/useItems'
+import type { Item } from '@/lib/types/items'
 
 export default function InventarioPage() {
+  const { items, loading, error } = useItems()
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedProduct, setSelectedProduct] = useState(null)
+  const [selectedProduct, setSelectedProduct] = useState<Item | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [filterCategory, setFilterCategory] = useState('todos')
-  const [filterStatus, setFilterStatus] = useState('todos')
 
-  const filteredProducts = products.filter(p => {
-    const searchMatch = p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                       p.name.toLowerCase().includes(searchQuery.toLowerCase())
-    const categoryMatch = filterCategory === 'todos' || p.category === filterCategory
+  const filteredProducts = items.filter(p => {
+    const searchMatch = p.codigo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                       p.descripcion.toLowerCase().includes(searchQuery.toLowerCase())
+    const categoryMatch = filterCategory === 'todos' || String(p.categoriaId) === filterCategory
     return searchMatch && categoryMatch
   })
 
-  const getStatusColor = (stock: number, minStock: number) => {
-    if (stock <= 0) return 'destructive'
-    if (stock <= minStock) return 'secondary'
-    return 'default'
+  const getStatusBadge = (item: Item) => {
+    if ((item.stock ?? 0) <= 0)
+      return <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200">Sin stock</Badge>
+    if ((item.stock ?? 0) <= item.stockMinimo)
+      return <Badge variant="secondary" className="bg-orange-50 text-orange-700 border-orange-200">Stock bajo</Badge>
+    return <Badge variant="secondary" className="bg-green-50 text-green-700 border-green-200">OK</Badge>
   }
 
   return (
@@ -73,7 +76,7 @@ export default function InventarioPage() {
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{products.length}</div>
+            <div className="text-2xl font-bold">{items.length}</div>
             <p className="text-xs text-muted-foreground mt-1">SKUs activos</p>
           </CardContent>
         </Card>
@@ -85,7 +88,7 @@ export default function InventarioPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-orange-600">
-              {products.filter(p => p.minStock > 0).length}
+              {items.filter(p => (p.stock ?? 0) <= p.stockMinimo && p.manejaStock).length}
             </div>
             <p className="text-xs text-muted-foreground mt-1">Requieren reorden</p>
           </CardContent>
@@ -172,22 +175,24 @@ export default function InventarioPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredProducts.map((product) => (
+                {loading && (
+                  <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Cargando items...</TableCell></TableRow>
+                )}
+                {error && (
+                  <TableRow><TableCell colSpan={8} className="text-center py-10 text-destructive">{error}</TableCell></TableRow>
+                )}
+                {!loading && !error && filteredProducts.map((product) => (
                   <TableRow key={product.id}>
-                    <TableCell className="font-mono text-sm font-semibold">{product.sku}</TableCell>
-                    <TableCell>{product.name}</TableCell>
+                    <TableCell className="font-mono text-sm font-semibold">{product.codigo}</TableCell>
+                    <TableCell>{product.descripcion}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{product.category}</Badge>
+                      <Badge variant="outline">{product.categoriaDescripcion ?? `Cat.${product.categoriaId}`}</Badge>
                     </TableCell>
-                    <TableCell>{product.uom}</TableCell>
-                    <TableCell className="text-right font-semibold">0</TableCell>
-                    <TableCell className="text-right text-muted-foreground">{product.minStock}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">{product.maxStock}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200">
-                        Sin stock
-                      </Badge>
-                    </TableCell>
+                    <TableCell>{product.unidadMedidaDescripcion ?? `UM${product.unidadMedidaId}`}</TableCell>
+                    <TableCell className="text-right font-semibold">{product.stock ?? 0}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">{product.stockMinimo}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">{product.stockMaximo ?? '-'}</TableCell>
+                    <TableCell>{getStatusBadge(product)}</TableCell>
                     <TableCell>
                       <Button
                         variant="ghost"
@@ -202,6 +207,9 @@ export default function InventarioPage() {
                     </TableCell>
                   </TableRow>
                 ))}
+                {!loading && !error && filteredProducts.length === 0 && (
+                  <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground text-sm">No se encontraron productos.</TableCell></TableRow>
+                )}
               </TableBody>
             </Table>
           </div>
@@ -214,7 +222,7 @@ export default function InventarioPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" />
-              {selectedProduct?.sku} - {selectedProduct?.name}
+              {selectedProduct?.codigo} - {selectedProduct?.descripcion}
             </DialogTitle>
           </DialogHeader>
 
@@ -230,24 +238,24 @@ export default function InventarioPage() {
             <TabsContent value="general" className="space-y-4 mt-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-muted-foreground block mb-1">SKU</span>
-                  <p className="font-mono font-semibold">{selectedProduct?.sku}</p>
+                  <span className="text-muted-foreground block mb-1">Código</span>
+                  <p className="font-mono font-semibold">{selectedProduct?.codigo}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground block mb-1">Categoría</span>
-                  <p className="font-semibold">{selectedProduct?.category}</p>
+                  <p className="font-semibold">{selectedProduct?.categoriaDescripcion ?? `Cat.${selectedProduct?.categoriaId}`}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground block mb-1">Unidad de Medida</span>
-                  <p className="font-semibold">{selectedProduct?.uom}</p>
+                  <p className="font-semibold">{selectedProduct?.unidadMedidaDescripcion ?? `UM${selectedProduct?.unidadMedidaId}`}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground block mb-1">Método Valorización</span>
-                  <p className="font-semibold">{selectedProduct?.valuationMethod}</p>
+                  <span className="text-muted-foreground block mb-1">Precio Costo</span>
+                  <p className="font-semibold">${selectedProduct?.precioCosto?.toLocaleString()}</p>
                 </div>
                 <div className="col-span-2">
                   <span className="text-muted-foreground block mb-1">Descripción</span>
-                  <p className="text-sm">{selectedProduct?.description}</p>
+                  <p className="text-sm">{selectedProduct?.descripcionAdicional ?? selectedProduct?.descripcion}</p>
                 </div>
               </div>
 
@@ -255,31 +263,31 @@ export default function InventarioPage() {
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
                     <span className="text-muted-foreground block mb-1">Stock Mínimo</span>
-                    <p className="font-semibold">{selectedProduct?.minStock} {selectedProduct?.uom}</p>
+                    <p className="font-semibold">{selectedProduct?.stockMinimo} {selectedProduct?.unidadMedidaDescripcion}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground block mb-1">Stock Máximo</span>
-                    <p className="font-semibold">{selectedProduct?.maxStock} {selectedProduct?.uom}</p>
+                    <p className="font-semibold">{selectedProduct?.stockMaximo ?? '-'} {selectedProduct?.unidadMedidaDescripcion}</p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground block mb-1">Punto de Reorden</span>
-                    <p className="font-semibold">{selectedProduct?.reorderPoint} {selectedProduct?.uom}</p>
+                    <span className="text-muted-foreground block mb-1">Stock Actual</span>
+                    <p className="font-semibold">{selectedProduct?.stock ?? 0} {selectedProduct?.unidadMedidaDescripcion}</p>
                   </div>
                 </div>
               </div>
 
               <div className="border-t pt-4 space-y-2">
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="batch" checked={selectedProduct?.requiresBatch} disabled />
-                  <Label htmlFor="batch" className="text-sm">Requiere Lote</Label>
+                  <input type="checkbox" id="stock" checked={selectedProduct?.manejaStock} disabled />
+                  <Label htmlFor="stock" className="text-sm">Maneja Stock</Label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="serial" checked={selectedProduct?.requiresSerial} disabled />
-                  <Label htmlFor="serial" className="text-sm">Requiere Serie</Label>
+                  <input type="checkbox" id="producto" checked={selectedProduct?.esProducto} disabled />
+                  <Label htmlFor="producto" className="text-sm">Es Producto</Label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="expiration" checked={selectedProduct?.requiresExpiration} disabled />
-                  <Label htmlFor="expiration" className="text-sm">Requiere Fecha Vencimiento</Label>
+                  <input type="checkbox" id="servicio" checked={selectedProduct?.esServicio} disabled />
+                  <Label htmlFor="servicio" className="text-sm">Es Servicio</Label>
                 </div>
               </div>
             </TabsContent>

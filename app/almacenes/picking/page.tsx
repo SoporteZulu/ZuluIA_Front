@@ -5,12 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Progress } from '@/components/ui/progress'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   Plus,
@@ -18,44 +13,34 @@ import {
   Package,
   Check,
   Clock,
-  AlertCircle,
   Truck,
-  BoxesIcon,
-  QrCode,
-  Play,
-  Pause,
 } from 'lucide-react'
-import { shippingOrders, warehouses } from '@/lib/wms-data'
+import { useComprobantes } from '@/lib/hooks/useComprobantes'
+import { useTerceros } from '@/lib/hooks/useTerceros'
+import type { Comprobante } from '@/lib/types/comprobantes'
 
-const estadoBadgeVariant = {
-  planificada: 'outline',
-  asignada: 'secondary',
-  enpreparacion: 'default',
-  lista: 'default',
-  despachada: 'outline',
-  entregada: 'outline',
-  cancelada: 'secondary',
+const estadoBadgeVariant: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
+  BORRADOR:       'secondary',
+  EMITIDO:        'default',
+  PAGADO_PARCIAL: 'outline',
+  PAGADO:         'outline',
+  ANULADO:        'destructive',
 }
 
 export default function PickingPage() {
-  const [orders, setOrders] = useState(shippingOrders)
-  const [selectedOrder, setSelectedOrder] = useState(null)
+  const { comprobantes: orders, loading } = useComprobantes({ esVenta: true })
+  const { terceros } = useTerceros()
+  const [selectedOrder, setSelectedOrder] = useState<Comprobante | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [isPicking, setIsPicking] = useState(false)
-  const [currentItemIndex, setCurrentItemIndex] = useState(0)
-  const [filterPriority, setFilterPriority] = useState('todos')
+  const [filterEstado, setFilterEstado] = useState('todos')
 
-  const filteredOrders = orders.filter(o => 
-    filterPriority === 'todos' || o.priority === filterPriority
+  const filteredOrders = React.useMemo(
+    () => filterEstado === 'todos' ? orders : orders.filter(o => o.estado === filterEstado),
+    [orders, filterEstado]
   )
 
-  const handleStartPicking = (order) => {
-    setSelectedOrder(order)
-    setIsPicking(true)
-    setCurrentItemIndex(0)
-  }
-
-  const currentItem = selectedOrder?.items[currentItemIndex]
+  const getTerceroName = (id: number) =>
+    terceros.find(t => t.id === id)?.razonSocial ?? String(id)
 
   return (
     <div className="space-y-6">
@@ -80,7 +65,7 @@ export default function PickingPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {orders.filter(o => o.status === 'enpreparacion').length}
+              {orders.filter(o => o.estado === 'BORRADOR').length}
             </div>
             <p className="text-xs text-muted-foreground mt-1">Órdenes activas</p>
           </CardContent>
@@ -93,7 +78,7 @@ export default function PickingPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {orders.filter(o => o.status === 'lista').length}
+              {orders.filter(o => o.estado === 'EMITIDO').length}
             </div>
             <p className="text-xs text-muted-foreground mt-1">Esperando embalaje</p>
           </CardContent>
@@ -124,15 +109,17 @@ export default function PickingPage() {
 
       {/* Filtros */}
       <div className="flex gap-4">
-        <Select value={filterPriority} onValueChange={setFilterPriority}>
+        <Select value={filterEstado} onValueChange={setFilterEstado}>
           <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Filtrar por prioridad" />
+            <SelectValue placeholder="Filtrar por estado" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todas las prioridades</SelectItem>
-            <SelectItem value="urgente">Urgente</SelectItem>
-            <SelectItem value="alta">Alta</SelectItem>
-            <SelectItem value="normal">Normal</SelectItem>
+            <SelectItem value="todos">Todos los estados</SelectItem>
+            <SelectItem value="BORRADOR">Borrador</SelectItem>
+            <SelectItem value="EMITIDO">Emitido</SelectItem>
+            <SelectItem value="PAGADO_PARCIAL">Pagado Parcial</SelectItem>
+            <SelectItem value="PAGADO">Pagado</SelectItem>
+            <SelectItem value="ANULADO">Anulado</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -147,68 +134,44 @@ export default function PickingPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Código OS</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Prioridad</TableHead>
+                <TableHead>Nro. Comprobante</TableHead>
+                <TableHead>Tercero</TableHead>
+                <TableHead>Tipo</TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead>Ítems</TableHead>
-                <TableHead>Progreso</TableHead>
-                <TableHead>Operario</TableHead>
+                <TableHead>Total</TableHead>
+                <TableHead>Fecha</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredOrders.map((order) => (
                 <TableRow key={order.id}>
-                  <TableCell className="font-medium">{order.code}</TableCell>
-                  <TableCell>{order.client}</TableCell>
+                  <TableCell className="font-medium">{order.nroComprobante ?? order.id}</TableCell>
+                  <TableCell>{getTerceroName(order.terceroId)}</TableCell>
                   <TableCell>
-                    <Badge
-                      variant={order.priority === 'urgente' ? 'destructive' : 'outline'}
-                    >
-                      {order.priority}
+                    <Badge variant="outline">
+                      {order.tipoComprobanteDescripcion ?? order.tipoComprobanteId}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={estadoBadgeVariant[order.status]}>
-                      {order.status}
+                    <Badge variant={estadoBadgeVariant[order.estado] ?? 'outline'}>
+                      {order.estado}
                     </Badge>
+                  </TableCell>
+                  <TableCell className="text-sm font-semibold">
+                    ${order.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                   </TableCell>
                   <TableCell className="text-sm">
-                    {order.pickedItems}/{order.totalItems}
+                    {order.fecha ? new Date(order.fecha).toLocaleDateString('es-AR') : '-'}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2 w-32">
-                      <Progress value={(order.pickedItems / order.totalItems) * 100} />
-                      <span className="text-xs text-muted-foreground">
-                        {Math.round((order.pickedItems / order.totalItems) * 100)}%
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm">{order.operario || '-'}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setSelectedOrder(order)
-                          setIsDetailOpen(true)
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      {order.status === 'asignada' && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-blue-600"
-                          onClick={() => handleStartPicking(order)}
-                        >
-                          <Play className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => { setSelectedOrder(order); setIsDetailOpen(true) }}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -217,237 +180,43 @@ export default function PickingPage() {
         </CardContent>
       </Card>
 
-      {/* Interfaz de Picking (Modal) */}
-      {isPicking && selectedOrder && (
-        <Dialog open={isPicking} onOpenChange={setIsPicking}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <QrCode className="h-5 w-5" />
-                Picking - {selectedOrder.code}
-              </DialogTitle>
-              <DialogDescription className="flex items-center justify-between mt-2">
-                <span>{selectedOrder.client}</span>
-                <Badge variant={selectedOrder.priority === 'urgente' ? 'destructive' : 'outline'}>
-                  {selectedOrder.priority}
-                </Badge>
-              </DialogDescription>
-            </DialogHeader>
 
-            {/* Progress Bar */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Progreso:</span>
-                <span className="font-semibold">
-                  {currentItemIndex + 1}/{selectedOrder.items.length} ítems
-                </span>
-              </div>
-              <Progress value={((currentItemIndex + 1) / selectedOrder.items.length) * 100} />
-            </div>
-
-            {/* Current Item Card */}
-            {currentItem && (
-              <Card className="border-2 border-primary">
-                <CardContent className="pt-6">
-                  <div className="space-y-6">
-                    {/* Item Info */}
-                    <div>
-                      <div className="text-sm text-muted-foreground mb-2">Ítem {currentItemIndex + 1}</div>
-                      <div className="space-y-3">
-                        <div>
-                          <span className="text-muted-foreground block mb-1">SKU</span>
-                          <p className="text-2xl font-bold font-mono">{currentItem.sku}</p>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block mb-1">Descripción</span>
-                          <p className="text-lg">{currentItem.productName}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Ubicación */}
-                    <Alert>
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>
-                        <span className="text-muted-foreground block text-xs mb-1">Ubicación esperada:</span>
-                        <p className="font-mono font-bold text-lg">A01-R1-N1</p>
-                      </AlertDescription>
-                    </Alert>
-
-                    {/* Cantidad */}
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <p className="text-sm text-muted-foreground mb-2">Cantidad a pickear:</p>
-                      <p className="text-3xl font-bold text-blue-600">{currentItem.quantity} {currentItem.uom}</p>
-                    </div>
-
-                    {/* Scanner */}
-                    <div className="space-y-3 border rounded-lg p-4 bg-muted/30">
-                      <Label>Escanear Ubicación</Label>
-                      <Input
-                        placeholder="Escanea código de ubicación..."
-                        className="text-lg"
-                        autoFocus
-                      />
-                      <Button variant="outline" className="w-full bg-transparent">
-                        <QrCode className="h-4 w-4 mr-2" />
-                        Escanear Ubicación
-                      </Button>
-                    </div>
-
-                    <div className="space-y-3 border rounded-lg p-4 bg-muted/30">
-                      <Label>Escanear Producto</Label>
-                      <Input
-                        placeholder="Escanea código de producto..."
-                        className="text-lg"
-                      />
-                      <Button variant="outline" className="w-full bg-transparent">
-                        <QrCode className="h-4 w-4 mr-2" />
-                        Escanear Producto
-                      </Button>
-                    </div>
-
-                    {/* Cantidad a confirmar */}
-                    <div className="space-y-2">
-                      <Label>Cantidad Pickeada</Label>
-                      <Input
-                        type="number"
-                        defaultValue={currentItem.quantity}
-                        className="text-lg"
-                      />
-                    </div>
-
-                    {/* Botones de Acción */}
-                    <div className="flex gap-2 pt-4">
-                      <Button variant="outline" className="flex-1 bg-transparent">
-                        <AlertCircle className="h-4 w-4 mr-2" />
-                        Reportar Problema
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Navegación */}
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentItemIndex(Math.max(0, currentItemIndex - 1))}
-                disabled={currentItemIndex === 0}
-              >
-                Anterior
-              </Button>
-              <Button
-                className="flex-1"
-                onClick={() => {
-                  if (currentItemIndex < selectedOrder.items.length - 1) {
-                    setCurrentItemIndex(currentItemIndex + 1)
-                  } else {
-                    setIsPicking(false)
-                  }
-                }}
-              >
-                {currentItemIndex === selectedOrder.items.length - 1
-                  ? 'Completar Picking'
-                  : 'Siguiente'}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setIsPicking(false)}
-              >
-                <Pause className="h-4 w-4 mr-2" />
-                Pausar
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
 
       {/* Detail Dialog */}
-      <Dialog open={isDetailOpen && !isPicking} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-w-3xl">
+      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Truck className="h-5 w-5" />
-              {selectedOrder?.code}
+              Comprobante #{selectedOrder?.nroComprobante ?? selectedOrder?.id}
             </DialogTitle>
-            <DialogDescription>{selectedOrder?.client}</DialogDescription>
+            <DialogDescription>
+              {selectedOrder ? getTerceroName(selectedOrder.terceroId) : ''}
+            </DialogDescription>
           </DialogHeader>
 
-          <Tabs defaultValue="info" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="info">Información</TabsTrigger>
-              <TabsTrigger value="items">Ítems</TabsTrigger>
-            </TabsList>
-
-            {/* Info Tab */}
-            <TabsContent value="info" className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground block mb-1">Cliente</span>
-                  <p className="font-semibold">{selectedOrder?.client}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Destino</span>
-                  <p className="font-semibold">{selectedOrder?.destination}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Fecha Envío</span>
-                  <p className="font-semibold">
-                    {selectedOrder?.scheduledDate.toLocaleDateString('es-AR')}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Prioridad</span>
-                  <Badge variant={selectedOrder?.priority === 'urgente' ? 'destructive' : 'outline'}>
-                    {selectedOrder?.priority}
-                  </Badge>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Operario</span>
-                  <p className="font-semibold">{selectedOrder?.operario || 'No asignado'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Estado</span>
-                  <Badge>{selectedOrder?.status}</Badge>
-                </div>
+          <div className="grid grid-cols-2 gap-4 text-sm py-4">
+            {[
+              ['Nro. Comprobante', selectedOrder?.nroComprobante ?? '-'],
+              ['Tipo',            selectedOrder?.tipoComprobanteDescripcion ?? '-'],
+              ['Estado',          selectedOrder?.estado ?? '-'],
+              ['Tercero ID',      String(selectedOrder?.terceroId ?? '-')],
+              ['Fecha',           selectedOrder?.fecha ? new Date(selectedOrder.fecha).toLocaleDateString('es-AR') : '-'],
+              ['Vencimiento',     selectedOrder?.fechaVto ?? '-'],
+              ['Neto Gravado',    selectedOrder ? `$${selectedOrder.netoGravado.toLocaleString('es-AR')}` : '-'],
+              ['IVA',             selectedOrder ? `$${selectedOrder.ivaRi.toLocaleString('es-AR')}` : '-'],
+              ['Total',           selectedOrder ? `$${selectedOrder.total.toLocaleString('es-AR')}` : '-'],
+              ['Saldo',           selectedOrder ? `$${selectedOrder.saldo.toLocaleString('es-AR')}` : '-'],
+            ].map(([k, v]) => (
+              <div key={k as string}>
+                <span className="text-muted-foreground block mb-1">{k}</span>
+                <p className="font-semibold">{v}</p>
               </div>
-            </TabsContent>
-
-            {/* Items Tab */}
-            <TabsContent value="items" className="space-y-4 mt-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Descripción</TableHead>
-                    <TableHead>Cantidad</TableHead>
-                    <TableHead>Pickeado</TableHead>
-                    <TableHead>Estado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {selectedOrder?.items.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-mono">{item.sku}</TableCell>
-                      <TableCell>{item.productName}</TableCell>
-                      <TableCell>{item.quantity} {item.uom}</TableCell>
-                      <TableCell className="text-green-600 font-semibold">
-                        {item.pickedQuantity} {item.uom}
-                      </TableCell>
-                      <TableCell>
-                        <Badge>{item.status}</Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TabsContent>
-          </Tabs>
+            ))}
+          </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDetailOpen(false)}>Cerrar</Button>
-            <Button>Editar Orden</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

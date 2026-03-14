@@ -118,12 +118,12 @@ function ProductForm({ item, onClose, onSaved, createItem, updateItem }: Product
             <div className="space-y-2">
               <Label>Categoria</Label>
               <Select
-                value={form.categoriaId ? String(form.categoriaId) : ''}
-                onValueChange={(v) => set('categoriaId', v ? Number(v) : null)}
+                value={form.categoriaId ? String(form.categoriaId) : '__none__'}
+                onValueChange={(v) => set('categoriaId', v !== '__none__' ? Number(v) : null)}
               >
                 <SelectTrigger><SelectValue placeholder="Seleccionar categoria" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Sin categoria</SelectItem>
+                  <SelectItem value="__none__">Sin categoria</SelectItem>
                   {categorias.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.descripcion}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -227,9 +227,9 @@ function ProductForm({ item, onClose, onSaved, createItem, updateItem }: Product
                   </div>
                   <div>
                     <span className="text-muted-foreground block mb-1">Ganancia Unitaria</span>
-                    <p className="text-lg font-bold text-green-600">
-                      ${(form.precioVenta - form.precioCosto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                    </p>
+                      <p className="text-lg font-bold text-green-600">
+                        {form.precioVenta != null && form.precioCosto != null ? (form.precioVenta - form.precioCosto).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '-'}
+                      </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground block mb-1">Markup</span>
@@ -353,13 +353,13 @@ function ProductDetail({ item, onClose, onEdit }: { item: Item; onClose: () => v
           <Card>
             <CardHeader className="pb-3"><CardTitle className="text-sm text-muted-foreground">Costo</CardTitle></CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-blue-600">${item.precioCosto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+              <p className="text-2xl font-bold text-blue-600">{item.precioCosto != null ? item.precioCosto.toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '-'}</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-3"><CardTitle className="text-sm text-muted-foreground">Precio de Venta</CardTitle></CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-purple-600">${item.precioVenta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+              <p className="text-2xl font-bold text-purple-600">{item.precioVenta != null ? item.precioVenta.toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '-'}</p>
             </CardContent>
           </Card>
           <Card>
@@ -375,15 +375,15 @@ function ProductDetail({ item, onClose, onEdit }: { item: Item; onClose: () => v
             <div className="space-y-3 text-sm">
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Ganancia Unitaria:</span>
-                <span className="font-semibold">${(item.precioVenta - item.precioCosto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                <span className="font-semibold">{item.precioVenta != null && item.precioCosto != null ? (item.precioVenta - item.precioCosto).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '-'}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Valor Stock al Costo:</span>
-                <span className="font-semibold">${(item.precioCosto * stock).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                <span className="font-semibold">{item.precioCosto != null && stock != null ? (item.precioCosto * stock).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '-'}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Valor Stock al Precio:</span>
-                <span className="font-semibold text-green-600">${(item.precioVenta * stock).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                <span className="font-semibold text-green-600">{item.precioVenta != null && stock != null ? (item.precioVenta * stock).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '-'}</span>
               </div>
             </div>
           </CardContent>
@@ -613,8 +613,8 @@ const ProductosPage = () => {
                               <span className="text-muted-foreground text-xs">N/A</span>
                             )}
                           </TableCell>
-                          <TableCell className="text-right">${item.precioCosto.toLocaleString('es-AR')}</TableCell>
-                          <TableCell className="text-right font-medium">${item.precioVenta.toLocaleString('es-AR')}</TableCell>
+                          <TableCell className="text-right">{item.precioCosto != null ? item.precioCosto.toLocaleString('es-AR') : '-'}</TableCell>
+                          <TableCell className="text-right font-medium">{item.precioVenta != null ? item.precioVenta.toLocaleString('es-AR') : '-'}</TableCell>
                           <TableCell className="text-right">{margen !== '-' ? margen + '%' : '-'}</TableCell>
                           <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="flex justify-end gap-2">

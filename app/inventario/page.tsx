@@ -1,39 +1,49 @@
+'use client'
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Boxes, Warehouse, Tags, ArrowLeftRight } from "lucide-react"
 import Link from "next/link"
-
-const sections = [
-  {
-    title: "Productos",
-    description: "Gestiona el catalogo de productos, precios y existencias",
-    icon: Boxes,
-    href: "/inventario/productos",
-    stats: "1,234 productos",
-  },
-  {
-    title: "Almacenes",
-    description: "Administra las ubicaciones de almacenamiento",
-    icon: Warehouse,
-    href: "/inventario/almacenes",
-    stats: "3 almacenes activos",
-  },
-  {
-    title: "Categorias",
-    description: "Organiza los productos por categorias",
-    icon: Tags,
-    href: "/inventario/categorias",
-    stats: "24 categorias",
-  },
-  {
-    title: "Movimientos",
-    description: "Registra entradas, salidas y transferencias",
-    icon: ArrowLeftRight,
-    href: "/inventario/movimientos",
-    stats: "156 movimientos este mes",
-  },
-]
+import { useItems } from "@/lib/hooks/useItems"
+import { useDepositos } from "@/lib/hooks/useDepositos"
+import { useItemsConfig } from "@/lib/hooks/useItems"
+import { useStockMovimientos } from "@/lib/hooks/useStock"
 
 export default function InventarioPage() {
+  const { items } = useItems()
+  const { depositos } = useDepositos()
+  const { categorias } = useItemsConfig()
+  const { movimientos } = useStockMovimientos()
+
+  const sections = [
+    {
+      title: "Productos",
+      description: "Gestiona el catalogo de productos, precios y existencias",
+      icon: Boxes,
+      href: "/inventario/productos",
+      stats: `${items.length} productos`,
+    },
+    {
+      title: "Almacenes",
+      description: "Administra las ubicaciones de almacenamiento",
+      icon: Warehouse,
+      href: "/inventario/almacenes",
+      stats: `${depositos.filter(d => d.activo).length} almacenes activos`,
+    },
+    {
+      title: "Categorias",
+      description: "Organiza los productos por categorias",
+      icon: Tags,
+      href: "/inventario/categorias",
+      stats: `${categorias.length} categorias`,
+    },
+    {
+      title: "Movimientos",
+      description: "Registra entradas, salidas y transferencias",
+      icon: ArrowLeftRight,
+      href: "/inventario/movimientos",
+      stats: `${movimientos.length} movimientos`,
+    },
+  ]
   return (
     <div className="space-y-6">
       <div>

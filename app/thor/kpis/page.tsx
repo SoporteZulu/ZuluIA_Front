@@ -9,16 +9,29 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
-import { historicoVentas, calcularKPIsMensuales } from '@/lib/thor-data'
+import { useThorKpis } from '@/lib/hooks/useThor'
 import { TrendingUp, TrendingDown, Zap } from 'lucide-react'
 
 const KPIsModule = () => {
+  const { kpis: kpisData, historico: historicoVentas } = useThorKpis()
   const [granularidad, setGranularidad] = useState('mensual')
   const [cambioPrecios, setCambioPrecios] = useState(0)
   const [cambioTrafico, setCambioTrafico] = useState(0)
   const [nuevosProductos, setNuevosProductos] = useState(0)
 
-  const kpis = calcularKPIsMensuales()
+  const kpis = useMemo(() => {
+    if (historicoVentas.length < 2) return { ventasTotales: 0, cambioMes: 0, margenPromedio: 0, ticketPromedio: 0, numeroTransacciones: 0, rotacionPromedio: 0 }
+    const last = historicoVentas[historicoVentas.length - 1]
+    const prev = historicoVentas[historicoVentas.length - 2]
+    return {
+      ventasTotales: last.ventas,
+      cambioMes: ((last.ventas - prev.ventas) / prev.ventas) * 100,
+      margenPromedio: kpisData.find(k => k.nombre.toLowerCase().includes('margen'))?.valor ?? 0,
+      ticketPromedio: last.ticketPromedio,
+      numeroTransacciones: last.transacciones,
+      rotacionPromedio: kpisData.find(k => k.nombre.toLowerCase().includes('rotaci'))?.valor ?? 0,
+    }
+  }, [historicoVentas, kpisData])
 
   // Datos históricos
   const dataHistorica = historicoVentas.map(h => ({
@@ -29,9 +42,9 @@ const KPIsModule = () => {
   }))
 
   // Predicción IA para próximos 6 meses
-  const ultimasVentas = historicoVentas.slice(-3).map(h => h.ventas)
-  const tendencia = (ultimasVentas[2] - ultimasVentas[0]) / ultimasVentas[0]
-  const ventasPromedio = ultimasVentas.reduce((a, b) => a + b) / ultimasVentas.length
+  const ultimasVentas = historicoVentas.length >= 3 ? historicoVentas.slice(-3).map(h => h.ventas) : [0, 0, 0]
+  const tendencia = ultimasVentas[0] > 0 ? (ultimasVentas[2] - ultimasVentas[0]) / ultimasVentas[0] : 0
+  const ventasPromedio = ultimasVentas.reduce((a, b) => a + b, 0) / (ultimasVentas.length || 1)
 
   const predicciones = Array.from({ length: 6 }, (_, i) => {
     const ventaBase = ventasPromedio * (1 + tendencia * (i / 6))

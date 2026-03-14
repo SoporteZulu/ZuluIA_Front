@@ -15,7 +15,8 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts'
-import { ventasStats, salesOrders, invoices, remitos, customers, promotions } from '@/lib/sales-data'
+import { useComprobantes } from '@/lib/hooks/useComprobantes'
+import { useTerceros } from '@/lib/hooks/useTerceros'
 
 // ─── Workflow Document ─────────────────────────────────────────────────────────
 
@@ -58,13 +59,6 @@ const topClientes = [
   { cliente: 'Hosp. Paraná', monto: 234000 },
 ]
 
-const estadosPedidos = [
-  { name: 'Confirmado', value: salesOrders.filter(o => o.estado === 'confirmado').length, color: '#3b82f6' },
-  { name: 'En Preparación', value: salesOrders.filter(o => o.estado === 'en_preparacion').length, color: '#f59e0b' },
-  { name: 'Despachado', value: salesOrders.filter(o => o.estado === 'despachado').length, color: '#8b5cf6' },
-  { name: 'Facturado', value: salesOrders.filter(o => o.estado === 'facturado').length, color: '#10b981' },
-  { name: 'Borrador', value: salesOrders.filter(o => o.estado === 'borrador').length, color: '#6b7280' },
-]
 
 const antiguedadDeuda = [
   { rango: '0-30 días', monto: 1293000, color: '#3b82f6' },
@@ -73,20 +67,35 @@ const antiguedadDeuda = [
   { rango: '+90 días', monto: 220000, color: '#991b1b' },
 ]
 
-// ─── Alerts ────────────────────────────────────────────────────────────────────
-
-const alertas = [
-  { tipo: 'error', icon: XCircle, texto: `${customers.filter(c => c.creditoUtilizado > c.creditoLimite).length} clientes con crédito excedido`, href: '/ventas/clientes' },
-  { tipo: 'warning', icon: AlertTriangle, texto: `${invoices.filter(i => i.estado === 'emitida' && new Date(i.fechaVencimiento) < new Date()).length} facturas vencidas sin cobrar`, href: '/ventas/facturas' },
-  { tipo: 'warning', icon: Clock, texto: `${remitos.filter(r => r.estado === 'en_transito').length} remitos en tránsito sin confirmar`, href: '/ventas/remitos' },
-  { tipo: 'info', icon: CheckCircle2, texto: `${promotions.filter(p => p.estado === 'activa').length} promociones activas en este momento`, href: '/ventas/listas-precios' },
-]
-
-// ─── Main Component ────────────────────────────────────────────────────────────
+// ─── Main Component ────────────────────────────────────────────────────────────────────────────
 
 export default function VentasDashboard() {
-  const porCobrar = invoices.filter(i => i.estado === 'emitida').reduce((s, i) => s + i.total, 0)
-  const facturasVencidas = invoices.filter(i => i.estado === 'emitida' && new Date(i.fechaVencimiento) < new Date())
+  const { comprobantes } = useComprobantes()
+  const { terceros } = useTerceros()
+
+  const porCobrar = React.useMemo(
+    () => comprobantes.filter(c => c.estado === 'EMITIDO').reduce((s, c) => s + c.saldo, 0),
+    [comprobantes]
+  )
+  const facturasVencidas = React.useMemo(
+    () => comprobantes.filter(c => c.estado === 'EMITIDO' && c.fechaVto && new Date(c.fechaVto) < new Date()),
+    [comprobantes]
+  )
+
+  const estadosPedidos = React.useMemo(() => [
+    { name: 'Borrador',   value: comprobantes.filter(c => c.estado === 'BORRADOR').length,       color: '#6b7280' },
+    { name: 'Emitido',    value: comprobantes.filter(c => c.estado === 'EMITIDO').length,        color: '#3b82f6' },
+    { name: 'Pago Parc.', value: comprobantes.filter(c => c.estado === 'PAGADO_PARCIAL').length, color: '#f59e0b' },
+    { name: 'Pagado',     value: comprobantes.filter(c => c.estado === 'PAGADO').length,         color: '#10b981' },
+    { name: 'Anulado',    value: comprobantes.filter(c => c.estado === 'ANULADO').length,        color: '#ef4444' },
+  ], [comprobantes])
+
+  const alertas = React.useMemo(() => [
+    { tipo: 'error',   icon: XCircle,       texto: `${terceros.filter(c => !c.activo).length} clientes inactivos o bloqueados`,                                                                href: '/ventas/clientes' },
+    { tipo: 'warning', icon: AlertTriangle, texto: `${facturasVencidas.length} facturas vencidas sin cobrar`,                                                                                href: '/ventas/facturas' },
+    { tipo: 'warning', icon: Clock,         texto: `${comprobantes.filter(c => c.estado === 'EMITIDO').length} comprobantes emitidos pendientes de cobro`,                                   href: '/ventas/remitos' },
+    { tipo: 'info',    icon: CheckCircle2,  texto: `${comprobantes.filter(c => c.estado === 'PAGADO').length} comprobantes pagados en el período`,                                           href: '/ventas/listas-precios' },
+  ], [terceros, comprobantes, facturasVencidas])
 
   return (
     <div className="space-y-6 pb-6">
@@ -119,10 +128,10 @@ export default function VentasDashboard() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Ventas del Mes</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${ventasStats.ventasMes.toLocaleString('es-AR')}</div>
+            <div className="text-2xl font-bold">${comprobantes.reduce((s, c) => s + c.total, 0).toLocaleString('es-AR')}</div>
             <div className="flex items-center gap-1 mt-1">
               <ArrowUpRight className="h-3 w-3 text-green-600" />
-              <p className="text-xs text-green-600 font-medium">+{ventasStats.variacionIngresos}% vs mes anterior</p>
+              <p className="text-xs text-green-600 font-medium">Acumulado del período</p>
             </div>
           </CardContent>
         </Card>
@@ -132,10 +141,10 @@ export default function VentasDashboard() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Pedidos Pendientes</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{salesOrders.filter(o => ['confirmado', 'en_preparacion'].includes(o.estado)).length}</div>
+            <div className="text-2xl font-bold">{comprobantes.filter(c => c.estado === 'BORRADOR').length}</div>
             <div className="flex items-center gap-1 mt-1">
               <ArrowDownRight className="h-3 w-3 text-orange-500" />
-              <p className="text-xs text-orange-500">{ventasStats.pedidosBorrador} en borrador</p>
+              <p className="text-xs text-orange-500">{comprobantes.filter(c => c.estado === 'EMITIDO').length} emitidos</p>
             </div>
           </CardContent>
         </Card>
@@ -162,10 +171,10 @@ export default function VentasDashboard() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Clientes Activos</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{ventasStats.clientesActivos}</div>
+            <div className="text-2xl font-bold">{terceros.filter(t => t.activo).length}</div>
             <div className="flex items-center gap-1 mt-1">
               <ArrowUpRight className="h-3 w-3 text-green-600" />
-              <p className="text-xs text-green-600">+3 este mes</p>
+              <p className="text-xs text-green-600">Total en sistema</p>
             </div>
           </CardContent>
         </Card>
@@ -344,24 +353,23 @@ export default function VentasDashboard() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {salesOrders.slice(-5).reverse().map((order) => {
+            {comprobantes.slice(-5).reverse().map((order) => {
               const estadoColor: Record<string, string> = {
-                borrador: 'bg-gray-100 text-gray-700',
-                confirmado: 'bg-blue-100 text-blue-700',
-                en_preparacion: 'bg-amber-100 text-amber-700',
-                despachado: 'bg-violet-100 text-violet-700',
-                facturado: 'bg-green-100 text-green-700',
-                cancelado: 'bg-red-100 text-red-700',
+                BORRADOR:       'bg-gray-100 text-gray-700',
+                EMITIDO:        'bg-blue-100 text-blue-700',
+                PAGADO_PARCIAL: 'bg-amber-100 text-amber-700',
+                PAGADO:         'bg-green-100 text-green-700',
+                ANULADO:        'bg-red-100 text-red-700',
               }
               return (
                 <div key={order.id} className="flex items-center justify-between gap-2 text-sm pb-2 border-b last:border-0 last:pb-0">
                   <div className="min-w-0 flex-1">
-                    <p className="font-mono text-xs font-medium">{order.codigo}</p>
-                    <p className="text-xs text-muted-foreground truncate">{order.clienteId}</p>
+                    <p className="font-mono text-xs font-medium">{order.nroComprobante ?? '-'}</p>
+                    <p className="text-xs text-muted-foreground truncate">{String(order.terceroId)}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${estadoColor[order.estado]}`}>
-                      {order.estado.replace('_', ' ')}
+                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${estadoColor[order.estado] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {order.estado}
                     </span>
                   </div>
                 </div>
@@ -381,14 +389,14 @@ export default function VentasDashboard() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {remitos.filter(r => r.estado === 'en_transito').map((remito) => (
+            {comprobantes.filter(c => c.estado === 'EMITIDO').slice(0, 3).map((remito) => (
               <div key={remito.id} className="flex items-center justify-between gap-2 text-sm pb-2 border-b last:border-0 last:pb-0">
                 <div className="min-w-0 flex-1">
-                  <p className="font-mono text-xs font-medium">{remito.codigo}</p>
-                  <p className="text-xs text-muted-foreground truncate">{remito.transporte || 'Sin transporte'}</p>
+                  <p className="font-mono text-xs font-medium">{remito.nroComprobante ?? '-'}</p>
+                  <p className="text-xs text-muted-foreground truncate">${remito.saldo.toLocaleString('es-AR')} pendiente</p>
                 </div>
                 <Badge variant="outline" className="text-xs flex-shrink-0 bg-orange-50 border-orange-200 text-orange-700">
-                  En tránsito
+                  Emitido
                 </Badge>
               </div>
             ))}
@@ -406,12 +414,12 @@ export default function VentasDashboard() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {invoices.filter(i => i.estado === 'emitida' && new Date(i.fechaVencimiento) < new Date()).slice(0, 5).map((inv) => {
-              const days = Math.floor((new Date().getTime() - new Date(inv.fechaVencimiento).getTime()) / (1000 * 60 * 60 * 24))
+            {facturasVencidas.slice(0, 5).map((inv) => {
+              const days = Math.floor((new Date().getTime() - new Date(inv.fechaVto!).getTime()) / (1000 * 60 * 60 * 24))
               return (
                 <div key={inv.id} className="flex items-center justify-between gap-2 text-sm pb-2 border-b last:border-0 last:pb-0">
                   <div className="min-w-0 flex-1">
-                    <p className="font-mono text-xs font-medium">{inv.codigo.slice(0, 20)}</p>
+                    <p className="font-mono text-xs font-medium">{(inv.nroComprobante ?? '-').slice(0, 20)}</p>
                     <p className="text-xs text-red-600 font-medium">{days}d de mora</p>
                   </div>
                   <div className="text-right flex-shrink-0">
@@ -420,7 +428,7 @@ export default function VentasDashboard() {
                 </div>
               )
             })}
-            {invoices.filter(i => i.estado === 'emitida' && new Date(i.fechaVencimiento) < new Date()).length === 0 && (
+            {facturasVencidas.length === 0 && (
               <div className="text-center py-4 text-xs text-muted-foreground">
                 <CheckCircle2 className="h-6 w-6 mx-auto text-green-500 mb-1" />
                 Sin facturas vencidas

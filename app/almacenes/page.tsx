@@ -18,10 +18,26 @@ import {
   Eye,
   Plus
 } from 'lucide-react'
-import { warehouses, wmsMetrics, wmsAlerts, receiptOrders, shippingOrders } from '@/lib/wms-data'
+import { useDepositos } from '@/lib/hooks/useDepositos'
+import { useOrdenesCompra } from '@/lib/hooks/useOrdenesCompra'
+import { useComprobantes } from '@/lib/hooks/useComprobantes'
+import { useStockResumen } from '@/lib/hooks/useStock'
+import { useDefaultSucursalId } from '@/lib/hooks/useSucursales'
 
 export default function AlmacenesPage() {
+  const defaultSucursalId = useDefaultSucursalId()
+  const { resumen, bajoMinimo, loading } = useStockResumen(defaultSucursalId)
+  const { depositos } = useDepositos()
+  const { ordenes } = useOrdenesCompra()
+  const { comprobantes } = useComprobantes({ esVenta: true })
   const [selectedAlert, setSelectedAlert] = useState(null)
+
+  const kpis = {
+    totalItemsConStock: resumen?.totalItemsConStock ?? 0,
+    itemsBajoMinimo:    resumen?.itemsBajoMinimo ?? 0,
+    itemsSinStock:      resumen?.itemsSinStock ?? 0,
+    totalDepositos:     resumen?.totalDepositos ?? depositos.length,
+  }
 
   const getAlertSeverityColor = (severity: string) => {
     switch (severity) {
@@ -51,99 +67,90 @@ export default function AlmacenesPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ocupación Almacenes</CardTitle>
+            <CardTitle className="text-sm font-medium">Items con Stock</CardTitle>
             <Boxes className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{wmsMetrics.occupancyPercentage}%</div>
-            <Progress value={wmsMetrics.occupancyPercentage} className="mt-2" />
+            <div className="text-2xl font-bold">{kpis.totalItemsConStock}</div>
             <p className="text-xs text-muted-foreground mt-2">
-              {warehouses.length} almacenes activos
+              {kpis.totalDepositos} depositos activos
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Valor Total Inventario</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Sin Stock</CardTitle>
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              ${(wmsMetrics.totalInventoryValue / 1000000).toFixed(2)}M
+            <div className="text-2xl font-bold text-red-600">
+              {kpis.itemsSinStock}
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Método: Promedio
+              Items agotados
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Órdenes Activas</CardTitle>
+            <CardTitle className="text-sm font-medium">Ordenes Activas</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {wmsMetrics.activeOrders.receptions + 
-               wmsMetrics.activeOrders.shipments + 
-               wmsMetrics.activeOrders.picking}
+              {ordenes.filter(o => o.estadoOc !== 'RECIBIDA').length + comprobantes.filter(c => c.estado === 'BORRADOR').length}
             </div>
             <div className="text-xs text-muted-foreground mt-2 space-y-1">
-              <p>Rec: {wmsMetrics.activeOrders.receptions} | Sal: {wmsMetrics.activeOrders.shipments} | Pick: {wmsMetrics.activeOrders.picking}</p>
+              <p>Rec: {ordenes.filter(o => o.estadoOc !== 'RECIBIDA').length} | Sal: {comprobantes.filter(c => c.estado === 'BORRADOR').length}</p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Alertas Críticas</CardTitle>
+            <CardTitle className="text-sm font-medium">Alertas de Stock</CardTitle>
             <AlertTriangle className="h-4 w-4 text-destructive" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-destructive">{wmsMetrics.criticalAlerts}</div>
+            <div className="text-2xl font-bold text-destructive">{kpis.itemsBajoMinimo}</div>
             <p className="text-xs text-muted-foreground mt-2">
-              {wmsAlerts.filter(a => !a.resolved).length} sin resolver
+              Items bajo minimo
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Métricas Secundarias */}
+      {/* Secondary Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Exactitud Inventario</CardTitle>
+            <CardTitle className="text-sm font-medium">Items Bajo Minimo</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{wmsMetrics.inventoryAccuracy}%</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Último conteo: {wmsMetrics.lastCountDate.toLocaleDateString('es-AR')}
-            </p>
+            <div className="text-2xl font-bold text-orange-600">{kpis.itemsBajoMinimo}</div>
+            <p className="text-xs text-muted-foreground mt-1">Requieren reposicion</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Lead Time Promedio</CardTitle>
+            <CardTitle className="text-sm font-medium">Items Sin Stock</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{wmsMetrics.averageLeadTime}h</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Tiempo de despacho (7 días)
-            </p>
+            <div className="text-2xl font-bold text-red-600">{kpis.itemsSinStock}</div>
+            <p className="text-xs text-muted-foreground mt-1">Agotados actualmente</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Rotación Inventario</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Depositos</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{wmsMetrics.inventoryTurnover}x</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Mensual
-            </p>
+            <div className="text-2xl font-bold">{kpis.totalDepositos}</div>
+            <p className="text-xs text-muted-foreground mt-1">Habilitados en el sistema</p>
           </CardContent>
         </Card>
       </div>
@@ -152,40 +159,38 @@ export default function AlmacenesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Alertas Activas</CardTitle>
-            <CardDescription>Ordenadas por prioridad</CardDescription>
+            <CardTitle>Items Bajo Minimo</CardTitle>
+            <CardDescription>Requieren reposicion urgente</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {wmsAlerts.filter(a => !a.resolved).map((alert) => (
+            {loading ? (
+              <div className="flex justify-center py-6">
+                <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
+              </div>
+            ) : bajoMinimo.length === 0 ? (
+              <div className="text-center py-6">
+                <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Sin alertas de stock</p>
+              </div>
+            ) : bajoMinimo.slice(0, 6).map((item) => (
               <div
-                key={alert.id}
-                className={`border-l-4 p-3 rounded cursor-pointer transition-colors ${
-                  alert.severity === 'critico'
-                    ? 'border-l-red-500 bg-red-50 hover:bg-red-100'
-                    : 'border-l-orange-500 bg-orange-50 hover:bg-orange-100'
-                }`}
-                onClick={() => setSelectedAlert(alert)}
+                key={`${item.itemId}-${item.depositoId}`}
+                className="border-l-4 border-l-orange-500 bg-orange-50 p-3 rounded"
               >
                 <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 mt-0.5 text-orange-600" />
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{alert.message}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{alert.details}</p>
-                    </div>
+                  <div>
+                    <p className="text-sm font-medium">{item.descripcion}</p>
+                    <p className="text-xs text-muted-foreground">{item.depositoDescripcion} · Cod: {item.codigo}</p>
                   </div>
-                  <Badge variant={getAlertBadgeVariant(alert.severity)} className="whitespace-nowrap">
-                    {alert.severity}
+                  <Badge variant="secondary" className="bg-orange-100 text-orange-800 text-xs whitespace-nowrap">
+                    {item.stockActual}/{item.stockMinimo}
                   </Badge>
+                </div>
+                <div className="mt-1.5">
+                  <Progress value={(item.stockActual / item.stockMinimo) * 100} className="h-1.5" />
                 </div>
               </div>
             ))}
-            {wmsAlerts.filter(a => !a.resolved).length === 0 && (
-              <div className="text-center py-6">
-                <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">Sin alertas activas</p>
-              </div>
-            )}
           </CardContent>
         </Card>
 
@@ -210,22 +215,14 @@ export default function AlmacenesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {receiptOrders.filter(o => o.status !== 'completada').slice(0, 3).map((order) => (
+                {ordenes.filter(o => o.estadoOc !== 'RECIBIDA').slice(0, 3).map((order) => (
                   <TableRow key={order.id}>
-                    <TableCell className="font-medium">{order.code}</TableCell>
+                    <TableCell className="font-medium">{order.id}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{order.status}</Badge>
+                      <Badge variant="outline">{order.estadoOc}</Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Progress 
-                          value={(order.receivedItems / order.totalItems) * 100} 
-                          className="w-16" 
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          {order.receivedItems}/{order.totalItems}
-                        </span>
-                      </div>
+                      <span className="text-xs text-muted-foreground">{order.fechaEntregaReq ?? '-'}</span>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -264,31 +261,17 @@ export default function AlmacenesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {shippingOrders.slice(0, 3).map((order) => (
+              {comprobantes.filter(c => c.estado === 'BORRADOR').slice(0, 3).map((order) => (
                 <TableRow key={order.id}>
-                  <TableCell className="font-medium">{order.code}</TableCell>
-                  <TableCell>{order.client}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{order.destination}</TableCell>
+                  <TableCell className="font-medium">{order.nroComprobante ?? '-'}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{order.tipoComprobanteDescripcion ?? '-'}</TableCell>
+                  <TableCell>-</TableCell>
+                  <TableCell>-</TableCell>
                   <TableCell>
-                    <Badge 
-                      variant={order.priority === 'urgente' ? 'destructive' : 'outline'}
-                    >
-                      {order.priority}
-                    </Badge>
+                    <Badge variant="secondary">{order.estado}</Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{order.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Progress 
-                        value={(order.pickedItems / order.totalItems) * 100} 
-                        className="w-16" 
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {order.pickedItems}/{order.totalItems}
-                      </span>
-                    </div>
+                    <span className="text-xs text-muted-foreground">${order.total.toLocaleString('es-AR')}</span>
                   </TableCell>
                   <TableCell>
                     <Button size="icon" variant="ghost">

@@ -15,7 +15,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
 import { Plus, Search, Edit, Trash2, X, FileText, CheckCircle, XCircle, DollarSign, Calendar, RefreshCw } from "lucide-react"
-import { contratos as initialContratos, crmClients, slas, servicios } from "@/lib/shared-data"
+import { useHdContratos, useHdSlas, useHdServicios } from "@/lib/hooks/useHelpdesk"
+import { useCrmClientes } from "@/lib/hooks/useCrm"
 import type { HDContrato } from "@/lib/types"
 
 const estadoLabels: Record<string, string> = {
@@ -42,7 +43,10 @@ const tipoLabels: Record<string, string> = {
 function ContratosContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [contratosList, setContratosList] = useState<HDContrato[]>(initialContratos)
+  const { contratos: contratosList, loading, error, createContrato, updateContrato, deleteContrato } = useHdContratos()
+  const { slas } = useHdSlas()
+  const { servicios } = useHdServicios()
+  const { clientes: crmClients } = useCrmClientes()
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingContrato, setEditingContrato] = useState<HDContrato | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
@@ -121,26 +125,18 @@ function ContratosContent() {
     setEditingContrato(null)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (editingContrato) {
-      setContratosList(contratosList.map(c => 
-        c.id === editingContrato.id ? { ...c, ...formData, updatedAt: new Date() } as HDContrato : c
-      ))
+      await updateContrato(editingContrato.id, formData)
     } else {
-      const newContrato: HDContrato = {
-        ...formData as HDContrato,
-        id: `con-${Date.now()}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setContratosList([...contratosList, newContrato])
+      await createContrato(formData as Omit<HDContrato, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const handleDelete = (id: string) => {
-    setContratosList(contratosList.filter(c => c.id !== id))
+  const handleDelete = async (id: string) => {
+    await deleteContrato(id)
     setDeleteId(null)
   }
 

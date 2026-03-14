@@ -13,7 +13,8 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { Plus, Search, Pencil, Trash2, Megaphone, Target, Users, TrendingUp, X, DollarSign } from "lucide-react"
-import { crmCampaigns, crmSegments, crmUsers, type CRMCampaign } from "@/lib/crm-data"
+import { useCrmCampanas, useCrmSegmentos, useCrmUsuarios } from "@/lib/hooks/useCrm"
+import type { CRMCampaign } from "@/lib/types"
 import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 import Loading from "./loading"
@@ -43,7 +44,9 @@ const estadoColors: Record<string, string> = {
 
 export default function CampanasPage() {
   const searchParams = useSearchParams()
-  const [campaigns, setCampaigns] = useState<CRMCampaign[]>(crmCampaigns)
+  const { campanas: campaigns, loading, error, createCampana, updateCampana, deleteCampana } = useCrmCampanas()
+  const { segmentos: crmSegments } = useCrmSegmentos()
+  const { usuarios: crmUsers } = useCrmUsuarios()
   const [searchTerm, setSearchTerm] = useState("")
   const [filterTipo, setFilterTipo] = useState<string>("todos")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
@@ -125,40 +128,28 @@ export default function CampanasPage() {
     setIsDialogOpen(true)
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (editingCampaign) {
-      setCampaigns(
-        campaigns.map((c) =>
-          c.id === editingCampaign.id
-            ? {
-                ...c,
-                ...formData,
-                fechaInicio: new Date(formData.fechaInicio),
-                fechaFin: formData.fechaFin ? new Date(formData.fechaFin) : undefined,
-                updatedAt: new Date(),
-              }
-            : c
-        )
-      )
+      await updateCampana(editingCampaign.id, {
+        ...formData,
+        fechaInicio: new Date(formData.fechaInicio),
+        fechaFin: formData.fechaFin ? new Date(formData.fechaFin) : undefined,
+      })
     } else {
-      const newCampaign: CRMCampaign = {
-        id: `camp-${Date.now()}`,
+      await createCampana({
         ...formData,
         fechaInicio: new Date(formData.fechaInicio),
         fechaFin: formData.fechaFin ? new Date(formData.fechaFin) : undefined,
         status: "borrador",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setCampaigns([newCampaign, ...campaigns])
+      } as Omit<CRMCampaign, 'id' | 'createdAt' | 'updatedAt'>)
     }
     setIsDialogOpen(false)
     resetForm()
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (deleteId) {
-      setCampaigns(campaigns.filter((c) => c.id !== deleteId))
+      await deleteCampana(deleteId)
       setDeleteId(null)
     }
   }

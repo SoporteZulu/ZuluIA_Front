@@ -28,7 +28,7 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   Plus, Search, MoreHorizontal, Pencil, Trash2, CheckCircle2, Clock, AlertTriangle, Building2,
 } from "lucide-react"
-import { crmTasks as initialTasks, crmClients, crmUsers, getClientById, getUserById } from "@/lib/crm-data"
+import { useCrmTareas, useCrmClientes, useCrmUsuarios } from "@/lib/hooks/useCrm"
 import type { CRMTask } from "@/lib/types"
 
 const tipoLabels: Record<CRMTask["tipoTarea"], string> = {
@@ -65,7 +65,16 @@ function TareasContent() {
   const [isFormOpen, setIsFormOpen] = useState(action === "new")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<CRMTask | null>(null)
-  const [tasks, setTasks] = useState(initialTasks)
+  const { tareas, loading, error, createTarea, updateTarea, deleteTarea } = useCrmTareas(clienteIdParam || undefined)
+  const { clientes: crmClients } = useCrmClientes()
+  const { usuarios: crmUsers } = useCrmUsuarios()
+
+  const getClientById = (id?: string) => crmClients.find(c => c.id === id)
+  const getUserById = (id?: string) => crmUsers.find(u => u.id === id)
+
+  const [tasks, setTasks] = useState(tareas)
+
+  React.useEffect(() => { setTasks(tareas) }, [tareas])
 
   const emptyForm: Partial<CRMTask> = {
     clienteId: clienteIdParam || "",
@@ -122,11 +131,9 @@ function TareasContent() {
     return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short" }).format(date)
   }
 
-  const toggleComplete = (task: CRMTask) => {
+  const toggleComplete = async (task: CRMTask) => {
     const newEstado = task.estado === "completada" ? "pendiente" : "completada"
-    setTasks(tasks.map(t => 
-      t.id === task.id ? { ...t, estado: newEstado, fechaCompletada: newEstado === "completada" ? new Date() : undefined } : t
-    ))
+    await updateTarea(task.id, { estado: newEstado, fechaCompletada: newEstado === "completada" ? new Date() : undefined })
   }
 
   const openNewForm = () => {
@@ -146,27 +153,19 @@ function TareasContent() {
     setIsDeleteOpen(true)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (selectedTask) {
-      setTasks(tasks.map(t => 
-        t.id === selectedTask.id ? { ...t, ...formData, updatedAt: new Date() } as CRMTask : t
-      ))
+      await updateTarea(selectedTask.id, formData)
     } else {
-      const newTask: CRMTask = {
-        ...formData as CRMTask,
-        id: `tsk-${Date.now()}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setTasks([newTask, ...tasks])
+      await createTarea(formData as Omit<CRMTask, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (selectedTask) {
-      setTasks(tasks.filter(t => t.id !== selectedTask.id))
+      await deleteTarea(selectedTask.id)
     }
     setIsDeleteOpen(false)
     setSelectedTask(null)

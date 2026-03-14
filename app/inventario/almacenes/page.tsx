@@ -10,47 +10,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-
-const mockWarehouses = [
-  {
-    id: "1",
-    code: "ALM-001",
-    name: "Almacen Central",
-    address: "Av. Principal 123, Ciudad",
-    products: 856,
-    totalStock: 12500,
-    isActive: true,
-  },
-  {
-    id: "2",
-    code: "ALM-002",
-    name: "Almacen Norte",
-    address: "Calle Norte 456, Zona Industrial",
-    products: 234,
-    totalStock: 4200,
-    isActive: true,
-  },
-  {
-    id: "3",
-    code: "ALM-003",
-    name: "Almacen Sur",
-    address: "Av. Sur 789, Parque Logistico",
-    products: 144,
-    totalStock: 2100,
-    isActive: true,
-  },
-  {
-    id: "4",
-    code: "ALM-004",
-    name: "Almacen Temporal",
-    address: "Bodega 12, Centro de Distribucion",
-    products: 0,
-    totalStock: 0,
-    isActive: false,
-  },
-]
+import { useDepositos } from "@/lib/hooks/useDepositos"
 
 export default function AlmacenesPage() {
+  const { depositos, loading, error } = useDepositos()
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -67,19 +31,28 @@ export default function AlmacenesPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {mockWarehouses.map((warehouse) => (
-          <Card key={warehouse.id} className={!warehouse.isActive ? "opacity-60" : ""}>
+        {loading && (
+          <p className="text-muted-foreground col-span-3 text-sm py-10 text-center">Cargando depósitos...</p>
+        )}
+        {error && (
+          <p className="text-destructive col-span-3 text-sm py-10 text-center">{error}</p>
+        )}
+        {!loading && !error && depositos.map((deposito) => (
+          <Card key={deposito.id} className={!deposito.activo ? "opacity-60" : ""}>
             <CardHeader className="flex flex-row items-start justify-between space-y-0">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <CardTitle className="text-base">{warehouse.name}</CardTitle>
-                  {warehouse.isActive ? (
+                  <CardTitle className="text-base">{deposito.descripcion}</CardTitle>
+                  {deposito.activo ? (
                     <Badge variant="secondary" className="bg-green-500/10 text-green-500">Activo</Badge>
                   ) : (
                     <Badge variant="secondary">Inactivo</Badge>
                   )}
+                  {deposito.esDefault && (
+                    <Badge variant="outline" className="text-xs">Predeterminado</Badge>
+                  )}
                 </div>
-                <CardDescription className="font-mono text-xs">{warehouse.code}</CardDescription>
+                <CardDescription className="font-mono text-xs">DEP-{String(deposito.id).padStart(3, '0')}</CardDescription>
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -90,28 +63,31 @@ export default function AlmacenesPage() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem>Ver inventario</DropdownMenuItem>
                   <DropdownMenuItem>Editar</DropdownMenuItem>
-                  <DropdownMenuItem>{warehouse.isActive ? "Desactivar" : "Activar"}</DropdownMenuItem>
+                  <DropdownMenuItem>{deposito.activo ? "Desactivar" : "Activar"}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <MapPin className="h-4 w-4" />
-                <span>{warehouse.address}</span>
+                <span>Sucursal #{deposito.sucursalId}</span>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Productos</p>
-                  <p className="text-lg font-semibold">{warehouse.products}</p>
+                  <p className="text-xs text-muted-foreground">ID</p>
+                  <p className="text-lg font-semibold font-mono">#{deposito.id}</p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Stock Total</p>
-                  <p className="text-lg font-semibold">{warehouse.totalStock.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">Sucursal ID</p>
+                  <p className="text-lg font-semibold">{deposito.sucursalId}</p>
                 </div>
               </div>
             </CardContent>
           </Card>
         ))}
+        {!loading && !error && depositos.length === 0 && (
+          <p className="text-muted-foreground col-span-3 text-sm py-10 text-center">No se encontraron depósitos.</p>
+        )}
       </div>
     </div>
   )

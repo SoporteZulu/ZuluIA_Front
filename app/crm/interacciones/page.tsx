@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Plus, Search, Phone, Mail, Users, MapPin, Video, MessageSquare, Pencil, Trash2, Building2 } from "lucide-react"
-import { crmInteractions as initialInteractions, crmClients, crmContacts, crmUsers, getClientById, getContactById, getUserById } from "@/lib/crm-data"
+import { useCrmInteracciones, useCrmClientes, useCrmContactos, useCrmUsuarios } from "@/lib/hooks/useCrm"
 import type { CRMInteraction } from "@/lib/types"
 
 const tipoLabels: Record<CRMInteraction["tipoInteraccion"], string> = {
@@ -68,7 +68,18 @@ function InteraccionesContent() {
   const [isFormOpen, setIsFormOpen] = useState(action === "new")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [selectedInteraction, setSelectedInteraction] = useState<CRMInteraction | null>(null)
-  const [interactions, setInteractions] = useState(initialInteractions)
+  const { interacciones, loading, error, createInteraccion, deleteInteraccion } = useCrmInteracciones(clienteIdParam || undefined)
+  const { clientes: crmClients } = useCrmClientes()
+  const { contactos: crmContacts } = useCrmContactos()
+  const { usuarios: crmUsers } = useCrmUsuarios()
+
+  const getClientById = (id?: string) => crmClients.find(c => c.id === id)
+  const getContactById = (id?: string) => crmContacts.find(c => c.id === id)
+  const getUserById = (id?: string) => crmUsers.find(u => u.id === id)
+
+  const [interactions, setInteractions] = useState<CRMInteraction[]>([])
+
+  React.useEffect(() => { setInteractions(interacciones) }, [interacciones])
 
   const emptyForm: Partial<CRMInteraction> = {
     clienteId: clienteIdParam || "",
@@ -123,27 +134,27 @@ function InteraccionesContent() {
     setIsDeleteOpen(true)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (selectedInteraction) {
-      setInteractions(interactions.map(i => 
-        i.id === selectedInteraction.id ? { ...i, ...formData, updatedAt: new Date() } as CRMInteraction : i
-      ))
-    } else {
-      const newInteraction: CRMInteraction = {
-        ...formData as CRMInteraction,
-        id: `int-${Date.now()}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setInteractions([newInteraction, ...interactions])
+      // interactions are immutable records - no update endpoint
+      closeForm()
+      return
     }
+    const newInteraction: CRMInteraction = {
+      ...formData as CRMInteraction,
+      id: `int-${Date.now()}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    setInteractions([newInteraction, ...interactions])
+    await createInteraccion(formData as Omit<CRMInteraction, 'id' | 'createdAt' | 'updatedAt'>)
     closeForm()
   }
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (selectedInteraction) {
-      setInteractions(interactions.filter(i => i.id !== selectedInteraction.id))
+      await deleteInteraccion(selectedInteraction.id)
     }
     setIsDeleteOpen(false)
     setSelectedInteraction(null)

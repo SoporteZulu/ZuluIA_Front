@@ -29,7 +29,7 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   Plus, Search, MoreHorizontal, Pencil, Trash2, Users, Filter, Tag,
 } from "lucide-react"
-import { crmSegments as initialSegments } from "@/lib/crm-data"
+import { useCrmSegmentos } from "@/lib/hooks/useCrm"
 import type { CRMSegment } from "@/lib/types"
 
 const tipoLabels: Record<CRMSegment["tipoSegmento"], string> = {
@@ -47,7 +47,11 @@ function SegmentosContent() {
   const [isFormOpen, setIsFormOpen] = useState(action === "new")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [selectedSegment, setSelectedSegment] = useState<CRMSegment | null>(null)
-  const [segments, setSegments] = useState(initialSegments)
+  const { segmentos, loading, error, createSegmento, updateSegmento, deleteSegmento } = useCrmSegmentos()
+
+  const [segments, setSegments] = useState(segmentos)
+
+  React.useEffect(() => { setSegments(segmentos) }, [segmentos])
 
   const emptyForm: Partial<CRMSegment> = {
     nombre: "",
@@ -99,28 +103,19 @@ function SegmentosContent() {
     setIsDeleteOpen(true)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (selectedSegment) {
-      setSegments(segments.map(s => 
-        s.id === selectedSegment.id ? { ...s, ...formData, updatedAt: new Date() } as CRMSegment : s
-      ))
+      await updateSegmento(selectedSegment.id, formData)
     } else {
-      const newSegment: CRMSegment = {
-        ...formData as CRMSegment,
-        id: `seg-${Date.now()}`,
-        clientesIds: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setSegments([newSegment, ...segments])
+      await createSegmento(formData as Omit<CRMSegment, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (selectedSegment) {
-      setSegments(segments.filter(s => s.id !== selectedSegment.id))
+      await deleteSegmento(selectedSegment.id)
     }
     setIsDeleteOpen(false)
     setSelectedSegment(null)

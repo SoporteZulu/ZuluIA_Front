@@ -81,12 +81,15 @@ function SidebarProvider({
       } else {
         _setOpen(openState)
       }
-
-      // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      // La escritura de la cookie se mueve a un useEffect.
     },
     [setOpenProp, open],
   )
+
+  // Efecto para escribir la cookie solo en el cliente
+  React.useEffect(() => {
+    document.cookie = `${SIDEBAR_COOKIE_NAME}=${open}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+  }, [open])
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
@@ -142,6 +145,7 @@ function SidebarProvider({
             'group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full',
             className,
           )}
+          suppressHydrationWarning
           {...props}
         >
           {children}

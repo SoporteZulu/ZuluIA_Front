@@ -14,7 +14,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Plus, Edit, Trash2, Clock, AlertTriangle, CheckCircle, Timer } from "lucide-react"
-import { slas as hdSLAs } from "@/lib/shared-data"
+import { useHdSlas } from "@/lib/hooks/useHelpdesk"
 import type { HDSLA } from "@/lib/types"
 
 function formatMinutes(minutes: number): string {
@@ -28,7 +28,7 @@ function formatMinutes(minutes: number): string {
 function SLAsContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [slas, setSLAs] = useState<HDSLA[]>(hdSLAs)
+  const { slas, loading, error, createSla, updateSla, deleteSla } = useHdSlas()
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingSLA, setEditingSLA] = useState<HDSLA | null>(null)
 
@@ -82,26 +82,18 @@ function SLAsContent() {
     setEditingSLA(null)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (editingSLA) {
-      setSLAs(slas.map(s => 
-        s.id === editingSLA.id ? { ...s, ...formData, updatedAt: new Date() } as HDSLA : s
-      ))
+      await updateSla(editingSLA.id, formData)
     } else {
-      const newSLA: HDSLA = {
-        ...formData as HDSLA,
-        id: `sla-${Date.now()}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setSLAs([...slas, newSLA])
+      await createSla(formData as Omit<HDSLA, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const handleDelete = (id: string) => {
-    setSLAs(slas.filter(s => s.id !== id))
+  const handleDelete = async (id: string) => {
+    await deleteSla(id)
   }
 
   const tipoClienteLabels = {

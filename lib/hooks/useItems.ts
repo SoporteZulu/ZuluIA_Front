@@ -28,13 +28,21 @@ export function useItems() {
       const result = await apiGet<PagedResult<Item>>(
         `/api/items?soloActivos=true&page=${page}&pageSize=50&search=${encodeURIComponent(search)}`
       )
+      const normalize = (p: Item): Item => ({
+        ...p,
+        precioCosto:  Number(p.precioCosto  ?? 0),
+        precioVenta:  Number(p.precioVenta  ?? 0),
+        stockMinimo:  Number(p.stockMinimo  ?? 0),
+        stock:        p.stock !== undefined ? Number(p.stock) : undefined,
+      })
+
       // Handle both paged response and plain array
-      if (Array.isArray(result)) {
-        setItems(result as Item[])
-        setTotalCount((result as Item[]).length)
+      if (Array.isArray(result.items)) {
+        setItems((result.items as Item[]).map(normalize))
+        setTotalCount((result.items as Item[]).length)
         setTotalPages(1)
       } else {
-        setItems(result.data)
+        setItems((result.items as unknown as Item[]).map(normalize))
         setTotalCount(result.totalCount)
         setTotalPages(result.totalPages)
       }
@@ -103,14 +111,14 @@ export function useItemsConfig() {
 
   useEffect(() => {
     Promise.all([
-      apiGet<CategoriaItem[] | PagedResult<CategoriaItem>>('/api/categorias-items?soloActivos=true'),
-      apiGet<UnidadMedida[] | PagedResult<UnidadMedida>>('/api/unidades-medida'),
-      apiGet<AlicuotaIva[] | PagedResult<AlicuotaIva>>('/api/alicuotas-iva'),
-      apiGet<Moneda[] | PagedResult<Moneda>>('/api/monedas?soloActivas=true'),
+      apiGet<CategoriaItem[] | PagedResult<CategoriaItem>>('/api/categorias-items'),
+      apiGet<UnidadMedida[] | PagedResult<UnidadMedida>>('/api/configuracion/unidades-medida'),
+      apiGet<AlicuotaIva[] | PagedResult<AlicuotaIva>>('/api/configuracion/alicuotas-iva'),
+      apiGet<Moneda[] | PagedResult<Moneda>>('/api/configuracion/monedas'),
     ])
       .then(([cats, units, alic, mons]) => {
         const toArray = <T>(r: T[] | PagedResult<T>): T[] =>
-          Array.isArray(r) ? r : r.data
+          Array.isArray(r) ? r : r.items
 
         setCategorias(toArray(cats))
         setUnidades(toArray(units))

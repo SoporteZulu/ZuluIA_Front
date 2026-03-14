@@ -14,96 +14,44 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
-import { remitos, customers, salesOrders } from '@/lib/sales-data'
-import type { Remito } from '@/lib/sales-types'
+import { useComprobantes } from '@/lib/hooks/useComprobantes'
+import { useTerceros } from '@/lib/hooks/useTerceros'
+import type { Comprobante } from '@/lib/types/comprobantes'
 
-function fmtDate(d: Date | string) {
+function fmtDate(d: Date | string | null | undefined) {
+  if (!d) return '-'
   return new Date(d).toLocaleDateString('es-AR')
 }
 
-function getCustomer(id: string) {
-  return customers.find(c => c.id === id)
-}
-
-function getOrder(id: string) {
-  return salesOrders.find(o => o.id === id)
-}
-
-const estadoCfg: Record<Remito['estado'], { label: string; icon: React.ReactNode; variant: 'default' | 'secondary' | 'outline' | 'destructive'; cls: string }> = {
-  pendiente:   { label: 'Pendiente',    icon: <Clock className="h-3 w-3" />,        variant: 'secondary', cls: '' },
-  en_transito: { label: 'En Tránsito',  icon: <Truck className="h-3 w-3" />,        variant: 'outline',   cls: 'border-orange-300 text-orange-700 bg-orange-50' },
-  entregado:   { label: 'Entregado',    icon: <CheckCircle2 className="h-3 w-3" />, variant: 'default',   cls: 'bg-green-100 text-green-800 border-green-300' },
+const estadoCfg: Record<string, { label: string; icon: React.ReactNode; variant: 'default' | 'secondary' | 'outline' | 'destructive'; cls: string }> = {
+  BORRADOR:        { label: 'Borrador',     icon: <Clock className="h-3 w-3" />,        variant: 'secondary',   cls: '' },
+  EMITIDO:         { label: 'Emitido',      icon: <Truck className="h-3 w-3" />,        variant: 'outline',     cls: 'border-orange-300 text-orange-700 bg-orange-50' },
+  PAGADO_PARCIAL:  { label: 'Pago Parcial', icon: <Truck className="h-3 w-3" />,        variant: 'outline',     cls: 'border-blue-300 text-blue-700 bg-blue-50' },
+  PAGADO:          { label: 'Pagado',       icon: <CheckCircle2 className="h-3 w-3" />, variant: 'default',     cls: 'bg-green-100 text-green-800 border-green-300' },
+  ANULADO:         { label: 'Anulado',      icon: <AlertTriangle className="h-3 w-3" />, variant: 'destructive', cls: '' },
 }
 
 // ─── Detail View ──────────────────────────────────────────────────────────────
 
-function RemitoDetail({ remito }: { remito: Remito }) {
-  const customer = getCustomer(remito.clienteId)
-  const order    = getOrder(remito.ordenId)
-  const cfg      = estadoCfg[remito.estado]
+function RemitoDetail({ remito, terceros }: { remito: Comprobante; terceros: { id: number; razonSocial: string; nroDocumento: string }[] }) {
+  const customer = terceros.find(t => t.id === remito.terceroId)
 
   return (
     <Tabs defaultValue="general">
-      <TabsList className="grid w-full grid-cols-3">
+      <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="general">General</TabsTrigger>
-        <TabsTrigger value="items">Items ({remito.items.length})</TabsTrigger>
-        <TabsTrigger value="transporte">Transporte</TabsTrigger>
+        <TabsTrigger value="importes">Importes</TabsTrigger>
       </TabsList>
 
       <TabsContent value="general" className="mt-4 space-y-4">
         <div className="grid grid-cols-2 gap-3 text-sm">
           {[
-            ['Código',         remito.codigo],
-            ['Tipo Despacho',  remito.tipoDespacho.replace('_', ' ')],
-            ['Orden de Venta', order?.codigo ?? remito.ordenId],
-            ['Cliente',        customer?.razonSocial ?? remito.clienteId],
-            ['CUIT',           customer?.cuitCuil ?? '-'],
-            ['Fecha Despacho', fmtDate(remito.fechaDespacho)],
-          ].map(([k, v]) => (
-            <div key={k} className="p-3 rounded-lg bg-muted/50">
-              <span className="text-xs text-muted-foreground block mb-0.5">{k}</span>
-              <p className="font-medium capitalize">{v}</p>
-            </div>
-          ))}
-        </div>
-        {remito.observaciones && (
-          <div className="p-3 rounded-lg bg-muted/50 text-sm">
-            <span className="text-xs text-muted-foreground block mb-0.5">Observaciones</span>
-            <p>{remito.observaciones}</p>
-          </div>
-        )}
-      </TabsContent>
-
-      <TabsContent value="items" className="mt-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Descripción</TableHead>
-              <TableHead className="text-right">Cantidad</TableHead>
-              <TableHead>Unidad</TableHead>
-              <TableHead>Lote</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {remito.items.map(item => (
-              <TableRow key={item.id}>
-                <TableCell className="font-medium">{item.descripcion}</TableCell>
-                <TableCell className="text-right font-semibold">{item.cantidad}</TableCell>
-                <TableCell className="text-muted-foreground">{item.uom}</TableCell>
-                <TableCell className="font-mono text-xs">{item.lote ?? '-'}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TabsContent>
-
-      <TabsContent value="transporte" className="mt-4 space-y-4">
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          {[
-            ['Empresa Transporte', remito.transporte ?? 'Sin asignar'],
-            ['Chofer',             remito.chofer ?? '-'],
-            ['Patente',            remito.patente ?? '-'],
-            ['Dirección Entrega',  remito.direccionEntrega ?? '-'],
+            ['Nro. Comprobante', remito.nroComprobante ?? '-'],
+            ['Tipo',             remito.tipoComprobanteDescripcion ?? '-'],
+            ['Cliente',          customer?.razonSocial ?? String(remito.terceroId)],
+            ['CUIT / Doc.',      customer?.nroDocumento ?? '-'],
+            ['Fecha',            fmtDate(remito.fecha)],
+            ['Fecha Vto.',       fmtDate(remito.fechaVto)],
           ].map(([k, v]) => (
             <div key={k} className="p-3 rounded-lg bg-muted/50">
               <span className="text-xs text-muted-foreground block mb-0.5">{k}</span>
@@ -111,22 +59,45 @@ function RemitoDetail({ remito }: { remito: Remito }) {
             </div>
           ))}
         </div>
+        {remito.observacion && (
+          <div className="p-3 rounded-lg bg-muted/50 text-sm">
+            <span className="text-xs text-muted-foreground block mb-0.5">Observaciones</span>
+            <p>{remito.observacion}</p>
+          </div>
+        )}
+      </TabsContent>
 
-        {remito.estado === 'en_transito' && (
-          <div className="flex items-center gap-3 p-4 rounded-lg border border-orange-200 bg-orange-50">
+      <TabsContent value="importes" className="mt-4">
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          {[
+            ['Neto Gravado',    `$${remito.netoGravado.toLocaleString('es-AR')}`],
+            ['Neto No Gravado', `$${remito.netoNoGravado.toLocaleString('es-AR')}`],
+            ['IVA RI',          `$${remito.ivaRi.toLocaleString('es-AR')}`],
+            ['IVA RNI',         `$${remito.ivaRni.toLocaleString('es-AR')}`],
+            ['Total',           `$${remito.total.toLocaleString('es-AR')}`],
+            ['Saldo',           `$${remito.saldo.toLocaleString('es-AR')}`],
+          ].map(([k, v]) => (
+            <div key={k} className="p-3 rounded-lg bg-muted/50">
+              <span className="text-xs text-muted-foreground block mb-0.5">{k}</span>
+              <p className="font-semibold">{v}</p>
+            </div>
+          ))}
+        </div>
+        {remito.estado === 'EMITIDO' && (
+          <div className="flex items-center gap-3 p-4 mt-3 rounded-lg border border-orange-200 bg-orange-50">
             <Truck className="h-6 w-6 text-orange-600 shrink-0 animate-pulse" />
             <div>
-              <p className="font-semibold text-orange-800 text-sm">Envío en tránsito</p>
-              <p className="text-xs text-orange-700 mt-0.5">Pendiente de confirmación de entrega</p>
+              <p className="font-semibold text-orange-800 text-sm">Comprobante emitido</p>
+              <p className="text-xs text-orange-700 mt-0.5">Pendiente de pago / confirmación</p>
             </div>
           </div>
         )}
-        {remito.estado === 'entregado' && (
-          <div className="flex items-center gap-3 p-4 rounded-lg border border-green-200 bg-green-50">
+        {remito.estado === 'PAGADO' && (
+          <div className="flex items-center gap-3 p-4 mt-3 rounded-lg border border-green-200 bg-green-50">
             <CheckCircle2 className="h-6 w-6 text-green-600 shrink-0" />
             <div>
-              <p className="font-semibold text-green-800 text-sm">Entregado correctamente</p>
-              <p className="text-xs text-green-700 mt-0.5">El receptor confirmó la recepción</p>
+              <p className="font-semibold text-green-800 text-sm">Completado</p>
+              <p className="text-xs text-green-700 mt-0.5">El comprobante ha sido pagado</p>
             </div>
           </div>
         )}
@@ -138,28 +109,30 @@ function RemitoDetail({ remito }: { remito: Remito }) {
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 const RemitosPage = () => {
+  const { comprobantes: remitos, loading } = useComprobantes()
+  const { terceros } = useTerceros()
   const [searchTerm, setSearchTerm]     = useState('')
   const [estadoFilter, setEstadoFilter] = useState('todos')
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [detailRemito, setDetailRemito] = useState<Remito | null>(null)
+  const [detailRemito, setDetailRemito] = useState<Comprobante | null>(null)
 
   const filtered = useMemo(() => remitos.filter(r => {
-    const customer = getCustomer(r.clienteId)
+    const customer = terceros.find(t => t.id === r.terceroId)
     const matchSearch =
-      r.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (r.nroComprobante ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (customer?.razonSocial ?? '').toLowerCase().includes(searchTerm.toLowerCase())
     const matchEstado = estadoFilter === 'todos' || r.estado === estadoFilter
     return matchSearch && matchEstado
-  }), [searchTerm, estadoFilter])
+  }), [searchTerm, estadoFilter, remitos, terceros])
 
-  const kpis = {
-    total:       remitos.length,
-    pendiente:   remitos.filter(r => r.estado === 'pendiente').length,
-    en_transito: remitos.filter(r => r.estado === 'en_transito').length,
-    entregado:   remitos.filter(r => r.estado === 'entregado').length,
-  }
+  const kpis = useMemo(() => ({
+    total:    remitos.length,
+    borrador: remitos.filter(r => r.estado === 'BORRADOR').length,
+    emitido:  remitos.filter(r => r.estado === 'EMITIDO').length,
+    pagado:   remitos.filter(r => r.estado === 'PAGADO').length,
+  }), [remitos])
 
-  const openDetail = (r: Remito) => { setDetailRemito(r); setIsDetailOpen(true) }
+  const openDetail = (r: Comprobante) => { setDetailRemito(r); setIsDetailOpen(true) }
 
   return (
     <div className="space-y-6 pb-6">
@@ -178,10 +151,10 @@ const RemitosPage = () => {
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-4">
         {[
-          { label: 'Total Remitos',  value: kpis.total,       icon: <FileText className="h-4 w-4" />,     color: 'text-foreground' },
-          { label: 'Pendientes',     value: kpis.pendiente,   icon: <Clock className="h-4 w-4" />,        color: 'text-slate-600' },
-          { label: 'En Tránsito',    value: kpis.en_transito, icon: <Truck className="h-4 w-4" />,        color: 'text-orange-600' },
-          { label: 'Entregados',     value: kpis.entregado,   icon: <CheckCircle2 className="h-4 w-4" />, color: 'text-green-600' },
+          { label: 'Total Remitos', value: kpis.total,    icon: <FileText className="h-4 w-4" />,     color: 'text-foreground' },
+          { label: 'Borrador',      value: kpis.borrador, icon: <Clock className="h-4 w-4" />,        color: 'text-slate-600' },
+          { label: 'Emitidos',      value: kpis.emitido,  icon: <Truck className="h-4 w-4" />,        color: 'text-orange-600' },
+          { label: 'Pagados',       value: kpis.pagado,   icon: <CheckCircle2 className="h-4 w-4" />, color: 'text-green-600' },
         ].map(k => (
           <Card key={k.label}>
             <CardContent className="pt-4 pb-4">
@@ -214,9 +187,10 @@ const RemitosPage = () => {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos los estados</SelectItem>
-            <SelectItem value="pendiente">Pendiente</SelectItem>
-            <SelectItem value="en_transito">En Tránsito</SelectItem>
-            <SelectItem value="entregado">Entregado</SelectItem>
+            <SelectItem value="BORRADOR">Borrador</SelectItem>
+            <SelectItem value="EMITIDO">Emitido</SelectItem>
+            <SelectItem value="PAGADO">Pagado</SelectItem>
+            <SelectItem value="ANULADO">Anulado</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -227,45 +201,33 @@ const RemitosPage = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Código</TableHead>
+                <TableHead>Nro. Comprobante</TableHead>
                 <TableHead>Cliente</TableHead>
-                <TableHead>Orden</TableHead>
                 <TableHead>Tipo</TableHead>
-                <TableHead>Despacho</TableHead>
-                <TableHead>Transporte</TableHead>
+                <TableHead>Fecha</TableHead>
+                <TableHead className="text-right">Total</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map(remito => {
-                const customer = getCustomer(remito.clienteId)
-                const order    = getOrder(remito.ordenId)
-                const cfg      = estadoCfg[remito.estado]
+                const customer = terceros.find(t => t.id === remito.terceroId)
+                const cfg      = estadoCfg[remito.estado] ?? estadoCfg.EMITIDO
                 return (
                   <TableRow key={remito.id} className="cursor-pointer hover:bg-muted/50" onClick={() => openDetail(remito)}>
-                    <TableCell className="font-mono font-semibold text-primary">{remito.codigo}</TableCell>
+                    <TableCell className="font-mono font-semibold text-primary">{remito.nroComprobante ?? '-'}</TableCell>
                     <TableCell>
-                      <p className="font-medium text-sm">{customer?.razonSocial ?? remito.clienteId}</p>
-                      <p className="text-xs text-muted-foreground">{customer?.cuitCuil}</p>
+                      <p className="font-medium text-sm">{customer?.razonSocial ?? String(remito.terceroId)}</p>
+                      <p className="text-xs text-muted-foreground">{customer?.nroDocumento}</p>
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{order?.codigo ?? remito.ordenId}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-xs capitalize">
-                        {remito.tipoDespacho.replace('_', ' ')}
+                      <Badge variant="outline" className="text-xs">
+                        {remito.tipoComprobanteDescripcion ?? '-'}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm">{fmtDate(remito.fechaDespacho)}</TableCell>
-                    <TableCell>
-                      {remito.transporte ? (
-                        <div className="flex items-center gap-1.5 text-sm">
-                          <Truck className="h-3.5 w-3.5 text-muted-foreground" />
-                          {remito.transporte}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground italic">Sin asignar</span>
-                      )}
-                    </TableCell>
+                    <TableCell className="text-sm">{fmtDate(remito.fecha)}</TableCell>
+                    <TableCell className="text-right text-sm font-medium">${remito.total.toLocaleString('es-AR')}</TableCell>
                     <TableCell>
                       <Badge variant={cfg.variant} className={`flex items-center gap-1 w-fit text-xs ${cfg.cls}`}>
                         {cfg.icon}
@@ -282,8 +244,8 @@ const RemitosPage = () => {
               })}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
-                    No se encontraron remitos.
+                  <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                    {loading ? 'Cargando remitos...' : 'No se encontraron remitos.'}
                   </TableCell>
                 </TableRow>
               )}
@@ -298,27 +260,27 @@ const RemitosPage = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <Truck className="h-5 w-5" />
-              {detailRemito?.codigo}
+              {detailRemito?.nroComprobante ?? 'Remito'}
               {detailRemito && (
-                <Badge variant={estadoCfg[detailRemito.estado].variant} className={`text-xs ${estadoCfg[detailRemito.estado].cls}`}>
-                  {estadoCfg[detailRemito.estado].label}
+                <Badge variant={(estadoCfg[detailRemito.estado] ?? estadoCfg.EMITIDO).variant} className={`text-xs ${(estadoCfg[detailRemito.estado] ?? estadoCfg.EMITIDO).cls}`}>
+                  {(estadoCfg[detailRemito.estado] ?? estadoCfg.EMITIDO).label}
                 </Badge>
               )}
             </DialogTitle>
           </DialogHeader>
-          {detailRemito && <RemitoDetail remito={detailRemito} />}
+          {detailRemito && <RemitoDetail remito={detailRemito} terceros={terceros} />}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setIsDetailOpen(false)}>Cerrar</Button>
-            {detailRemito?.estado === 'en_transito' && (
+            {detailRemito?.estado === 'EMITIDO' && (
               <Button>
                 <CheckCircle2 className="h-4 w-4 mr-2" />
                 Confirmar Entrega
               </Button>
             )}
-            {detailRemito?.estado === 'pendiente' && (
+            {detailRemito?.estado === 'BORRADOR' && (
               <Button>
                 <Truck className="h-4 w-4 mr-2" />
-                Despachar
+                Emitir
               </Button>
             )}
           </DialogFooter>

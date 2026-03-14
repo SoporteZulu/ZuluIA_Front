@@ -13,13 +13,13 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
-import { entidades, procedimientos, obras } from '@/lib/proyectos-data'
+import { useEntidades, useProcedimientos, useObras } from '@/lib/hooks/useProyectos'
 import type { Entidad, Procedimiento, Obra } from '@/lib/proyectos-types'
 
 const ObrasPage = () => {
-  const [entidadesData, setEntidadesData] = useState<Entidad[]>(entidades)
-  const [procedimientosData, setProcedimientosData] = useState<Procedimiento[]>(procedimientos)
-  const [obrasData, setObrasData] = useState<Obra[]>(obras)
+  const { entidades, createEntidad, updateEntidad, deleteEntidad } = useEntidades()
+  const { procedimientos } = useProcedimientos()
+  const { obras, createObra, updateObra, deleteObra } = useObras()
   
   const [activeTab, setActiveTab] = useState<'entidades' | 'procedimientos' | 'obras'>('obras')
   const [searchTerm, setSearchTerm] = useState('')
@@ -90,7 +90,7 @@ const ObrasPage = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {obrasData.map((obra) => (
+                {obras.map((obra) => (
                   <div key={obra.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex justify-between items-start">
                       <div>
@@ -146,7 +146,7 @@ const ObrasPage = () => {
                       <Button size="sm" variant="ghost" onClick={() => setEditingObra(obra)}>
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setObrasData(obrasData.filter(o => o.id !== obra.id))}>
+                      <Button size="sm" variant="ghost" onClick={async () => await deleteObra(obra.id)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -184,7 +184,7 @@ const ObrasPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {procedimientosData.map((proc) => (
+                  {procedimientos.map((proc) => (
                     <TableRow key={proc.id}>
                       <TableCell className="font-mono text-sm">{proc.numeroExpediente}</TableCell>
                       <TableCell>{proc.tipo}</TableCell>
@@ -238,7 +238,7 @@ const ObrasPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {entidadesData.map((ent) => (
+                  {entidades.map((ent) => (
                     <TableRow key={ent.id}>
                       <TableCell className="font-medium">{ent.nombre}</TableCell>
                       <TableCell>{ent.tipo}</TableCell>
@@ -256,7 +256,7 @@ const ObrasPage = () => {
                         }}>
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEntidadesData(entidadesData.filter(e => e.id !== ent.id))}>
+                        <Button size="sm" variant="ghost" onClick={async () => await deleteEntidad(ent.id)}>
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </TableCell>
@@ -310,11 +310,10 @@ const ObrasPage = () => {
             <Button variant="outline" onClick={() => setEntidadFormOpen(false)}>Cancelar</Button>
             <Button onClick={() => {
               if (editingEntidad) {
-                setEntidadesData(entidadesData.map(e => e.id === editingEntidad.id ? {...e, ...entidadForm} : e))
+                updateEntidad(editingEntidad.id, entidadForm).then(() => setEntidadFormOpen(false))
               } else {
-                setEntidadesData([...entidadesData, {id: `ent-${Date.now()}`, ...entidadForm, createdAt: new Date(), updatedAt: new Date()}])
+                createEntidad(entidadForm).then(() => setEntidadFormOpen(false))
               }
-              setEntidadFormOpen(false)
             }}>Guardar</Button>
           </DialogFooter>
         </DialogContent>

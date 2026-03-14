@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Plus, Search, Edit, Trash2, X, Users, UserCheck, UserMinus, Star, Ticket, Clock } from "lucide-react"
-import { agentes as hdAgentes, departamentos as hdDepartamentos } from "@/lib/shared-data"
+import { useHdAgentes } from \"@/lib/hooks/useHelpdesk\"
+import { departamentos as hdDepartamentos } from \"@/lib/helpdesk-data\"
 import type { HDAgente } from "@/lib/types"
 
 const rolLabels = {
@@ -46,7 +47,7 @@ function formatMinutes(minutes: number): string {
 function AgentesContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [agentes, setAgentes] = useState<HDAgente[]>(hdAgentes)
+  const { agentes, loading, error, createAgente, updateAgente, deleteAgente } = useHdAgentes()
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingAgente, setEditingAgente] = useState<HDAgente | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
@@ -113,26 +114,18 @@ function AgentesContent() {
     setEditingAgente(null)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (editingAgente) {
-      setAgentes(agentes.map(a => 
-        a.id === editingAgente.id ? { ...a, ...formData, updatedAt: new Date() } as HDAgente : a
-      ))
+      await updateAgente(editingAgente.id, formData)
     } else {
-      const newAgente: HDAgente = {
-        ...formData as HDAgente,
-        id: `age-${Date.now()}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setAgentes([...agentes, newAgente])
+      await createAgente(formData as Omit<HDAgente, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const handleDelete = (id: string) => {
-    setAgentes(agentes.filter(a => a.id !== id))
+  const handleDelete = async (id: string) => {
+    await deleteAgente(id)
   }
 
   const clearFilters = () => {

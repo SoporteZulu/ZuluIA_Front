@@ -68,7 +68,7 @@ import {
   Download,
   Filter,
 } from "lucide-react"
-import { crmClients as initialClients, crmUsers, getUserById } from "@/lib/crm-data"
+import { useCrmClientes, useCrmUsuarios } from "@/lib/hooks/useCrm"
 import type { CRMClient } from "@/lib/types"
 
 const tipoClienteLabels: Record<CRMClient["tipoCliente"], string> = {
@@ -108,16 +108,18 @@ function ClientesContent() {
   const action = searchParams.get("action")
   const editId = searchParams.get("id")
 
+  const { clientes: clients, loading, error, createCliente, updateCliente, deleteCliente } = useCrmClientes()
+  const { usuarios: crmUsers } = useCrmUsuarios()
+
+  const getUserById = (id?: string) => crmUsers.find(u => u.id === id)
+
   const [search, setSearch] = useState("")
   const [filterTipo, setFilterTipo] = useState<string>("all")
   const [filterSegmento, setFilterSegmento] = useState<string>("all")
   const [filterEstado, setFilterEstado] = useState<string>("all")
   const [isFormOpen, setIsFormOpen] = useState(action === "new" || action === "edit")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
-  const [selectedClient, setSelectedClient] = useState<CRMClient | null>(
-    editId ? initialClients.find(c => c.id === editId) || null : null
-  )
-  const [clients, setClients] = useState(initialClients)
+  const [selectedClient, setSelectedClient] = useState<CRMClient | null>(null)
 
   const emptyForm: Partial<CRMClient> = {
     nombre: "",
@@ -138,9 +140,7 @@ function ClientesContent() {
     notasGenerales: "",
   }
 
-  const [formData, setFormData] = useState<Partial<CRMClient>>(
-    selectedClient ? { ...selectedClient } : emptyForm
-  )
+  const [formData, setFormData] = useState<Partial<CRMClient>>(emptyForm)
 
   // Estadísticas
   const stats = {
@@ -199,34 +199,21 @@ function ClientesContent() {
     setIsDeleteOpen(true)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     if (selectedClient) {
-      // Editar cliente existente
-      setClients(clients.map(c => 
-        c.id === selectedClient.id 
-          ? { ...c, ...formData, updatedAt: new Date() } as CRMClient 
-          : c
-      ))
+      await updateCliente(selectedClient.id, formData)
     } else {
-      // Crear nuevo cliente
-      const newClient: CRMClient = {
-        ...formData as CRMClient,
-        id: `cli-${Date.now()}`,
-        fechaAlta: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setClients([newClient, ...clients])
+      await createCliente(formData as Omit<CRMClient, 'id' | 'createdAt' | 'updatedAt'>)
     }
     
     closeForm()
   }
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (selectedClient) {
-      setClients(clients.filter(c => c.id !== selectedClient.id))
+      await deleteCliente(selectedClient.id)
     }
     setIsDeleteOpen(false)
     setSelectedClient(null)

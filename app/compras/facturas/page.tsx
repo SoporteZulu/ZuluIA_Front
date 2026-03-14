@@ -46,18 +46,24 @@ import {
   Printer,
   AlertCircle
 } from "lucide-react"
-import { purchaseInvoices, suppliers, purchaseOrders } from "@/lib/compras-data"
-import { PurchaseDocument, PurchaseDocumentItem } from "@/lib/compras-types"
+import type { PurchaseDocument, PurchaseDocumentItem } from "@/lib/compras-types"
+import { useComprobantes } from "@/lib/hooks/useComprobantes"
+import { useProveedores } from "@/lib/hooks/useTerceros"
+import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
+import type { Comprobante } from "@/lib/types/comprobantes"
 
 export default function FacturasPage() {
   const searchParams = useSearchParams()
-  const [facturas, setFacturas] = useState<PurchaseDocument[]>(purchaseInvoices)
+  const { comprobantes, loading, error, anular } = useComprobantes({ esCompra: true })
+  const { terceros: proveedores } = useProveedores()
+  const { ordenes: ordenesCompra } = useOrdenesCompra()
+  const [facturas, setFacturas] = useState<PurchaseDocument[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [editingFactura, setEditingFactura] = useState<PurchaseDocument | null>(null)
-  const [detailFactura, setDetailFactura] = useState<PurchaseDocument | null>(null)
+  const [detailFactura, setDetailFactura] = useState<Comprobante | null>(null)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -85,22 +91,21 @@ export default function FacturasPage() {
     anulada: "destructive",
   }
 
-  const getSupplierName = (id: string) => {
-    return suppliers.find(s => s.id === id)?.nombre || "N/A"
+  const getSupplierName = (id: string | number) => {
+    const numId = Number(id)
+    return proveedores.find(p => p.id === numId)?.razonSocial || `Proveedor #${id}`
   }
 
   const getOCNumber = (id?: string) => {
     if (!id) return "N/A"
-    return purchaseOrders.find(o => o.id === id)?.codigo || "N/A"
+    return ordenesCompra.find(o => String(o.id) === id)?.id ? `OC #${id}` : `OC #${id}`
   }
 
-  const filteredFacturas = facturas.filter(factura => {
-    const matchesSearch = 
-      factura.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      getSupplierName(factura.proveedorId).toLowerCase().includes(searchTerm.toLowerCase())
-    
-    const matchesEstado = filterEstado === "todos" || factura.estado === filterEstado
-
+  const filteredFacturas = comprobantes.filter(c => {
+    const matchesSearch =
+      String(c.nroComprobante ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      String(c.terceroId).includes(searchTerm)
+    const matchesEstado = filterEstado === "todos" || c.estado.toLowerCase() === filterEstado.toLowerCase()
     return matchesSearch && matchesEstado
   })
 
@@ -143,7 +148,7 @@ export default function FacturasPage() {
     setIsFormOpen(true)
   }
 
-  const handleViewDetail = (factura: PurchaseDocument) => {
+  const handleViewDetail = (factura: Comprobante) => {
     setDetailFactura(factura)
     setIsDetailOpen(true)
   }
@@ -278,22 +283,22 @@ export default function FacturasPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Facturas</CardDescription>
-            <CardTitle className="text-2xl">{facturas.length}</CardTitle>
+            <CardTitle className="text-2xl">{comprobantes.length}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Pendientes Aprobación</CardDescription>
+            <CardDescription>Emitidas</CardDescription>
             <CardTitle className="text-2xl text-orange-600">
-              {facturas.filter(f => f.estado === 'pendiente').length}
+              {comprobantes.filter(c => c.estado === 'EMITIDO').length}
             </CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Aprobadas</CardDescription>
+            <CardDescription>Pagadas</CardDescription>
             <CardTitle className="text-2xl text-green-600">
-              {facturas.filter(f => f.estado === 'aprobada').length}
+              {comprobantes.filter(c => c.estado === 'PAGADO').length}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -301,7 +306,7 @@ export default function FacturasPage() {
           <CardHeader className="pb-2">
             <CardDescription>Total a Pagar</CardDescription>
             <CardTitle className="text-2xl">
-              ${facturas.filter(f => f.estado === 'aprobada').reduce((sum, f) => sum + f.total, 0).toLocaleString('es-AR')}
+              ${comprobantes.filter(c => c.estado === 'EMITIDO').reduce((s, c) => s + c.saldo, 0).toLocaleString('es-AR')}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -338,102 +343,67 @@ export default function FacturasPage() {
           </div>
         </CardHeader>
         <CardContent>
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+            </div>
+          ) : error ? (
+            <p className="text-center py-8 text-red-600 text-sm">{error}</p>
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Número</TableHead>
                 <TableHead>Fecha</TableHead>
                 <TableHead>Proveedor</TableHead>
-                <TableHead>OC Relacionada</TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead>Divisa</TableHead>
                 <TableHead className="text-right">Total</TableHead>
+                <TableHead className="text-right">Saldo</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredFacturas.map((factura) => (
-                <TableRow 
+              {filteredFacturas.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Sin facturas de compra.</TableCell></TableRow>
+              ) : filteredFacturas.map((factura) => (
+                <TableRow
                   key={factura.id}
                   className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleViewDetail(factura)}
+                  onClick={() => { setDetailFactura(factura); setIsDetailOpen(true) }}
                 >
-                  <TableCell className="font-medium">
-                    {factura.letra} {factura.numero}
+                  <TableCell className="font-medium font-mono">
+                    {factura.nroComprobante ?? `#${factura.id}`}
                   </TableCell>
                   <TableCell>{new Date(factura.fecha).toLocaleDateString('es-AR')}</TableCell>
-                  <TableCell>{getSupplierName(factura.proveedorId)}</TableCell>
+                  <TableCell className="text-muted-foreground">Proveedor #{factura.terceroId}</TableCell>
                   <TableCell>
-                    {factura.ordenCompraId ? (
-                      <Badge variant="outline">{getOCNumber(factura.ordenCompraId)}</Badge>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={estadoBadgeVariant[factura.estado] as any}>
+                    <Badge variant={factura.estado === 'ANULADO' ? 'destructive' : factura.estado === 'PAGADO' ? 'secondary' : 'default'}>
                       {factura.estado}
                     </Badge>
                   </TableCell>
-                  <TableCell>{factura.divisa}</TableCell>
                   <TableCell className="text-right font-medium">
                     ${factura.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                   </TableCell>
+                  <TableCell className="text-right">
+                    ${factura.saldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => handleViewDetail(factura)}
-                        title="Ver detalle"
-                      >
+                      <Button variant="ghost" size="icon" onClick={() => { setDetailFactura(factura); setIsDetailOpen(true) }} title="Ver detalle">
                         <Eye className="h-4 w-4" />
                       </Button>
-                      {factura.estado === 'borrador' && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon"
-                          onClick={() => handleOpenForm(factura)}
-                          title="Editar"
-                        >
-                          <Edit className="h-4 w-4" />
+                      {factura.estado !== 'ANULADO' && (
+                        <Button variant="ghost" size="icon" title="Anular" onClick={() => anular(factura.id)}>
+                          <XCircle className="h-4 w-4 text-destructive" />
                         </Button>
                       )}
-                      {factura.estado === 'pendiente' && (
-                        <>
-                          <Button 
-                            variant="ghost" 
-                            size="icon"
-                            onClick={() => handleAprobar(factura)}
-                            title="Aprobar"
-                            className="text-green-600"
-                          >
-                            <CheckCircle className="h-4 w-4" />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon"
-                            onClick={() => handleRechazar(factura)}
-                            title="Rechazar"
-                            className="text-red-600"
-                          >
-                            <XCircle className="h-4 w-4" />
-                          </Button>
-                        </>
-                      )}
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        title="Imprimir"
-                      >
-                        <Printer className="h-4 w-4" />
-                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
 
@@ -537,9 +507,9 @@ export default function FacturasPage() {
                         <SelectValue placeholder="Seleccione un proveedor" />
                       </SelectTrigger>
                       <SelectContent>
-                        {suppliers.map((supplier) => (
-                          <SelectItem key={supplier.id} value={supplier.id}>
-                            {supplier.nombre}
+                        {proveedores.map((p) => (
+                          <SelectItem key={p.id} value={String(p.id)}>
+                            {p.razonSocial}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -548,17 +518,17 @@ export default function FacturasPage() {
                   <div className="col-span-2">
                     <Label>Orden de Compra (opcional)</Label>
                     <Select
-                      value={formData.ordenCompraId}
-                      onValueChange={(value) => setFormData({...formData, ordenCompraId: value})}
+                      value={formData.ordenCompraId || '__none__'}
+                      onValueChange={(value) => setFormData({...formData, ordenCompraId: value !== '__none__' ? value : ''})}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccione una OC" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Sin OC</SelectItem>
-                        {purchaseOrders.map((order) => (
-                          <SelectItem key={order.id} value={order.id}>
-                            {order.codigo} - {getSupplierName(order.proveedorId)}
+                        <SelectItem value="__none__">Sin OC</SelectItem>
+                        {ordenesCompra.map((orden) => (
+                          <SelectItem key={orden.id} value={String(orden.id)}>
+                            OC #{orden.id} — Proveedor #{orden.proveedorId}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -772,7 +742,7 @@ export default function FacturasPage() {
               </Badge>
             </DialogTitle>
             <DialogDescription>
-              {detailFactura?.letra} {detailFactura?.numero} - {detailFactura && getSupplierName(detailFactura.proveedorId)}
+              {detailFactura?.nroComprobante ?? `#${detailFactura?.id}`} — {detailFactura && getSupplierName(detailFactura.terceroId)}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-6">
@@ -785,7 +755,15 @@ export default function FacturasPage() {
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
                     <span className="text-muted-foreground block mb-1">Proveedor</span>
-                    <p className="font-medium">{detailFactura && getSupplierName(detailFactura.proveedorId)}</p>
+                    <p className="font-medium">{detailFactura && getSupplierName(detailFactura.terceroId)}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">Nro. Comprobante</span>
+                    <p className="font-medium font-mono">{detailFactura?.nroComprobante ?? `#${detailFactura?.id}`}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">Tipo</span>
+                    <p className="font-medium">{detailFactura?.tipoComprobanteDescripcion ?? '-'}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground block mb-1">Fecha Emisión</span>
@@ -796,127 +774,54 @@ export default function FacturasPage() {
                   <div>
                     <span className="text-muted-foreground block mb-1">Fecha Vencimiento</span>
                     <p className="font-medium">
-                      {detailFactura?.fechaVencimiento 
-                        ? new Date(detailFactura.fechaVencimiento).toLocaleDateString('es-AR') 
+                      {detailFactura?.fechaVto 
+                        ? new Date(detailFactura.fechaVto).toLocaleDateString('es-AR') 
                         : '-'}
                     </p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground block mb-1">Divisa</span>
-                    <p className="font-medium">{detailFactura?.divisa}</p>
+                    <span className="text-muted-foreground block mb-1">CAE</span>
+                    <p className="font-medium font-mono text-xs">{detailFactura?.cae ?? '-'}</p>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Tipo de Cambio</span>
-                    <p className="font-medium">{detailFactura?.tipoCambio}</p>
-                  </div>
-                  {detailFactura?.ordenCompraId && (
-                    <div>
-                      <span className="text-muted-foreground block mb-1">OC Relacionada</span>
-                      <Badge variant="outline">{getOCNumber(detailFactura.ordenCompraId)}</Badge>
-                    </div>
-                  )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Items */}
+            {/* Importes */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Items ({detailFactura?.items.length || 0})</CardTitle>
+                <CardTitle className="text-base">Importes</CardTitle>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Descripción</TableHead>
-                      <TableHead>Cantidad</TableHead>
-                      <TableHead>Precio Unit.</TableHead>
-                      <TableHead>Desc. %</TableHead>
-                      <TableHead>IVA</TableHead>
-                      <TableHead className="text-right">Subtotal</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {detailFactura?.items.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.descripcion}</TableCell>
-                        <TableCell>{item.cantidad} {item.uom}</TableCell>
-                        <TableCell>
-                          ${item.precioUnitario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </TableCell>
-                        <TableCell>{item.descuentoPorcentaje}%</TableCell>
-                        <TableCell>{item.alicuotaIva}%</TableCell>
-                        <TableCell className="text-right font-medium">
-                          ${item.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  {[
+                    ['Neto Gravado',    detailFactura?.netoGravado],
+                    ['Neto No Gravado', detailFactura?.netoNoGravado],
+                    ['IVA RI',          detailFactura?.ivaRi],
+                    ['IVA RNI',         detailFactura?.ivaRni],
+                    ['Total',           detailFactura?.total],
+                    ['Saldo',           detailFactura?.saldo],
+                  ].map(([k, v]) => (
+                    <div key={k as string} className="p-3 rounded-lg bg-muted/50">
+                      <span className="text-xs text-muted-foreground block mb-0.5">{k}</span>
+                      <p className="font-medium">${(v as number ?? 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
 
             {/* Observaciones */}
-            {detailFactura?.observaciones && (
+            {detailFactura?.observacion && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Observaciones</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm">{detailFactura.observaciones}</p>
+                  <p className="text-sm">{detailFactura.observacion}</p>
                 </CardContent>
               </Card>
             )}
-
-            {/* Totales */}
-            <div className="border-t pt-4 bg-muted/30 -mx-6 px-6 py-4">
-              <div className="flex justify-end">
-                <div className="w-[400px] space-y-3 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Subtotal:</span>
-                    <span className="font-semibold text-base">
-                      ${detailFactura?.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Descuento:</span>
-                    <span className="font-semibold text-base text-orange-600">
-                      -${detailFactura?.descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  {detailFactura && detailFactura.iva21 > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">IVA 21%:</span>
-                      <span className="font-semibold text-base">
-                        ${detailFactura.iva21.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-                  {detailFactura && detailFactura.iva105 > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">IVA 10.5%:</span>
-                      <span className="font-semibold text-base">
-                        ${detailFactura.iva105.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-                  {detailFactura && detailFactura.iva27 > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">IVA 27%:</span>
-                      <span className="font-semibold text-base">
-                        ${detailFactura.iva27.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between items-center text-lg font-bold border-t pt-3 mt-2">
-                    <span>Total:</span>
-                    <span className="text-primary">
-                      ${detailFactura?.total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
@@ -930,22 +835,15 @@ export default function FacturasPage() {
               <Download className="h-4 w-4 mr-2" />
               Descargar PDF
             </Button>
-            {detailFactura?.estado === 'borrador' && (
+            {detailFactura && detailFactura.estado !== 'ANULADO' && (
               <Button
-                variant="outline"
-                onClick={() => {
+                variant="destructive"
+                onClick={async () => {
+                  await anular(detailFactura.id)
                   setIsDetailOpen(false)
-                  detailFactura && handleOpenForm(detailFactura)
                 }}
               >
-                <Edit className="h-4 w-4 mr-2" />
-                Editar
-              </Button>
-            )}
-            {detailFactura?.estado === 'pendiente' && (
-              <Button onClick={() => detailFactura && handleAprobar(detailFactura)}>
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Aprobar Factura
+                Anular
               </Button>
             )}
           </DialogFooter>

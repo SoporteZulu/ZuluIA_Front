@@ -31,7 +31,7 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   Plus, Search, MoreHorizontal, Pencil, Trash2, Target, DollarSign, TrendingUp, Building2, Calendar,
 } from "lucide-react"
-import { crmOpportunities as initialOpps, crmClients, crmContacts, crmUsers, getClientById, getUserById } from "@/lib/crm-data"
+import { useCrmOportunidades, useCrmClientes, useCrmContactos, useCrmUsuarios } from "@/lib/hooks/useCrm"
 import type { CRMOpportunity } from "@/lib/types"
 
 const etapaLabels: Record<CRMOpportunity["etapa"], string> = {
@@ -63,7 +63,17 @@ function OportunidadesContent() {
   const [isFormOpen, setIsFormOpen] = useState(action === "new")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [selectedOpp, setSelectedOpp] = useState<CRMOpportunity | null>(null)
-  const [opportunities, setOpportunities] = useState(initialOpps)
+  const { oportunidades, loading, error, createOportunidad, updateOportunidad, deleteOportunidad } = useCrmOportunidades(clienteIdParam || undefined)
+  const { clientes: crmClients } = useCrmClientes()
+  const { contactos: crmContacts } = useCrmContactos()
+  const { usuarios: crmUsers } = useCrmUsuarios()
+
+  const getClientById = (id?: string) => crmClients.find(c => c.id === id)
+  const getUserById = (id?: string) => crmUsers.find(u => u.id === id)
+
+  const [opportunities, setOpportunities] = useState(oportunidades)
+
+  React.useEffect(() => { setOpportunities(oportunidades) }, [oportunidades])
 
   const emptyForm: Partial<CRMOpportunity> = {
     clienteId: clienteIdParam || "",
@@ -131,27 +141,19 @@ function OportunidadesContent() {
     setIsDeleteOpen(true)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (selectedOpp) {
-      setOpportunities(opportunities.map(o => 
-        o.id === selectedOpp.id ? { ...o, ...formData, updatedAt: new Date() } as CRMOpportunity : o
-      ))
+      await updateOportunidad(selectedOpp.id, formData)
     } else {
-      const newOpp: CRMOpportunity = {
-        ...formData as CRMOpportunity,
-        id: `opp-${Date.now()}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setOpportunities([newOpp, ...opportunities])
+      await createOportunidad(formData as Omit<CRMOpportunity, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (selectedOpp) {
-      setOpportunities(opportunities.filter(o => o.id !== selectedOpp.id))
+      await deleteOportunidad(selectedOpp.id)
     }
     setIsDeleteOpen(false)
     setSelectedOpp(null)

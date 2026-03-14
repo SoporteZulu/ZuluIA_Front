@@ -17,8 +17,10 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
-import { priceLists, promotions, preciosEspeciales, products, customers } from '@/lib/sales-data'
-import type { PriceList, Promotion, PrecioEspecial } from '@/lib/sales-types'
+import { promotions, preciosEspeciales, products, customers } from '@/lib/sales-data'
+import type { Promotion, PrecioEspecial } from '@/lib/sales-types'
+import { useListasPrecios } from '@/lib/hooks/useListasPrecios'
+import type { ListaPrecios, ListaPreciosDetalle } from '@/lib/types/listas-precios'
 
 function fmtARS(n: number) {
   return n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
@@ -46,29 +48,27 @@ function PromoBadge({ estado }: { estado: Promotion['estado'] }) {
 
 // ─── Price List Detail ────────────────────────────────────────────────────────
 
-function PriceListDetail({ list }: { list: PriceList }) {
+function PriceListDetail({ list }: { list: ListaPreciosDetalle }) {
   const [tab, setTab] = useState('productos')
   return (
     <Tabs value={tab} onValueChange={setTab}>
-      <TabsList className="grid w-full grid-cols-3">
+      <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="general">General</TabsTrigger>
         <TabsTrigger value="productos">Productos ({list.items.length})</TabsTrigger>
-        <TabsTrigger value="clientes">Clientes ({list.clientesAsignados.length})</TabsTrigger>
       </TabsList>
 
       <TabsContent value="general" className="mt-4 space-y-3">
         <div className="grid grid-cols-2 gap-3 text-sm">
           {[
-            ['Tipo', list.tipo],
-            ['Divisa', list.divisa],
-            ['Prioridad', String(list.prioridad)],
-            ['Vigencia Desde', new Date(list.vigenciaDesde).toLocaleDateString('es-AR')],
+            ['Moneda', list.monedaSimbolo ?? String(list.monedaId)],
+            ['Vigencia Desde', list.vigenciaDesde ? new Date(list.vigenciaDesde).toLocaleDateString('es-AR') : 'Sin fecha'],
             ['Vigencia Hasta', list.vigenciaHasta ? new Date(list.vigenciaHasta).toLocaleDateString('es-AR') : 'Sin vencimiento'],
             ['Lista Default', list.esDefault ? 'Sí' : 'No'],
+            ['Estado', list.activa ? 'Activa' : 'Inactiva'],
           ].map(([k, v]) => (
             <div key={k} className="p-3 rounded-lg bg-muted/50">
               <span className="text-xs text-muted-foreground block mb-0.5">{k}</span>
-              <p className="font-medium capitalize">{v}</p>
+              <p className="font-medium">{v}</p>
             </div>
           ))}
         </div>
@@ -79,63 +79,29 @@ function PriceListDetail({ list }: { list: PriceList }) {
           <TableHeader>
             <TableRow>
               <TableHead>Producto</TableHead>
-              <TableHead className="text-right">Costo</TableHead>
-              <TableHead className="text-right">P. Lista</TableHead>
-              <TableHead className="text-right">Margen</TableHead>
-              <TableHead className="text-right">Variación</TableHead>
+              <TableHead className="text-right">Precio</TableHead>
+              <TableHead className="text-right">Descuento</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {list.items.map(item => (
-              <TableRow key={item.id}>
+            {list.items.length === 0 ? (
+              <TableRow><TableCell colSpan={3} className="text-center py-6 text-muted-foreground text-sm">Sin productos en esta lista.</TableCell></TableRow>
+            ) : list.items.map(item => (
+              <TableRow key={item.itemId}>
                 <TableCell>
-                  <p className="font-medium text-sm">{getProductName(item.productoId)}</p>
-                  <p className="text-xs text-muted-foreground font-mono">{item.productoId}</p>
+                  <p className="font-medium text-sm">{item.itemDescripcion}</p>
+                  <p className="text-xs text-muted-foreground font-mono">{item.itemCodigo}</p>
                 </TableCell>
-                <TableCell className="text-right text-sm">${fmtARS(item.precioBase)}</TableCell>
-                <TableCell className="text-right font-semibold">${fmtARS(item.precioLista)}</TableCell>
+                <TableCell className="text-right font-semibold">${fmtARS(item.precio)}</TableCell>
                 <TableCell className="text-right">
-                  <span className={item.margen >= 30 ? 'text-green-600 font-semibold' : item.margen >= 15 ? 'text-orange-600' : 'text-red-600'}>
-                    {item.margen.toFixed(1)}%
-                  </span>
-                </TableCell>
-                <TableCell className="text-right">
-                  <span className={item.variacion > 0 ? 'text-green-600' : item.variacion < 0 ? 'text-red-600' : 'text-muted-foreground'}>
-                    {item.variacion > 0 ? '+' : ''}{item.variacion.toFixed(1)}%
-                  </span>
+                  {item.descuentoPct > 0
+                    ? <span className="text-orange-600 font-semibold">{item.descuentoPct.toFixed(1)}%</span>
+                    : <span className="text-muted-foreground">-</span>}
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-      </TabsContent>
-
-      <TabsContent value="clientes" className="mt-4">
-        {list.clientesAsignados.length === 0 ? (
-          <p className="text-center py-8 text-muted-foreground text-sm">Sin clientes asignados específicamente.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Cliente</TableHead>
-                <TableHead>CUIT</TableHead>
-                <TableHead>Estado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {list.clientesAsignados.map(cId => {
-                const c = customers.find(x => x.id === cId)
-                return (
-                  <TableRow key={cId}>
-                    <TableCell className="font-medium">{c?.razonSocial ?? cId}</TableCell>
-                    <TableCell className="font-mono text-sm">{c?.cuitCuil ?? '-'}</TableCell>
-                    <TableCell>{c && <Badge variant="outline" className="capitalize">{c.estado}</Badge>}</TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        )}
       </TabsContent>
     </Tabs>
   )
@@ -234,17 +200,27 @@ function PromoDetail({ promo }: { promo: Promotion }) {
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 const ListasPreciosPage = () => {
+  const { listas, loading: loadingListas, error: errorListas, getById, crear } = useListasPrecios()
   const [mainTab, setMainTab]         = useState('listas')
   const [searchTerm, setSearchTerm]   = useState('')
   const [isListaFormOpen, setIsListaFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen]       = useState(false)
-  const [detailList, setDetailList]           = useState<PriceList | null>(null)
+  const [detailList, setDetailList]           = useState<ListaPreciosDetalle | null>(null)
+  const [loadingDetail, setLoadingDetail]     = useState(false)
   const [isPromoDetailOpen, setIsPromoDetailOpen] = useState(false)
   const [detailPromo, setDetailPromo]             = useState<Promotion | null>(null)
 
-  const filteredLists = useMemo(() => priceLists.filter(l =>
+  const handleOpenDetail = async (lista: ListaPrecios) => {
+    setLoadingDetail(true)
+    setIsDetailOpen(true)
+    const detail = await getById(lista.id)
+    setDetailList(detail)
+    setLoadingDetail(false)
+  }
+
+  const filteredLists = useMemo(() => listas.filter(l =>
     l.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-  ), [searchTerm])
+  ), [listas, searchTerm])
 
   const filteredPromos = useMemo(() => promotions.filter(p =>
     p.nombre.toLowerCase().includes(searchTerm.toLowerCase())
@@ -256,7 +232,7 @@ const ListasPreciosPage = () => {
   ), [searchTerm])
 
   const kpis = {
-    listas:    priceLists.length,
+    listas:    listas.length,
     activas:   promotions.filter(p => p.estado === 'activa').length,
     especiales: preciosEspeciales.filter(pe => pe.estado === 'activo').length,
     vencidas:  preciosEspeciales.filter(pe => pe.estado === 'vencido').length,
@@ -334,59 +310,49 @@ const ListasPreciosPage = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nombre</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>Divisa</TableHead>
+                    <TableHead>Moneda</TableHead>
                     <TableHead>Vigencia</TableHead>
-                    <TableHead className="text-right">Clientes</TableHead>
-                    <TableHead className="text-right">Productos</TableHead>
-                    <TableHead className="text-right">Margen Prom.</TableHead>
+                    <TableHead>Estado</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredLists.map(list => {
-                    const avgMargen = list.items.length > 0
-                      ? list.items.reduce((s, i) => s + i.margen, 0) / list.items.length
-                      : 0
-                    return (
-                      <TableRow key={list.id} className="cursor-pointer hover:bg-muted/50" onClick={() => { setDetailList(list); setIsDetailOpen(true) }}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">{list.nombre}</span>
-                            {list.esDefault && <Badge variant="secondary" className="text-xs">Default</Badge>}
-                          </div>
-                          <p className="text-xs text-muted-foreground">Prioridad: {list.prioridad}</p>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="capitalize">{list.tipo}</Badge>
-                        </TableCell>
-                        <TableCell className="font-mono font-medium">{list.divisa}</TableCell>
-                        <TableCell className="text-sm">
-                          <p>{new Date(list.vigenciaDesde).toLocaleDateString('es-AR')}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {list.vigenciaHasta ? `hasta ${new Date(list.vigenciaHasta).toLocaleDateString('es-AR')}` : 'Sin vencimiento'}
-                          </p>
-                        </TableCell>
-                        <TableCell className="text-right font-medium">{list.clientesAsignados.length}</TableCell>
-                        <TableCell className="text-right font-medium">{list.items.length}</TableCell>
-                        <TableCell className="text-right">
-                          <span className={avgMargen >= 30 ? 'text-green-600 font-semibold' : 'text-orange-600 font-semibold'}>
-                            {avgMargen.toFixed(1)}%
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => { setDetailList(list); setIsDetailOpen(true) }}>
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
+                  {loadingListas ? (
+                    <TableRow><TableCell colSpan={6} className="text-center py-10"><div className="inline-block animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" /></TableCell></TableRow>
+                  ) : errorListas ? (
+                    <TableRow><TableCell colSpan={6} className="text-center py-10 text-red-600 text-sm">{errorListas}</TableCell></TableRow>
+                  ) : filteredLists.map(list => (
+                    <TableRow key={list.id} className="cursor-pointer hover:bg-muted/50" onClick={() => handleOpenDetail(list)}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold">{list.nombre}</span>
+                          {list.esDefault && <Badge variant="secondary" className="text-xs">Default</Badge>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono font-medium">{list.monedaSimbolo ?? list.monedaId}</TableCell>
+                      <TableCell className="text-sm">
+                        <p>{list.vigenciaDesde ? new Date(list.vigenciaDesde).toLocaleDateString('es-AR') : '-'}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {list.vigenciaHasta ? `hasta ${new Date(list.vigenciaHasta).toLocaleDateString('es-AR')}` : 'Sin vencimiento'}
+                        </p>
+                      </TableCell>
+                      <TableCell>
+                        {list.activa
+                          ? <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Activa</Badge>
+                          : <Badge variant="outline" className="text-xs">Inactiva</Badge>}
+                      </TableCell>
+                      <TableCell className="text-right" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => handleOpenDetail(list)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon">
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </CardContent>
@@ -534,17 +500,19 @@ const ListasPreciosPage = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <Tag className="h-5 w-5" />
-              {detailList?.nombre}
+              {detailList?.nombre ?? 'Cargando...'}
               {detailList?.esDefault && <Badge variant="secondary">Default</Badge>}
             </DialogTitle>
           </DialogHeader>
-          {detailList && <PriceListDetail list={detailList} />}
+          {loadingDetail ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+            </div>
+          ) : detailList ? (
+            <PriceListDetail list={detailList} />
+          ) : null}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDetailOpen(false)}>Cerrar</Button>
-            <Button variant="outline">
-              <Edit className="h-4 w-4 mr-2" />
-              Editar Lista
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

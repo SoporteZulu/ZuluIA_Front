@@ -10,14 +10,22 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts'
-import { preciosCompetencia, competidores, thorProducts } from '@/lib/thor-data'
+import { useThorCompetencia, useThorProductos } from '@/lib/hooks/useThor'
 import { TrendingUp, TrendingDown, Plus, Upload, AlertCircle } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 const CompetenciaModule = () => {
+  const { competidores, precios: preciosCompetencia } = useThorCompetencia()
+  const { productos: thorProducts } = useThorProductos()
   const [urlInput, setUrlInput] = useState('')
   const [precioManual, setPrecioManual] = useState({ producto: '', competidor: '', precio: '' })
-  const [selectedProducto, setSelectedProducto] = useState(thorProducts[0])
+  const [selectedProducto, setSelectedProducto] = useState<typeof thorProducts[0] | undefined>(undefined)
+
+  React.useEffect(() => {
+    if (thorProducts.length > 0 && !selectedProducto) {
+      setSelectedProducto(thorProducts[0])
+    }
+  }, [thorProducts, selectedProducto])
 
   // Análisis de posición de precios
   const preciosAnalizados = useMemo(() => {
@@ -43,7 +51,7 @@ const CompetenciaModule = () => {
     })
     
     return Object.values(analisis)
-  }, [])
+  }, [thorProducts, preciosCompetencia])
 
   const productosOportunidad = preciosAnalizados.filter(a => 
     a.posicion === 'mas_caro' && a.producto.margenPorcentaje > 35

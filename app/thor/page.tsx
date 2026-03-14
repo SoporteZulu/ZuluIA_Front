@@ -5,11 +5,28 @@ import { BarChart3, TrendingUp, Users, ShoppingCart, AlertCircle } from 'lucide-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { calcularKPIsMensuales, historicoVentas, vendedoresMetricas, cajerosMetricas } from '@/lib/thor-data'
+import { useThorKpis, useThorVendedores, useThorCajeros } from '@/lib/hooks/useThor'
 import Link from 'next/link'
 
 const ThorDashboard = () => {
-  const kpis = calcularKPIsMensuales()
+  const { kpis: kpisData, historico } = useThorKpis()
+  const { metricas: vendedoresMetricas } = useThorVendedores()
+  const { metricas: cajerosMetricas } = useThorCajeros()
+
+  const kpis = React.useMemo(() => {
+    if (historico.length < 2) return { ventasTotales: 0, cambioMes: 0, margenPromedio: 0, ticketPromedio: 0, numeroTransacciones: 0, rotacionPromedio: 0 }
+    const last = historico[historico.length - 1]
+    const prev = historico[historico.length - 2]
+    return {
+      ventasTotales: last.ventas,
+      cambioMes: ((last.ventas - prev.ventas) / prev.ventas) * 100,
+      margenPromedio: kpisData.find(k => k.nombre.toLowerCase().includes('margen'))?.valor ?? 0,
+      ticketPromedio: last.ticketPromedio,
+      numeroTransacciones: last.transacciones,
+      rotacionPromedio: kpisData.find(k => k.nombre.toLowerCase().includes('rotaci'))?.valor ?? 0,
+    }
+  }, [historico, kpisData])
+
   const topVendedor = vendedoresMetricas[0]
   const topCajero = cajerosMetricas[0]
 
@@ -189,13 +206,13 @@ const ThorDashboard = () => {
             <div className="flex items-center gap-3">
               <span className="text-4xl">🥇</span>
               <div>
-                <p className="font-semibold">{topVendedor.vendedor.nombre} {topVendedor.vendedor.apellido}</p>
-                <Badge variant="default">${topVendedor.totalVendido.toLocaleString('es-AR')}</Badge>
+                <p className="font-semibold">{topVendedor?.vendedor.nombre} {topVendedor?.vendedor.apellido}</p>
+                <Badge variant="default">${topVendedor?.totalVendido.toLocaleString('es-AR')}</Badge>
               </div>
             </div>
             <div className="text-xs text-muted-foreground space-y-1">
-              <p>Transacciones: {topVendedor.numeroTransacciones}</p>
-              <p>Ticket Promedio: ${topVendedor.ticketPromedio.toFixed(0)}</p>
+              <p>Transacciones: {topVendedor?.numeroTransacciones}</p>
+              <p>Ticket Promedio: ${topVendedor?.ticketPromedio.toFixed(0)}</p>
             </div>
           </CardContent>
         </Card>
@@ -209,13 +226,13 @@ const ThorDashboard = () => {
             <div className="flex items-center gap-3">
               <span className="text-4xl">⚡</span>
               <div>
-                <p className="font-semibold">{topCajero.cajero.nombre} {topCajero.cajero.apellido}</p>
-                <Badge variant="secondary">{topCajero.tiempoPromedioAtension}s/cliente</Badge>
+                <p className="font-semibold">{topCajero?.cajero.nombre} {topCajero?.cajero.apellido}</p>
+                <Badge variant="secondary">{topCajero?.tiempoPromedioAtension}s/cliente</Badge>
               </div>
             </div>
             <div className="text-xs text-muted-foreground space-y-1">
-              <p>Clientes: {topCajero.numeroClientesAtendidos}</p>
-              <p>Satisfacción: {topCajero.satisfaccionCliente?.toFixed(1)}/5.0 ⭐</p>
+              <p>Clientes: {topCajero?.numeroClientesAtendidos}</p>
+              <p>Satisfacción: {topCajero?.satisfaccionCliente?.toFixed(1)}/5.0 ⭐</p>
             </div>
           </CardContent>
         </Card>

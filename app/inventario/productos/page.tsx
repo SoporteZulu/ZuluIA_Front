@@ -142,12 +142,12 @@ function ItemForm({ item, onClose, onSaved, createItem, updateItem }: ItemFormPr
         <div className="space-y-1.5">
           <Label>Categoría</Label>
           <Select
-            value={form.categoriaId ? String(form.categoriaId) : ''}
-            onValueChange={(v) => set('categoriaId', v ? Number(v) : null)}
+            value={form.categoriaId ? String(form.categoriaId) : '__none__'}
+            onValueChange={(v) => set('categoriaId', v !== '__none__' ? Number(v) : null)}
           >
             <SelectTrigger><SelectValue placeholder="Sin categoría" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Sin categoría</SelectItem>
+              <SelectItem value="__none__">Sin categoría</SelectItem>
               {categorias.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.descripcion}</SelectItem>)}
             </SelectContent>
           </Select>

@@ -5,10 +5,11 @@ import { Plus, Grid3x3, List, Kanban } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { proyectos } from '@/lib/proyectos-data'
+import { useProyectos } from '@/lib/hooks/useProyectos'
 import type { Proyecto } from '@/lib/proyectos-types'
 
 const ProyectosListPage = () => {
+  const { proyectos, loading } = useProyectos()
   const [viewMode, setViewMode] = useState<'grid' | 'list' | 'kanban'>('grid')
   const [filtroEstado, setFiltroEstado] = useState<string | null>(null)
 

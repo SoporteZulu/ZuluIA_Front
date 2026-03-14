@@ -11,10 +11,12 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { aiRecommendations, thorProducts } from '@/lib/thor-data'
+import { useThorSugerencias, useThorProductos } from '@/lib/hooks/useThor'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 const SugerenciasModule = () => {
+  const { sugerencias: aiRecommendations } = useThorSugerencias()
+  const { productos: thorProducts } = useThorProductos()
   const [categoryFilter, setcategoryFilter] = useState('todos')
   const [periodFilter, setPeriodFilter] = useState('3')
   const [searchTerm, setSearchTerm] = useState('')
@@ -28,7 +30,7 @@ const SugerenciasModule = () => {
         rec.producto.sku.toLowerCase().includes(searchTerm.toLowerCase())
       return matchesCategory && matchesSearch
     })
-  }, [categoryFilter, searchTerm])
+  }, [categoryFilter, searchTerm, aiRecommendations])
 
   const getTrendIcon = (tendencia: string) => {
     return tendencia === 'al_alza' ? 

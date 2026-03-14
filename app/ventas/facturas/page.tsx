@@ -17,7 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Progress } from '@/components/ui/progress'
-import { invoices, customers, salesOrders } from '@/lib/sales-data'
+import { useComprobantes } from '@/lib/hooks/useComprobantes'
+import type { Comprobante } from '@/lib/types/comprobantes'
 import type { Invoice } from '@/lib/sales-types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -26,8 +27,39 @@ function fmtARS(n: number) {
   return n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 }
 
-function getCustomer(id: string) {
-  return customers.find(c => c.id === id)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function getCustomer(_id: string) { return undefined }
+
+function mapEstadoFactura(estado: string): Invoice['estado'] {
+  const e = estado.toUpperCase()
+  if (e === 'BORRADOR') return 'borrador'
+  if (e === 'EMITIDO') return 'emitida'
+  if (e === 'PAGADO' || e === 'PAGADO_PARCIAL') return 'pagada'
+  return 'cancelada'
+}
+
+function comprobanteToInvoice(c: Comprobante): Invoice {
+  return {
+    id: String(c.id),
+    codigo: c.nroComprobante ?? String(c.id),
+    tipo: 'factura_a' as Invoice['tipo'],
+    clienteId: String(c.terceroId),
+    fecha: c.fecha,
+    fechaVencimiento: c.fechaVto ?? c.fecha,
+    estado: mapEstadoFactura(c.estado),
+    total: c.total,
+    cae: c.cae ?? undefined,
+    vencimientoCae: c.caeFechaVto ?? undefined,
+    puntoVenta: '0001',
+    numero: c.nroComprobante ?? String(c.id),
+    items: [],
+    subtotal: c.netoGravado,
+    iva21: c.ivaRi,
+    iva105: 0,
+    iva27: 0,
+    percepciones: 0,
+    saldo: c.saldo,
+  } as unknown as Invoice
 }
 
 function moraDays(invoice: Invoice) {
@@ -233,22 +265,23 @@ function InvoiceDetail({ invoice }: { invoice: Invoice }) {
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 const FacturasPage = () => {
+  const { comprobantes, loading, error, refetch } = useComprobantes({ esVenta: true })
   const [searchTerm, setSearchTerm]   = useState('')
   const [statusFilter, setStatusFilter] = useState('todos')
   const [tipoFilter, setTipoFilter]   = useState('todos')
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null)
 
+  const invoices = useMemo(() => comprobantes.map(comprobanteToInvoice), [comprobantes])
+
   const filtered = useMemo(() => invoices.filter(i => {
-    const customer = getCustomer(i.clienteId)
     const matchSearch =
       i.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (customer?.razonSocial ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (i.cae ?? '').includes(searchTerm)
     const matchStatus = statusFilter === 'todos' || i.estado === statusFilter
     const matchTipo   = tipoFilter === 'todos' || i.tipo === tipoFilter
     return matchSearch && matchStatus && matchTipo
-  }), [searchTerm, statusFilter, tipoFilter])
+  }), [invoices, searchTerm, statusFilter, tipoFilter])
 
   const kpis = useMemo(() => ({
     total:     invoices.length,
@@ -258,7 +291,20 @@ const FacturasPage = () => {
     montoTotal:    invoices.reduce((s, i) => s + i.total, 0),
     montoPendiente: invoices.filter(i => i.estado !== 'pagada' && i.estado !== 'cancelada').reduce((s, i) => s + i.total, 0),
     conCae:    invoices.filter(i => !!i.cae).length,
-  }), [])
+  }), [invoices])
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
+    </div>
+  )
+
+  if (error) return (
+    <div className="p-6 text-red-600 text-sm">
+      Error al cargar facturas: {error}. Verificá que el backend esté disponible en{' '}
+      <code className="font-mono bg-red-50 px-1">{process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5065'}</code>.
+    </div>
+  )
 
   return (
     <div className="space-y-6 pb-6">
@@ -350,7 +396,6 @@ const FacturasPage = () => {
             <TableBody>
               {filtered.map(invoice => {
                 const cfg = estadoCfg[invoice.estado]
-                const customer = getCustomer(invoice.clienteId)
                 const mora = moraDays(invoice)
                 return (
                   <TableRow key={invoice.id} className="cursor-pointer hover:bg-muted/50" onClick={() => { setDetailInvoice(invoice); setIsDetailOpen(true) }}>
@@ -361,8 +406,7 @@ const FacturasPage = () => {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <p className="font-medium text-sm">{customer?.razonSocial ?? invoice.clienteId}</p>
-                      <p className="text-xs text-muted-foreground">{customer?.cuitCuil}</p>
+                      <p className="font-medium text-sm">Cliente #{invoice.clienteId}</p>
                     </TableCell>
                     <TableCell className="text-sm">{new Date(invoice.fecha).toLocaleDateString('es-AR')}</TableCell>
                     <TableCell className="text-sm">

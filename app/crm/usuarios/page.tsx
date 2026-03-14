@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import React, { useState, useMemo, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Plus, Search, Pencil, Trash2, UserCircle, Users, ShieldCheck, X } from "lucide-react"
-import { crmUsers, type CRMUser } from "@/lib/crm-data"
+import { useCrmUsuarios } from "@/lib/hooks/useCrm"
+import type { CRMUser } from "@/lib/types"
 import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 
@@ -41,7 +42,10 @@ const Loading = () => null;
 
 export default function UsuariosPage() {
   const searchParams = useSearchParams();
-  const [users, setUsers] = useState<CRMUser[]>(crmUsers)
+  const { usuarios, loading, error, createUsuario, updateUsuario, deleteUsuario } = useCrmUsuarios()
+  const [users, setUsers] = useState<CRMUser[]>(usuarios)
+  useEffect(() => { setUsers(usuarios) }, [usuarios])
+
   const [searchTerm, setSearchTerm] = useState("")
   const [filterRol, setFilterRol] = useState<string>("todos")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
@@ -99,31 +103,19 @@ export default function UsuariosPage() {
     setIsDialogOpen(true)
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (editingUser) {
-      setUsers(
-        users.map((u) =>
-          u.id === editingUser.id
-            ? { ...u, ...formData, updatedAt: new Date() }
-            : u
-        )
-      )
+      await updateUsuario(editingUser.id, formData)
     } else {
-      const newUser: CRMUser = {
-        id: `user-${Date.now()}`,
-        ...formData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setUsers([newUser, ...users])
+      await createUsuario(formData as Omit<CRMUser, 'id' | 'createdAt' | 'updatedAt'>)
     }
     setIsDialogOpen(false)
     resetForm()
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (deleteId) {
-      setUsers(users.filter((u) => u.id !== deleteId))
+      await deleteUsuario(deleteId)
       setDeleteId(null)
     }
   }

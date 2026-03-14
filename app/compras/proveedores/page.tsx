@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -48,113 +47,94 @@ import {
   TrendingUp,
   Download,
 } from "lucide-react"
-import type { Supplier, SupplierContact, SupplierAddress } from "@/lib/compras-types"
-import {
-  suppliers as initialSuppliers,
-  supplierContacts as initialContacts,
-  supplierAddresses as initialAddresses,
-  paymentConditions,
-} from "@/lib/compras-data"
+import { useProveedores, useTercerosConfig } from "@/lib/hooks/useTerceros"
+import type { Tercero, CreateTerceroDto } from "@/lib/types/terceros"
 
 export default function ProveedoresPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  
-  const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers)
-  const [contacts, setContacts] = useState<SupplierContact[]>(initialContacts)
-  const [addresses, setAddresses] = useState<SupplierAddress[]>(initialAddresses)
+  const { terceros, loading, error, setSearch: setHookSearch, createProveedor, updateProveedor, deleteProveedor } = useProveedores()
+  const { condicionesIva } = useTercerosConfig()
+
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [isFormOpen, setIsFormOpen] = useState(false)
-  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
+  const [selectedSupplier, setSelectedSupplier] = useState<Tercero | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [detailSupplier, setDetailSupplier] = useState<Supplier | null>(null)
+  const [detailSupplier, setDetailSupplier] = useState<Tercero | null>(null)
 
   // Form state
-  const [formData, setFormData] = useState<Partial<Supplier>>({
-    codigo: "",
+  const [formData, setFormData] = useState<Partial<CreateTerceroDto>>({
     razonSocial: "",
-    nombreComercial: "",
-    cuit: "",
-    condicionImpositiva: "responsable_inscripto",
-    categoria: [],
-    sitioWeb: "",
-    estado: "activo",
-    proveedorPreferido: false,
-    requiereAprobacionEspecial: false,
-    rating: 0,
-    observaciones: "",
+    nombreFantasia: "",
+    nroDocumento: "",
+    condicionIvaId: 1,
+    esCliente: false,
+    esProveedor: true,
+    esEmpleado: false,
+    web: "",
+    observacion: "",
   })
 
-  const filteredSuppliers = suppliers.filter((supplier) => {
+  const filteredSuppliers = terceros.filter((t) => {
     const matchesSearch =
-      supplier.razonSocial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      supplier.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      supplier.cuit.includes(searchTerm)
-    const matchesEstado = filterEstado === "todos" || supplier.estado === filterEstado
+      t.razonSocial.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (t.nroDocumento ?? '').includes(searchTerm)
+    const matchesEstado = filterEstado === "todos" || (filterEstado === "activo" ? t.activo : !t.activo)
     return matchesSearch && matchesEstado
   })
 
   const handleNew = () => {
     setSelectedSupplier(null)
     setFormData({
-      codigo: `PROV-${String(suppliers.length + 1).padStart(3, '0')}`,
       razonSocial: "",
-      nombreComercial: "",
-      cuit: "",
-      condicionImpositiva: "responsable_inscripto",
-      categoria: [],
-      sitioWeb: "",
-      estado: "activo",
-      proveedorPreferido: false,
-      requiereAprobacionEspecial: false,
-      rating: 0,
-      observaciones: "",
+      nombreFantasia: "",
+      nroDocumento: "",
+      condicionIvaId: condicionesIva[0]?.id ?? 1,
+      esCliente: false,
+      esProveedor: true,
+      esEmpleado: false,
     })
     setIsFormOpen(true)
   }
 
-  const handleEdit = (supplier: Supplier) => {
+  const handleEdit = (supplier: Tercero) => {
     setSelectedSupplier(supplier)
-    setFormData(supplier)
+    setFormData({
+      razonSocial: supplier.razonSocial,
+      nombreFantasia: supplier.nombreFantasia,
+      nroDocumento: supplier.nroDocumento,
+      condicionIvaId: supplier.condicionIvaId,
+      esCliente: supplier.esCliente,
+      esProveedor: supplier.esProveedor,
+      esEmpleado: supplier.esEmpleado,
+      web: supplier.web,
+      observacion: supplier.observacion,
+    })
     setIsFormOpen(true)
   }
 
-  const handleViewDetail = (supplier: Supplier) => {
+  const handleViewDetail = (supplier: Tercero) => {
     setDetailSupplier(supplier)
     setIsDetailOpen(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (selectedSupplier) {
-      // Edit existing
-      setSuppliers(suppliers.map(s => s.id === selectedSupplier.id ? { ...selectedSupplier, ...formData, updatedAt: new Date() } : s))
+      await updateProveedor(selectedSupplier.id, formData)
     } else {
-      // Create new
-      const newSupplier: Supplier = {
-        ...formData as Supplier,
-        id: `prov-${Date.now()}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setSuppliers([...suppliers, newSupplier])
+      await createProveedor({ ...formData, esProveedor: true, esCliente: false, esEmpleado: false } as CreateTerceroDto)
     }
     setIsFormOpen(false)
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: number) => {
     if (confirm("¿Está seguro de eliminar este proveedor?")) {
-      setSuppliers(suppliers.filter(s => s.id !== id))
+      await deleteProveedor(id)
     }
   }
 
-  const getSupplierContacts = (supplierId: string) => {
-    return contacts.filter(c => c.proveedorId === supplierId)
-  }
-
-  const getSupplierAddresses = (supplierId: string) => {
-    return addresses.filter(a => a.proveedorId === supplierId)
-  }
+  // Contacts and addresses are shown from backend per-proveedor (API not yet wired)
+  const getSupplierContacts = (_id: number) => []
+  const getSupplierAddresses = (_id: number) => []
 
   const renderRating = (rating: number) => {
     return (
@@ -241,41 +221,38 @@ export default function ProveedoresPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredSuppliers.map((supplier) => (
+              {loading && (
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Cargando proveedores...</TableCell></TableRow>
+              )}
+              {error && (
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-destructive">{error}</TableCell></TableRow>
+              )}
+              {!loading && !error && filteredSuppliers.map((supplier) => (
                 <TableRow
                   key={supplier.id}
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() => handleViewDetail(supplier)}
                 >
-                  <TableCell className="font-medium">{supplier.codigo}</TableCell>
+                  <TableCell className="font-mono text-sm">#{supplier.id}</TableCell>
                   <TableCell>
                     <div>
                       <p className="font-medium">{supplier.razonSocial}</p>
-                      {supplier.nombreComercial && (
-                        <p className="text-sm text-muted-foreground">{supplier.nombreComercial}</p>
+                      {supplier.nombreFantasia && (
+                        <p className="text-sm text-muted-foreground">{supplier.nombreFantasia}</p>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>{supplier.cuit}</TableCell>
+                  <TableCell>{supplier.nroDocumento ?? '-'}</TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {supplier.categoria.slice(0, 2).map((cat, i) => (
-                        <Badge key={i} variant="secondary" className="text-xs">
-                          {cat}
-                        </Badge>
-                      ))}
-                      {supplier.categoria.length > 2 && (
-                        <Badge variant="secondary" className="text-xs">
-                          +{supplier.categoria.length - 2}
-                        </Badge>
-                      )}
-                    </div>
+                    <Badge variant="secondary" className="text-xs">
+                      {supplier.condicionIvaDescripcion ?? `Cond. ${supplier.condicionIvaId}`}
+                    </Badge>
                   </TableCell>
-                  <TableCell>30 días</TableCell>
-                  <TableCell>{renderRating(supplier.rating)}</TableCell>
+                  <TableCell>-</TableCell>
+                  <TableCell>{renderRating(0)}</TableCell>
                   <TableCell>
-                    <Badge variant={supplier.estado === "activo" ? "default" : "secondary"}>
-                      {supplier.estado}
+                    <Badge variant={supplier.activo ? "default" : "secondary"}>
+                      {supplier.activo ? 'activo' : 'inactivo'}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
@@ -298,6 +275,9 @@ export default function ProveedoresPage() {
                   </TableCell>
                 </TableRow>
               ))}
+              {!loading && !error && filteredSuppliers.length === 0 && (
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No se encontraron proveedores.</TableCell></TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>
@@ -317,107 +297,65 @@ export default function ProveedoresPage() {
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="codigo">Código</Label>
+                <Label htmlFor="razonSocial">Razón Social *</Label>
                 <Input
-                  id="codigo"
-                  value={formData.codigo}
-                  onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
+                  id="razonSocial"
+                  value={formData.razonSocial ?? ''}
+                  onChange={(e) => setFormData({ ...formData, razonSocial: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cuit">CUIT *</Label>
+                <Label htmlFor="nroDocumento">CUIT / Documento *</Label>
                 <Input
-                  id="cuit"
-                  value={formData.cuit}
-                  onChange={(e) => setFormData({ ...formData, cuit: e.target.value })}
+                  id="nroDocumento"
+                  value={formData.nroDocumento ?? ''}
+                  onChange={(e) => setFormData({ ...formData, nroDocumento: e.target.value })}
                   placeholder="XX-XXXXXXXX-X"
                 />
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="razonSocial">Razón Social *</Label>
+              <Label htmlFor="nombreFantasia">Nombre Fantasía</Label>
               <Input
-                id="razonSocial"
-                value={formData.razonSocial}
-                onChange={(e) => setFormData({ ...formData, razonSocial: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="nombreComercial">Nombre Comercial</Label>
-              <Input
-                id="nombreComercial"
-                value={formData.nombreComercial}
-                onChange={(e) => setFormData({ ...formData, nombreComercial: e.target.value })}
+                id="nombreFantasia"
+                value={formData.nombreFantasia ?? ''}
+                onChange={(e) => setFormData({ ...formData, nombreFantasia: e.target.value })}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="condicionImpositiva">Condición Impositiva</Label>
+                <Label htmlFor="condicionIvaId">Condición IVA</Label>
                 <Select
-                  value={formData.condicionImpositiva}
-                  onValueChange={(value: any) => setFormData({ ...formData, condicionImpositiva: value })}
+                  value={String(formData.condicionIvaId ?? 1)}
+                  onValueChange={(v) => setFormData({ ...formData, condicionIvaId: Number(v) })}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="responsable_inscripto">Responsable Inscripto</SelectItem>
-                    <SelectItem value="monotributista">Monotributista</SelectItem>
-                    <SelectItem value="exento">Exento</SelectItem>
-                    <SelectItem value="consumidor_final">Consumidor Final</SelectItem>
+                    {condicionesIva.map(c => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.descripcion}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="estado">Estado</Label>
-                <Select
-                  value={formData.estado}
-                  onValueChange={(value: any) => setFormData({ ...formData, estado: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="activo">Activo</SelectItem>
-                    <SelectItem value="inactivo">Inactivo</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="web">Sitio Web</Label>
+                <Input
+                  id="web"
+                  type="url"
+                  value={formData.web ?? ''}
+                  onChange={(e) => setFormData({ ...formData, web: e.target.value })}
+                  placeholder="https://..."
+                />
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="sitioWeb">Sitio Web</Label>
-              <Input
-                id="sitioWeb"
-                type="url"
-                value={formData.sitioWeb}
-                onChange={(e) => setFormData({ ...formData, sitioWeb: e.target.value })}
-                placeholder="https://..."
-              />
-            </div>
-            <div className="flex gap-4">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="proveedorPreferido"
-                  checked={formData.proveedorPreferido}
-                  onCheckedChange={(checked) => setFormData({ ...formData, proveedorPreferido: checked as boolean })}
-                />
-                <Label htmlFor="proveedorPreferido">Proveedor Preferido</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="requiereAprobacionEspecial"
-                  checked={formData.requiereAprobacionEspecial}
-                  onCheckedChange={(checked) => setFormData({ ...formData, requiereAprobacionEspecial: checked as boolean })}
-                />
-                <Label htmlFor="requiereAprobacionEspecial">Requiere Aprobación Especial</Label>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="observaciones">Observaciones</Label>
+              <Label htmlFor="observacion">Observaciones</Label>
               <Textarea
-                id="observaciones"
-                value={formData.observaciones}
-                onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
+                id="observacion"
+                value={formData.observacion ?? ''}
+                onChange={(e) => setFormData({ ...formData, observacion: e.target.value })}
                 rows={3}
               />
             </div>
@@ -440,7 +378,7 @@ export default function ProveedoresPage() {
               {detailSupplier?.razonSocial}
             </DialogTitle>
             <DialogDescription>
-              Código: {detailSupplier?.codigo} | CUIT: {detailSupplier?.cuit}
+              ID: {detailSupplier?.id} | Doc: {detailSupplier?.nroDocumento ?? '-'}
             </DialogDescription>
           </DialogHeader>
 
@@ -468,35 +406,41 @@ export default function ProveedoresPage() {
                       <p className="font-medium">{detailSupplier?.razonSocial}</p>
                     </div>
                     <div>
-                      <Label className="text-muted-foreground">Nombre Comercial</Label>
-                      <p className="font-medium">{detailSupplier?.nombreComercial || "-"}</p>
+                      <Label className="text-muted-foreground">Nombre Fantasía</Label>
+                      <p className="font-medium">{detailSupplier?.nombreFantasia || "-"}</p>
                     </div>
                     <div>
-                      <Label className="text-muted-foreground">CUIT</Label>
-                      <p className="font-medium">{detailSupplier?.cuit}</p>
+                      <Label className="text-muted-foreground">Nro. Documento</Label>
+                      <p className="font-medium">{detailSupplier?.nroDocumento ?? '-'}</p>
                     </div>
                     <div>
-                      <Label className="text-muted-foreground">Condición Impositiva</Label>
-                      <p className="font-medium capitalize">{detailSupplier?.condicionImpositiva.replace('_', ' ')}</p>
+                      <Label className="text-muted-foreground">Condición IVA</Label>
+                      <p className="font-medium">{detailSupplier?.condicionIvaDescripcion ?? `Cond. ${detailSupplier?.condicionIvaId}`}</p>
                     </div>
                     <div>
-                      <Label className="text-muted-foreground">Rating</Label>
-                      <div className="mt-1">{detailSupplier && renderRating(detailSupplier.rating)}</div>
+                      <Label className="text-muted-foreground">Teléfono</Label>
+                      <p className="font-medium">{detailSupplier?.telefono ?? '-'}</p>
                     </div>
                     <div>
                       <Label className="text-muted-foreground">Estado</Label>
-                      <Badge variant={detailSupplier?.estado === "activo" ? "default" : "secondary"} className="mt-1">
-                        {detailSupplier?.estado}
+                      <Badge variant={detailSupplier?.activo ? "default" : "secondary"} className="mt-1">
+                        {detailSupplier?.activo ? 'activo' : 'inactivo'}
                       </Badge>
                     </div>
-                    {detailSupplier?.sitioWeb && (
+                    {detailSupplier?.web && (
                       <div className="col-span-2">
                         <Label className="text-muted-foreground">Sitio Web</Label>
                         <p>
-                          <a href={detailSupplier.sitioWeb} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                            {detailSupplier.sitioWeb}
+                          <a href={detailSupplier.web} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                            {detailSupplier.web}
                           </a>
                         </p>
+                      </div>
+                    )}
+                    {detailSupplier?.email && (
+                      <div className="col-span-2">
+                        <Label className="text-muted-foreground">Email</Label>
+                        <p className="font-medium">{detailSupplier.email}</p>
                       </div>
                     )}
                   </CardContent>
@@ -665,8 +609,8 @@ export default function ProveedoresPage() {
                     <div>
                       <p className="text-sm text-muted-foreground">Rating Actual</p>
                       <div className="flex items-center gap-3 mt-2">
-                        {detailSupplier && renderRating(detailSupplier.rating)}
-                        <span className="text-2xl font-bold">{detailSupplier?.rating}/5</span>
+                        {detailSupplier && renderRating(0)}
+                        <span className="text-2xl font-bold">-/5</span>
                       </div>
                     </div>
                     <Button>

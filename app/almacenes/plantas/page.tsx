@@ -24,62 +24,42 @@ import {
   Grid3x3,
   AlertCircle
 } from 'lucide-react'
-import { warehouses } from '@/lib/wms-data'
+import { useDepositos } from '@/lib/hooks/useDepositos'
+import { useDefaultSucursalId } from '@/lib/hooks/useSucursales'
+import type { Deposito } from '@/lib/types/depositos'
 
 export default function PlantasPage() {
-  const [warehouseList, setWarehouseList] = useState(warehouses)
-  const [selectedWarehouse, setSelectedWarehouse] = useState(null)
+  const defaultSucursalId = useDefaultSucursalId()
+  const { depositos, crear, actualizar, eliminar } = useDepositos(defaultSucursalId)
+  const [selectedWarehouse, setSelectedWarehouse] = useState<Deposito | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
-  const [editingWarehouse, setEditingWarehouse] = useState(null)
+  const [editingWarehouse, setEditingWarehouse] = useState<Deposito | null>(null)
   const [formData, setFormData] = useState({
-    code: '',
-    name: '',
-    type: 'principal',
-    address: '',
-    capacity: 0,
-    supervisor: '',
+    descripcion: '',
+    esDefault: false,
   })
 
-  const handleOpenDetail = (warehouse) => {
-    setSelectedWarehouse(warehouse)
+  const handleOpenDetail = (d: Deposito) => {
+    setSelectedWarehouse(d)
     setIsDetailOpen(true)
   }
 
-  const handleEdit = (warehouse) => {
-    setEditingWarehouse(warehouse)
-    setFormData({
-      code: warehouse.code,
-      name: warehouse.name,
-      type: warehouse.type,
-      address: warehouse.address,
-      capacity: warehouse.capacity,
-      supervisor: warehouse.supervisor || '',
-    })
+  const handleEdit = (d: Deposito) => {
+    setEditingWarehouse(d)
+    setFormData({ descripcion: d.descripcion, esDefault: d.esDefault })
     setIsFormOpen(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (editingWarehouse) {
-      setWarehouseList(warehouseList.map(w => 
-        w.id === editingWarehouse.id 
-          ? { ...w, ...formData }
-          : w
-      ))
+      await actualizar(editingWarehouse.id, formData.descripcion, formData.esDefault)
     } else {
-      setWarehouseList([...warehouseList, {
-        id: `wh-${Date.now()}`,
-        ...formData,
-        zones: [],
-        occupancy_percentage: 0,
-        status: 'activo',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }])
+      await crear({ sucursalId: defaultSucursalId ?? 1, descripcion: formData.descripcion, esDefault: formData.esDefault })
     }
     setIsFormOpen(false)
     setEditingWarehouse(null)
-    setFormData({ code: '', name: '', type: 'principal', address: '', capacity: 0, supervisor: '' })
+    setFormData({ descripcion: '', esDefault: false })
   }
 
   return (
@@ -96,10 +76,10 @@ export default function PlantasPage() {
         </Button>
       </div>
 
-      {/* Grid de Almacenes */}
+      {/* Grid de Depósitos */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {warehouseList.map((warehouse) => (
-          <Card key={warehouse.id} className="hover:shadow-lg transition-shadow cursor-pointer">
+        {depositos.map((deposito) => (
+          <Card key={deposito.id} className="hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3 flex-1">
@@ -107,69 +87,55 @@ export default function PlantasPage() {
                     <WarehouseIcon className="h-5 w-5 text-purple-600" />
                   </div>
                   <div className="flex-1">
-                    <CardTitle className="text-lg">{warehouse.name}</CardTitle>
-                    <p className="text-xs text-muted-foreground">{warehouse.code}</p>
+                    <CardTitle className="text-lg">{deposito.descripcion}</CardTitle>
+                    <p className="text-xs text-muted-foreground">ID: {deposito.id}</p>
                   </div>
                 </div>
                 <Badge variant="outline" className={
-                  warehouse.status === 'activo' 
+                  deposito.activo
                     ? 'bg-green-50 text-green-700 border-green-200'
                     : 'bg-red-50 text-red-700 border-red-200'
                 }>
-                  {warehouse.status}
+                  {deposito.activo ? 'Activo' : 'Inactivo'}
                 </Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Tipo */}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Tipo:</span>
-                <Badge variant="secondary">{warehouse.type}</Badge>
-              </div>
-
-              {/* Ocupación */}
-              <div className="space-y-2">
+              {deposito.esDefault && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Ocupación:</span>
-                  <span className="font-semibold">{warehouse.occupancy_percentage}%</span>
+                  <span className="text-muted-foreground">Tipo:</span>
+                  <Badge variant="secondary">Por Defecto</Badge>
                 </div>
-                <Progress value={warehouse.occupancy_percentage} />
-              </div>
+              )}
 
-              {/* Capacidad */}
               <div className="text-sm">
-                <span className="text-muted-foreground">Capacidad: </span>
-                <span className="font-semibold">{warehouse.capacity} {warehouse.capacityUnit}</span>
-              </div>
-
-              {/* Ubicaciones */}
-              <div className="text-sm">
-                <span className="text-muted-foreground">Ubicaciones: </span>
-                <span className="font-semibold">0 configuradas</span>
+                <span className="text-muted-foreground">Sucursal ID: </span>
+                <span className="font-semibold">{deposito.sucursalId}</span>
               </div>
 
               {/* Botones */}
               <div className="flex gap-2 pt-2">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="flex-1 bg-transparent"
-                  onClick={() => handleOpenDetail(warehouse)}
+                  onClick={() => handleOpenDetail(deposito)}
                 >
                   <Eye className="h-4 w-4 mr-2" />
                   Ver
                 </Button>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="icon"
-                  onClick={() => handleEdit(warehouse)}
+                  onClick={() => handleEdit(deposito)}
                 >
                   <Edit className="h-4 w-4" />
                 </Button>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="icon"
                   className="text-destructive hover:text-destructive bg-transparent"
+                  onClick={async () => { await eliminar(deposito.id) }}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -185,99 +151,31 @@ export default function PlantasPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <WarehouseIcon className="h-5 w-5" />
-              {selectedWarehouse?.name}
+              {selectedWarehouse?.descripcion}
             </DialogTitle>
-            <DialogDescription>{selectedWarehouse?.code}</DialogDescription>
+            <DialogDescription>ID: {selectedWarehouse?.id}</DialogDescription>
           </DialogHeader>
 
-          <Tabs defaultValue="general" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="ubicaciones">Ubicaciones</TabsTrigger>
-              <TabsTrigger value="inventario">Inventario</TabsTrigger>
-              <TabsTrigger value="config">Config</TabsTrigger>
-            </TabsList>
-
-            {/* Tab General */}
-            <TabsContent value="general" className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground block mb-1">Código</span>
-                  <p className="font-semibold">{selectedWarehouse?.code}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Tipo</span>
-                  <Badge variant="secondary">{selectedWarehouse?.type}</Badge>
-                </div>
-                <div className="col-span-2">
-                  <span className="text-muted-foreground block mb-1">Dirección</span>
-                  <p className="text-sm flex items-start gap-2">
-                    <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                    {selectedWarehouse?.address}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Supervisor</span>
-                  <p className="font-semibold flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    {selectedWarehouse?.supervisor || 'No asignado'}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Control de Temperatura</span>
-                  <p className="font-semibold">
-                    {selectedWarehouse?.temperature_controlled ? 'Sí' : 'No'}
-                  </p>
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Tab Ubicaciones */}
-            <TabsContent value="ubicaciones" className="space-y-4 mt-4">
-              <Alert>
-                <Grid3x3 className="h-4 w-4" />
-                <AlertDescription>
-                  No hay ubicaciones configuradas. Crea una estructura de pasillo-rack-nivel.
-                </AlertDescription>
-              </Alert>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Configurar Ubicaciones
-              </Button>
-            </TabsContent>
-
-            {/* Tab Inventario */}
-            <TabsContent value="inventario" className="space-y-4 mt-4">
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Ocupación:</span>
-                  <span className="font-semibold">{selectedWarehouse?.occupancy_percentage}%</span>
-                </div>
-                <Progress value={selectedWarehouse?.occupancy_percentage || 0} />
-                <div className="flex justify-between pt-2">
-                  <span className="text-muted-foreground">Capacidad total:</span>
-                  <span className="font-semibold">
-                    {selectedWarehouse?.capacity} {selectedWarehouse?.capacityUnit}
-                  </span>
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Tab Config */}
-            <TabsContent value="config" className="space-y-4 mt-4">
-              <Alert>
-                <Settings className="h-4 w-4" />
-                <AlertDescription>
-                  Configuración avanzada del almacén
-                </AlertDescription>
-              </Alert>
-              <div className="space-y-3">
-                <Button variant="outline" className="w-full bg-transparent">Reglas de Almacenamiento</Button>
-                <Button variant="outline" className="w-full bg-transparent">Zonas Especiales</Button>
-                <Button variant="outline" className="w-full bg-transparent">Capacidades Límite</Button>
-              </div>
-            </TabsContent>
-          </Tabs>
+          <div className="grid grid-cols-2 gap-4 text-sm py-4">
+            <div>
+              <span className="text-muted-foreground block mb-1">Descripción</span>
+              <p className="font-semibold">{selectedWarehouse?.descripcion}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground block mb-1">Estado</span>
+              <Badge variant={selectedWarehouse?.activo ? 'default' : 'secondary'}>
+                {selectedWarehouse?.activo ? 'Activo' : 'Inactivo'}
+              </Badge>
+            </div>
+            <div>
+              <span className="text-muted-foreground block mb-1">Sucursal ID</span>
+              <p className="font-semibold">{selectedWarehouse?.sucursalId}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground block mb-1">Por Defecto</span>
+              <p className="font-semibold">{selectedWarehouse?.esDefault ? 'Sí' : 'No'}</p>
+            </div>
+          </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDetailOpen(false)}>Cerrar</Button>
@@ -297,64 +195,23 @@ export default function PlantasPage() {
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Código</Label>
+              <Label>Descripción</Label>
               <Input
-                value={formData.code}
-                onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                placeholder="ALM-001"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Nombre</Label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                value={formData.descripcion}
+                onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
                 placeholder="Almacén Principal"
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Tipo</Label>
-              <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="principal">Principal</SelectItem>
-                  <SelectItem value="satelite">Satélite</SelectItem>
-                  <SelectItem value="crossdocking">Cross-docking</SelectItem>
-                  <SelectItem value="cuarentena">Cuarentena</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Dirección</Label>
-              <Input
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                placeholder="Calle y número"
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="esDefault"
+                checked={formData.esDefault}
+                onChange={(e) => setFormData({ ...formData, esDefault: e.target.checked })}
+                className="h-4 w-4"
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Capacidad</Label>
-              <Input
-                type="number"
-                value={formData.capacity}
-                onChange={(e) => setFormData({ ...formData, capacity: Number(e.target.value) })}
-                placeholder="5000"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Supervisor</Label>
-              <Input
-                value={formData.supervisor}
-                onChange={(e) => setFormData({ ...formData, supervisor: e.target.value })}
-                placeholder="Nombre del supervisor"
-              />
+              <Label htmlFor="esDefault">Depósito por defecto</Label>
             </div>
           </div>
 

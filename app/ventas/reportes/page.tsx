@@ -13,7 +13,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
-import { ventasStats, salesOrders, invoices, customers, products, promotions, priceLists } from '@/lib/sales-data'
+import { useComprobantes } from '@/lib/hooks/useComprobantes'
+import { useTerceros } from '@/lib/hooks/useTerceros'
+import { useItems } from '@/lib/hooks/useItems'
 
 function fmtARS(n: number) {
   return n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
@@ -33,68 +35,6 @@ const monthlyData = [
   { mes: 'Feb', ventas: 1245000, costo: 740000, margen: 505000 },
 ]
 
-const topClientes = customers
-  .sort((a, b) => (b.balanceCliente?.totalComprado ?? 0) - (a.balanceCliente?.totalComprado ?? 0))
-  .slice(0, 8)
-
-const topProductos = products
-  .map(p => ({ ...p, ventasTotales: Math.floor(Math.random() * 50 + 5), ingresos: p.precioVenta * Math.floor(Math.random() * 50 + 5) }))
-  .sort((a, b) => b.ingresos - a.ingresos)
-  .slice(0, 10)
-
-const clientesPorGrupo = ['mayorista', 'minorista', 'distribuidor', 'vip', 'gobierno'].map(g => ({
-  name: g.charAt(0).toUpperCase() + g.slice(1),
-  value: customers.filter(c => c.grupo === g).length,
-})).filter(x => x.value > 0)
-
-const productosCategoria = products.reduce<Record<string, number>>((acc, p) => {
-  const cat = p.categoria ?? 'Sin categoría'
-  acc[cat] = (acc[cat] ?? 0) + p.precioVenta
-  return acc
-}, {})
-const categoriaData = Object.entries(productosCategoria).map(([name, value]) => ({ name, value }))
-
-// Libro IVA Ventas data
-const libroIVA = invoices
-  .filter(i => i.estado !== 'cancelada')
-  .map(i => {
-    const c = customers.find(x => x.id === i.clienteId)
-    return {
-      ...i,
-      razonSocial: c?.razonSocial ?? i.clienteId,
-      cuit: c?.cuitCuil ?? '-',
-      condicion: c?.condicionImpositiva ?? '-',
-    }
-  })
-
-const libroIVATotals = libroIVA.reduce((acc, i) => ({
-  neto:   acc.neto   + i.subtotal,
-  iva21:  acc.iva21  + i.iva21,
-  iva105: acc.iva105 + i.iva105,
-  iva27:  acc.iva27  + i.iva27,
-  total:  acc.total  + i.total,
-}), { neto: 0, iva21: 0, iva105: 0, iva27: 0, total: 0 })
-
-// Margin analysis
-const margenPorProducto = products.map(p => ({
-  sku:   p.sku,
-  nombre: p.nombre,
-  costo: p.costoProm,
-  precio: p.precioVenta,
-  margen: ((p.precioVenta - p.costoProm) / p.precioVenta) * 100,
-  margenAbs: p.precioVenta - p.costoProm,
-  categoria: p.categoria ?? 'General',
-})).sort((a, b) => b.margen - a.margen)
-
-// Promotion effectiveness (simulated)
-const promoEfectividad = promotions.map((p, i) => ({
-  ...p,
-  usos:          Math.floor(Math.random() * (p.limiteUsos ?? 30) * 0.8),
-  ventasGeneradas: Math.floor(Math.random() * 300000 + 50000),
-  clientesImpactados: Math.floor(Math.random() * 15 + 2),
-  efectividad:   Math.floor(Math.random() * 60 + 30),
-}))
-
 // ─── Reusable Chart Tooltip ───────────────────────────────────────────────────
 
 function customTooltipFormatter(value: number) {
@@ -104,17 +44,73 @@ function customTooltipFormatter(value: number) {
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 const ReportesPage = () => {
+  const { comprobantes } = useComprobantes()
+  const { terceros } = useTerceros()
+  const { items } = useItems()
   const [periodoFilter, setPeriodoFilter] = useState('mes')
   const [tab, setTab]                     = useState('ejecutivo')
 
-  const kpis = {
-    ingresosMes: ventasStats.ingresosMes,
-    variacion:   ventasStats.variacionIngresos,
-    ticketProm:  salesOrders.reduce((s, o) => s + o.total, 0) / (salesOrders.length || 1),
-    conversion:  (invoices.length / salesOrders.length) * 100,
-    activosClientes: customers.filter(c => c.estado === 'activo').length,
-    margenProm:  margenPorProducto.reduce((s, p) => s + p.margen, 0) / margenPorProducto.length,
-  }
+  const margenPorProducto = React.useMemo(() => items.map(p => ({
+    sku:      p.codigo,
+    nombre:   p.descripcion,
+    costo:    p.precioCosto,
+    precio:   p.precioVenta,
+    margen:   p.precioVenta > 0 ? ((p.precioVenta - p.precioCosto) / p.precioVenta) * 100 : 0,
+    margenAbs: p.precioVenta - p.precioCosto,
+    categoria: p.categoriaDescripcion ?? 'General',
+  })).sort((a, b) => b.margen - a.margen), [items])
+
+  const topClientes = React.useMemo(() => terceros.slice(0, 8), [terceros])
+
+  const libroIVA = React.useMemo(() => comprobantes.filter(c => c.estado !== 'ANULADO').map(c => {
+    const t = terceros.find(x => x.id === c.terceroId)
+    return {
+      id:             c.id,
+      fecha:          c.fecha,
+      nroComprobante: c.nroComprobante ?? '-',
+      tipo:           c.tipoComprobanteDescripcion ?? '-',
+      razonSocial:    t?.razonSocial ?? String(c.terceroId),
+      cuit:           t?.nroDocumento ?? '-',
+      subtotal:       c.netoGravado,
+      iva21:          c.ivaRi,
+      iva105:         c.ivaRni,
+      total:          c.total,
+    }
+  }), [comprobantes, terceros])
+
+  const libroIVATotals = React.useMemo(() => libroIVA.reduce((acc, i) => ({
+    neto:   acc.neto   + i.subtotal,
+    iva21:  acc.iva21  + i.iva21,
+    iva105: acc.iva105 + i.iva105,
+    iva27:  0,
+    total:  acc.total  + i.total,
+  }), { neto: 0, iva21: 0, iva105: 0, iva27: 0, total: 0 }), [libroIVA])
+
+  const clientesPorGrupo = React.useMemo(() => [
+    { name: 'Activos',   value: terceros.filter(t => t.activo).length },
+    { name: 'Inactivos', value: terceros.filter(t => !t.activo).length },
+  ].filter(x => x.value > 0), [terceros])
+
+  const estadosPedidosLocal = React.useMemo(() => [
+    { name: 'Borrador',   value: comprobantes.filter(c => c.estado === 'BORRADOR').length },
+    { name: 'Emitido',    value: comprobantes.filter(c => c.estado === 'EMITIDO').length },
+    { name: 'Pago Parc.', value: comprobantes.filter(c => c.estado === 'PAGADO_PARCIAL').length },
+    { name: 'Pagado',     value: comprobantes.filter(c => c.estado === 'PAGADO').length },
+    { name: 'Anulado',    value: comprobantes.filter(c => c.estado === 'ANULADO').length },
+  ], [comprobantes])
+
+  const kpis = React.useMemo(() => ({
+    ingresosMes: comprobantes.reduce((s, c) => s + c.total, 0),
+    variacion:   0,
+    ticketProm:  comprobantes.reduce((s, c) => s + c.total, 0) / (comprobantes.length || 1),
+    conversion:  comprobantes.length > 0
+      ? (comprobantes.filter(c => c.estado === 'PAGADO').length / comprobantes.length) * 100
+      : 0,
+    activosClientes: terceros.filter(t => t.activo).length,
+    margenProm:  margenPorProducto.length > 0
+      ? margenPorProducto.reduce((s, p) => s + p.margen, 0) / margenPorProducto.length
+      : 0,
+  }), [comprobantes, terceros, margenPorProducto])
 
   return (
     <div className="space-y-6 pb-6">
@@ -149,7 +145,7 @@ const ReportesPage = () => {
           { label: 'Conversión',      value: `${kpis.conversion.toFixed(1)}%`,               delta: null, deltaUp: true },
           { label: 'Clientes Activos', value: String(kpis.activosClientes),                  delta: null, deltaUp: true },
           { label: 'Margen Prom.',    value: `${kpis.margenProm.toFixed(1)}%`,               delta: null, deltaUp: true },
-          { label: 'Total Facturas',  value: String(invoices.length),                        delta: null, deltaUp: true },
+          { label: 'Total Comprobantes', value: String(comprobantes.length),             delta: null, deltaUp: true },
         ].map(k => (
           <Card key={k.label}>
             <CardContent className="pt-4 pb-4">
@@ -216,14 +212,7 @@ const ReportesPage = () => {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={[
-                    { name: 'Borrador',     value: salesOrders.filter(o => o.estado === 'borrador').length },
-                    { name: 'Confirmado',   value: salesOrders.filter(o => o.estado === 'confirmado').length },
-                    { name: 'Preparación',  value: salesOrders.filter(o => o.estado === 'en_preparacion').length },
-                    { name: 'Despachado',   value: salesOrders.filter(o => o.estado === 'despachado').length },
-                    { name: 'Facturado',    value: salesOrders.filter(o => o.estado === 'facturado').length },
-                    { name: 'Cancelado',    value: salesOrders.filter(o => o.estado === 'cancelado').length },
-                  ]}>
+                  <BarChart data={estadosPedidosLocal}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                     <YAxis tick={{ fontSize: 11 }} />
@@ -262,10 +251,10 @@ const ReportesPage = () => {
                       <span className="text-xs font-mono text-muted-foreground w-5">{i + 1}</span>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{c.razonSocial}</p>
-                        <p className="text-xs text-muted-foreground">{c.grupo}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{c.nroDocumento}</p>
                       </div>
-                      <span className="text-sm font-semibold text-primary shrink-0">
-                        ${fmtARS(c.balanceCliente?.totalComprado ?? 0)}
+                      <span className="text-sm text-muted-foreground shrink-0">
+                        {c.activo ? 'Activo' : 'Inactivo'}
                       </span>
                     </div>
                   ))}
@@ -325,15 +314,15 @@ const ReportesPage = () => {
                   {libroIVA.map(i => (
                     <TableRow key={i.id} className="text-sm">
                       <TableCell>{new Date(i.fecha).toLocaleDateString('es-AR')}</TableCell>
-                      <TableCell className="font-mono">{i.puntoVenta}-{i.numero}</TableCell>
+                      <TableCell className="font-mono">{i.nroComprobante}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="font-mono text-xs uppercase">
-                          {i.tipo.replace('factura_', 'F. ')}
+                          {i.tipo}
                         </Badge>
                       </TableCell>
                       <TableCell className="font-medium">{i.razonSocial}</TableCell>
                       <TableCell className="font-mono text-xs">{i.cuit}</TableCell>
-                      <TableCell className="text-xs capitalize">{i.condicion.replace('_', ' ')}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">-</TableCell>
                       <TableCell className="text-right">${fmtARS(i.subtotal)}</TableCell>
                       <TableCell className="text-right text-purple-600">{i.iva21 > 0 ? `$${fmtARS(i.iva21)}` : '-'}</TableCell>
                       <TableCell className="text-right text-purple-400">{i.iva105 > 0 ? `$${fmtARS(i.iva105)}` : '-'}</TableCell>
@@ -421,15 +410,10 @@ const ReportesPage = () => {
                 <CardTitle className="text-sm">Ventas Generadas por Promoción</CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={promoEfectividad}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="nombre" tick={{ fontSize: 9 }} />
-                    <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}K`} tick={{ fontSize: 10 }} />
-                    <Tooltip formatter={(v: number) => [`$${fmtARS(v)}`, 'Ventas']} />
-                    <Bar dataKey="ventasGeneradas" fill="#f59e0b" radius={[3, 3, 0, 0]} name="Ventas $" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <div className="p-8 text-center text-muted-foreground">
+                  <p className="font-medium">Sin datos de promociones</p>
+                  <p className="text-xs mt-1">No hay un endpoint de promociones disponible</p>
+                </div>
               </CardContent>
             </Card>
 
@@ -439,43 +423,10 @@ const ReportesPage = () => {
                 <CardDescription>Clientes impactados y tasa de uso</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Promoción</TableHead>
-                      <TableHead>Estado</TableHead>
-                      <TableHead className="text-right">Usos</TableHead>
-                      <TableHead className="text-right">Clientes</TableHead>
-                      <TableHead className="text-right">Efectividad</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {promoEfectividad.map(p => (
-                      <TableRow key={p.id}>
-                        <TableCell>
-                          <p className="font-medium text-xs">{p.nombre}</p>
-                          <p className="text-xs text-muted-foreground capitalize">{p.tipo.replace('_', ' ')}</p>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={p.estado === 'activa' ? 'default' : p.estado === 'finalizada' ? 'outline' : 'secondary'} className="text-xs">
-                            {p.estado}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right text-sm">
-                          {p.usos}{p.limiteUsos ? ` / ${p.limiteUsos}` : ''}
-                        </TableCell>
-                        <TableCell className="text-right text-sm">{p.clientesImpactados}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <span className={`font-semibold text-sm ${p.efectividad >= 70 ? 'text-green-600' : p.efectividad >= 40 ? 'text-orange-600' : 'text-red-600'}`}>
-                              {p.efectividad}%
-                            </span>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <div className="p-8 text-center text-muted-foreground">
+                  <p className="font-medium">Sin datos de promociones</p>
+                  <p className="text-xs mt-1">No hay un endpoint de promociones disponible en esta versión</p>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -490,10 +441,10 @@ const ReportesPage = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3 pt-2">
-                  {(['activo', 'inactivo', 'moroso', 'bloqueado'] as const).map(e => {
-                    const n    = customers.filter(c => c.estado === e).length
-                    const pct  = Math.round((n / customers.length) * 100)
-                    const color = { activo: 'bg-green-500', inactivo: 'bg-gray-400', moroso: 'bg-orange-500', bloqueado: 'bg-red-500' }[e]
+                  {(['activo', 'inactivo'] as const).map(e => {
+                    const n   = e === 'activo' ? terceros.filter(t => t.activo).length : terceros.filter(t => !t.activo).length
+                    const pct = terceros.length > 0 ? Math.round((n / terceros.length) * 100) : 0
+                    const color = e === 'activo' ? 'bg-green-500' : 'bg-gray-400'
                     return (
                       <div key={e} className="space-y-1">
                         <div className="flex justify-between text-sm">
@@ -531,10 +482,10 @@ const ReportesPage = () => {
                         <TableCell className="font-mono text-muted-foreground text-xs">{i + 1}</TableCell>
                         <TableCell className="font-medium text-sm">{c.razonSocial}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="capitalize text-xs">{c.grupo}</Badge>
+                          <Badge variant="outline" className="capitalize text-xs">{c.activo ? 'Activo' : 'Inactivo'}</Badge>
                         </TableCell>
                         <TableCell className="text-right font-semibold text-primary text-sm">
-                          ${fmtARS(c.balanceCliente?.totalComprado ?? 0)}
+                          {c.nroDocumento}
                         </TableCell>
                       </TableRow>
                     ))}

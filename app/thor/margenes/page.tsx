@@ -11,16 +11,17 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { obtenerTopProductosPorMargen, thorProducts } from '@/lib/thor-data'
+import { useThorMargenes } from '@/lib/hooks/useThor'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LineChart, Line } from 'recharts'
 
 const MargeneModule = () => {
+  const { productos: thorProducts } = useThorMargenes()
   const [sortBy, setSortBy] = useState('margenDolar')
   const [categoryFilter, setCategoryFilter] = useState('todos')
   const [searchTerm, setSearchTerm] = useState('')
 
   const topProducts = useMemo(() => {
-    let filtered = obtenerTopProductosPorMargen()
+    let filtered = [...thorProducts].sort((a, b) => b.margenDolar - a.margenDolar).slice(0, 10)
     
     if (categoryFilter !== 'todos') {
       filtered = filtered.filter(p => p.categoria === categoryFilter)
@@ -34,7 +35,7 @@ const MargeneModule = () => {
     }
     
     return filtered
-  }, [categoryFilter, searchTerm])
+  }, [categoryFilter, searchTerm, thorProducts])
 
   const categorias = ['todos', ...new Set(thorProducts.map(p => p.categoria))]
 

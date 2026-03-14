@@ -5,10 +5,14 @@ import { BarChart3, TrendingUp, Users, Briefcase, AlertCircle, Calendar } from '
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { proyectos, miembros, clientes } from '@/lib/proyectos-data'
+import { useProyectos, useMiembros, useClientesProyectos } from '@/lib/hooks/useProyectos'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
 
 const ProyectosDashboard = () => {
+  const { proyectos } = useProyectos()
+  const { miembros } = useMiembros()
+  const { clientes } = useClientesProyectos()
+
   const estadisticas = {
     activos: proyectos.filter(p => p.estado === 'En Curso').length,
     completados: proyectos.filter(p => p.estado === 'Completado').length,

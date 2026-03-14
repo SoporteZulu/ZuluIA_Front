@@ -7,12 +7,19 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
-import { vendedoresMetricas, vendedores } from '@/lib/thor-data'
+import { useThorVendedores } from '@/lib/hooks/useThor'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const VendedoresModule = () => {
-  const [selectedVendedor, setSelectedVendedor] = useState(vendedoresMetricas[0])
+  const { metricas: vendedoresMetricas } = useThorVendedores()
+  const [selectedVendedor, setSelectedVendedor] = useState<typeof vendedoresMetricas[0] | undefined>(undefined)
   const [periodFilter, setPeriodFilter] = useState('mes')
+
+  React.useEffect(() => {
+    if (vendedoresMetricas.length > 0 && !selectedVendedor) {
+      setSelectedVendedor(vendedoresMetricas[0])
+    }
+  }, [vendedoresMetricas, selectedVendedor])
 
   const sorted = [...vendedoresMetricas].sort((a, b) => b.totalVendido - a.totalVendido)
   const top3 = sorted.slice(0, 3)
@@ -21,27 +28,27 @@ const VendedoresModule = () => {
   const radarData = [
     {
       metric: 'Ventas',
-      vendedor: (selectedVendedor.totalVendido / 189000) * 100,
+      vendedor: selectedVendedor ? (selectedVendedor.totalVendido / 189000) * 100 : 0,
       promedio: 66,
     },
     {
       metric: 'Transacciones',
-      vendedor: (selectedVendedor.numeroTransacciones / 562) * 100,
+      vendedor: selectedVendedor ? (selectedVendedor.numeroTransacciones / 562) * 100 : 0,
       promedio: 64,
     },
     {
       metric: 'Ticket Promedio',
-      vendedor: (selectedVendedor.ticketPromedio / 337) * 100,
+      vendedor: selectedVendedor ? (selectedVendedor.ticketPromedio / 337) * 100 : 0,
       promedio: 63,
     },
     {
       metric: 'Conversión',
-      vendedor: selectedVendedor.tasaConversion,
+      vendedor: selectedVendedor?.tasaConversion ?? 0,
       promedio: 42,
     },
   ]
 
-  const productosData = selectedVendedor.productosTopVendidos.map(p => ({
+  const productosData = (selectedVendedor?.productosTopVendidos ?? []).map(p => ({
     nombre: p.sku,
     monto: p.monto,
   }))
@@ -191,7 +198,7 @@ const VendedoresModule = () => {
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="md:col-span-2">
               <CardHeader>
-                <CardTitle className="text-base">Top 3 Productos - {selectedVendedor.vendedor.nombre}</CardTitle>
+                <CardTitle className="text-base">Top 3 Productos - {selectedVendedor?.vendedor.nombre}</CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={250}>
@@ -211,7 +218,7 @@ const VendedoresModule = () => {
                 <CardTitle className="text-base">Detalle del Período</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {selectedVendedor.productosTopVendidos.map((prod, idx) => (
+                {(selectedVendedor?.productosTopVendidos ?? []).map((prod, idx) => (
                   <div key={idx} className="p-2 rounded-lg bg-muted">
                     <p className="text-xs font-semibold">{prod.nombre}</p>
                     <div className="flex justify-between mt-1">
@@ -231,16 +238,16 @@ const VendedoresModule = () => {
             <CardContent className="space-y-2 text-sm">
               <div>
                 <span className="text-muted-foreground">Email:</span>
-                <p className="font-mono">{selectedVendedor.vendedor.email}</p>
+                <p className="font-mono">{selectedVendedor?.vendedor.email}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Teléfono:</span>
-                <p className="font-mono">{selectedVendedor.vendedor.telefono}</p>
+                <p className="font-mono">{selectedVendedor?.vendedor.telefono}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Estado:</span>
-                <Badge className="mt-1" variant={selectedVendedor.vendedor.estado === 'activo' ? 'default' : 'secondary'}>
-                  {selectedVendedor.vendedor.estado}
+                <Badge className="mt-1" variant={selectedVendedor?.vendedor.estado === 'activo' ? 'default' : 'secondary'}>
+                  {selectedVendedor?.vendedor.estado}
                 </Badge>
               </div>
             </CardContent>
@@ -252,7 +259,7 @@ const VendedoresModule = () => {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
-                {selectedVendedor.vendedor.nombre} vs Promedio del Equipo
+                {selectedVendedor?.vendedor.nombre} vs Promedio del Equipo
               </CardTitle>
               <CardDescription>Comparación de métricas clave</CardDescription>
             </CardHeader>
@@ -262,7 +269,7 @@ const VendedoresModule = () => {
                   <PolarGrid />
                   <PolarAngleAxis dataKey="metric" />
                   <PolarRadiusAxis />
-                  <Radar name={selectedVendedor.vendedor.nombre} dataKey="vendedor" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.6} />
+                  <Radar name={selectedVendedor?.vendedor.nombre} dataKey="vendedor" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.6} />
                   <Radar name="Promedio Equipo" dataKey="promedio" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} />
                   <Legend />
                 </RadarChart>

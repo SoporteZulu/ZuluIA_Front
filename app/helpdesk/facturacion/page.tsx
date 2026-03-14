@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Plus, Search, Edit, Trash2, X, FileText, DollarSign, Clock, CheckCircle, AlertCircle, XCircle, Eye, Send } from "lucide-react"
-import { facturas as initialFacturas, crmClients as hdClientes, servicios } from "@/lib/shared-data"
+import { useHdFacturacion, useHdServicios } from "@/lib/hooks/useHelpdesk"
+import { useCrmClientes } from "@/lib/hooks/useCrm"
 import type { HDFacturaServicio, HDFacturaItem } from "@/lib/types"
 
 const estadoLabels = {
@@ -35,7 +36,9 @@ const estadoColors = {
 function FacturacionContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [facturas, setFacturas] = useState<HDFacturaServicio[]>(initialFacturas)
+  const { facturas, loading, error, createFactura, updateFactura, deleteFactura } = useHdFacturacion()
+  const { clientes: hdClientes } = useCrmClientes()
+  const { servicios } = useHdServicios()
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingFactura, setEditingFactura] = useState<HDFacturaServicio | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
@@ -107,26 +110,18 @@ function FacturacionContent() {
     setEditingFactura(null)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (editingFactura) {
-      setFacturas(facturas.map(f => 
-        f.id === editingFactura.id ? { ...f, ...formData, updatedAt: new Date() } as HDFacturaServicio : f
-      ))
+      await updateFactura(editingFactura.id, formData)
     } else {
-      const newFactura: HDFacturaServicio = {
-        ...formData as HDFacturaServicio,
-        id: `fac-${Date.now()}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setFacturas([...facturas, newFactura])
+      await createFactura(formData as Omit<HDFacturaServicio, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const handleDelete = (id: string) => {
-    setFacturas(facturas.filter(f => f.id !== id))
+  const handleDelete = async (id: string) => {
+    await deleteFactura(id)
   }
 
   const handleEmitir = (factura: HDFacturaServicio) => {

@@ -48,7 +48,7 @@ export interface CreateItemDto {
 }
 
 export interface PagedResult<T> {
-  data: T[]
+  items: T[]
   page: number
   pageSize: number
   totalCount: number

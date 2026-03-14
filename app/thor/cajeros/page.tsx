@@ -6,12 +6,19 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ScatterChart, Scatter } from 'recharts'
-import { cajerosMetricas, cajeros } from '@/lib/thor-data'
+import { useThorCajeros } from '@/lib/hooks/useThor'
 import { Star, Clock, TrendingDown } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 const CajerosModule = () => {
-  const [selectedCajero, setSelectedCajero] = useState(cajerosMetricas[0])
+  const { metricas: cajerosMetricas } = useThorCajeros()
+  const [selectedCajero, setSelectedCajero] = useState<typeof cajerosMetricas[0] | undefined>(undefined)
+
+  React.useEffect(() => {
+    if (cajerosMetricas.length > 0 && !selectedCajero) {
+      setSelectedCajero(cajerosMetricas[0])
+    }
+  }, [cajerosMetricas, selectedCajero])
 
   const activeCajeros = cajerosMetricas.filter(c => c.cajero.estado === 'activo')
   const sortedByEfficiency = [...activeCajeros].sort((a, b) => a.tiempoPromedioAtension - b.tiempoPromedioAtension)
@@ -248,25 +255,25 @@ const CajerosModule = () => {
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">{selectedCajero.cajero.nombre} - Detalle</CardTitle>
+                <CardTitle className="text-base">{selectedCajero?.cajero.nombre} - Detalle</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
                     <p className="text-xs text-muted-foreground">Tiempo Promedio</p>
-                    <p className="text-xl font-bold text-blue-600">{selectedCajero.tiempoPromedioAtension}s</p>
+                    <p className="text-xl font-bold text-blue-600">{selectedCajero?.tiempoPromedioAtension}s</p>
                   </div>
                   <div className="p-3 rounded-lg bg-green-50 border border-green-200">
                     <p className="text-xs text-muted-foreground">Clientes Hoy</p>
-                    <p className="text-xl font-bold text-green-600">{selectedCajero.numeroClientesAtendidos}</p>
+                    <p className="text-xl font-bold text-green-600">{selectedCajero?.numeroClientesAtendidos}</p>
                   </div>
                   <div className="p-3 rounded-lg bg-orange-50 border border-orange-200">
                     <p className="text-xs text-muted-foreground">Facturación</p>
-                    <p className="text-xl font-bold text-orange-600">${(selectedCajero.totalFacturado / 1000).toFixed(1)}K</p>
+                    <p className="text-xl font-bold text-orange-600">${(selectedCajero?.totalFacturado ?? 0 / 1000).toFixed(1)}K</p>
                   </div>
                   <div className="p-3 rounded-lg bg-red-50 border border-red-200">
                     <p className="text-xs text-muted-foreground">Tasa de Errores</p>
-                    <p className="text-xl font-bold text-red-600">{selectedCajero.tasaErrores.toFixed(1)}%</p>
+                    <p className="text-xl font-bold text-red-600">{selectedCajero?.tasaErrores.toFixed(1)}%</p>
                   </div>
                 </div>
               </CardContent>
@@ -279,16 +286,16 @@ const CajerosModule = () => {
               <CardContent className="space-y-4">
                 <div className="text-center">
                   <div className="text-6xl text-yellow-500 mb-2">
-                    {getSatisfactionStars(selectedCajero.satisfaccionCliente || 0)}
+                    {getSatisfactionStars(selectedCajero?.satisfaccionCliente || 0)}
                   </div>
-                  <p className="text-3xl font-bold">{selectedCajero.satisfaccionCliente?.toFixed(1)}</p>
+                  <p className="text-3xl font-bold">{selectedCajero?.satisfaccionCliente?.toFixed(1)}</p>
                   <p className="text-sm text-muted-foreground">De 5.0 estrellas</p>
                 </div>
                 <div className="p-3 rounded-lg bg-green-50 border border-green-200">
                   <p className="text-xs font-semibold text-green-900">
-                    {selectedCajero.satisfaccionCliente! >= 4.7 && 'Excelente performance ✓'}
-                    {selectedCajero.satisfaccionCliente! >= 4.5 && selectedCajero.satisfaccionCliente! < 4.7 && 'Muy buen desempeño'}
-                    {selectedCajero.satisfaccionCliente! < 4.5 && 'Requiere mejora'}
+                    {(selectedCajero?.satisfaccionCliente ?? 0) >= 4.7 && 'Excelente performance ✓'}
+                    {(selectedCajero?.satisfaccionCliente ?? 0) >= 4.5 && (selectedCajero?.satisfaccionCliente ?? 0) < 4.7 && 'Muy buen desempeño'}
+                    {(selectedCajero?.satisfaccionCliente ?? 0) < 4.5 && 'Requiere mejora'}
                   </p>
                 </div>
               </CardContent>
@@ -302,12 +309,12 @@ const CajerosModule = () => {
             <CardContent className="space-y-2 text-sm">
               <div>
                 <span className="text-muted-foreground">Email:</span>
-                <p className="font-mono">{selectedCajero.cajero.email}</p>
+                <p className="font-mono">{selectedCajero?.cajero.email}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Estado:</span>
-                <Badge className="ml-2" variant={selectedCajero.cajero.estado === 'activo' ? 'default' : 'secondary'}>
-                  {selectedCajero.cajero.estado}
+                <Badge className="ml-2" variant={selectedCajero?.cajero.estado === 'activo' ? 'default' : 'secondary'}>
+                  {selectedCajero?.cajero.estado}
                 </Badge>
               </div>
             </CardContent>

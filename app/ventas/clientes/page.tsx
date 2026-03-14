@@ -253,12 +253,12 @@ function CustomerForm({ customer, onClose, onSaved, createTercero, updateTercero
             <div className="space-y-1.5">
               <Label>Moneda</Label>
               <Select
-                value={form.monedaId ? String(form.monedaId) : ''}
-                onValueChange={(v) => set('monedaId', v ? Number(v) : null)}
+                value={form.monedaId ? String(form.monedaId) : '__none__'}
+                onValueChange={(v) => set('monedaId', v !== '__none__' ? Number(v) : null)}
               >
                 <SelectTrigger><SelectValue placeholder="Seleccionar moneda" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Sin moneda</SelectItem>
+                  <SelectItem value="__none__">Sin moneda</SelectItem>
                   {monedas.map((m) => <SelectItem key={m.id} value={String(m.id)}>{m.descripcion} ({m.simbolo})</SelectItem>)}
                 </SelectContent>
               </Select>

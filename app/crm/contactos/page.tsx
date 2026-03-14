@@ -30,7 +30,7 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   Plus, Search, MoreHorizontal, Pencil, Trash2, User, Phone, Mail, Building2,
 } from "lucide-react"
-import { crmContacts as initialContacts, crmClients, getClientById } from "@/lib/crm-data"
+import { useCrmContactos, useCrmClientes } from "@/lib/hooks/useCrm"
 import type { CRMContact } from "@/lib/types"
 
 const canalLabels: Record<CRMContact["canalPreferido"], string> = {
@@ -59,7 +59,14 @@ function ContactosContent() {
   const [isFormOpen, setIsFormOpen] = useState(action === "new")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [selectedContact, setSelectedContact] = useState<CRMContact | null>(null)
-  const [contacts, setContacts] = useState(initialContacts)
+  const [contacts, setContacts] = useState<CRMContact[]>([])
+  const { contactos, loading, error, createContacto, updateContacto, deleteContacto } = useCrmContactos(clienteIdParam || undefined)
+  const { clientes: crmClients } = useCrmClientes()
+
+  const getClientById = (id?: string) => crmClients.find(c => c.id === id)
+
+  // sync hook data into local state for optimistic UI
+  React.useEffect(() => { setContacts(contactos) }, [contactos])
 
   const emptyForm: Partial<CRMContact> = {
     clienteId: clienteIdParam || "",
@@ -112,12 +119,10 @@ function ContactosContent() {
     setIsDeleteOpen(true)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (selectedContact) {
-      setContacts(contacts.map(c => 
-        c.id === selectedContact.id ? { ...c, ...formData, updatedAt: new Date() } as CRMContact : c
-      ))
+      await updateContacto(selectedContact.id, formData)
     } else {
       const newContact: CRMContact = {
         ...formData as CRMContact,
@@ -126,13 +131,14 @@ function ContactosContent() {
         updatedAt: new Date(),
       }
       setContacts([newContact, ...contacts])
+      await createContacto(formData as Omit<CRMContact, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (selectedContact) {
-      setContacts(contacts.filter(c => c.id !== selectedContact.id))
+      await deleteContacto(selectedContact.id)
     }
     setIsDeleteOpen(false)
     setSelectedContact(null)

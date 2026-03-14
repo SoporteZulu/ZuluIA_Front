@@ -8,57 +8,45 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Progress } from '@/components/ui/progress'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   Plus,
-  Edit,
   Eye,
   Truck,
   CheckCircle,
   AlertCircle,
   Clock,
-  Package,
-  Trash2,
   Play,
 } from 'lucide-react'
-import { receiptOrders, warehouses } from '@/lib/wms-data'
+import { useOrdenesCompra } from '@/lib/hooks/useOrdenesCompra'
+import { useDepositos } from '@/lib/hooks/useDepositos'
+import type { OrdenCompra } from '@/lib/types/configuracion'
 
-const estadoBadgeVariant = {
-  planificada: 'outline',
-  abierta: 'secondary',
-  enproceso: 'default',
-  parcial: 'secondary',
-  completada: 'outline',
-  cerrada: 'outline',
+const estadoBadgeVariant: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
+  PENDIENTE:  'secondary',
+  RECIBIDA:   'default',
+  CANCELADA:  'destructive',
 }
 
 export default function RecepcionesPage() {
-  const [orders, setOrders] = useState(receiptOrders)
-  const [selectedOrder, setSelectedOrder] = useState(null)
+  const { ordenes: orders, loading, recibir } = useOrdenesCompra()
+  const { depositos } = useDepositos()
+  const [selectedOrder, setSelectedOrder] = useState<OrdenCompra | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [filterStatus, setFilterStatus] = useState('todos')
-  const [filterType, setFilterType] = useState('todos')
 
   const filteredOrders = orders.filter(o => {
-    const statusMatch = filterStatus === 'todos' || o.status === filterStatus
-    const typeMatch = filterType === 'todos' || o.type === filterType
-    return statusMatch && typeMatch
+    const statusMatch = filterStatus === 'todos' || o.estadoOc === filterStatus
+    return statusMatch
   })
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'completada':
-        return <CheckCircle className="h-4 w-4 text-green-600" />
-      case 'enproceso':
-        return <Clock className="h-4 w-4 text-blue-600" />
-      case 'planificada':
-        return <Package className="h-4 w-4 text-gray-600" />
-      default:
-        return <AlertCircle className="h-4 w-4 text-orange-600" />
+      case 'RECIBIDA':  return <CheckCircle className="h-4 w-4 text-green-600" />
+      case 'PENDIENTE': return <Clock className="h-4 w-4 text-blue-600" />
+      case 'CANCELADA': return <AlertCircle className="h-4 w-4 text-red-600" />
+      default:           return <AlertCircle className="h-4 w-4 text-orange-600" />
     }
   }
 
@@ -84,24 +72,9 @@ export default function RecepcionesPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos los estados</SelectItem>
-            <SelectItem value="planificada">Planificada</SelectItem>
-            <SelectItem value="abierta">Abierta</SelectItem>
-            <SelectItem value="enproceso">En Proceso</SelectItem>
-            <SelectItem value="parcial">Parcial</SelectItem>
-            <SelectItem value="completada">Completada</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={filterType} onValueChange={setFilterType}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Filtrar por tipo" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos los tipos</SelectItem>
-            <SelectItem value="compra">Compra</SelectItem>
-            <SelectItem value="devolucion">Devolución</SelectItem>
-            <SelectItem value="traslado">Traslado</SelectItem>
-            <SelectItem value="produccion">Producción</SelectItem>
+            <SelectItem value="PENDIENTE">Pendiente</SelectItem>
+            <SelectItem value="RECIBIDA">Recibida</SelectItem>
+            <SelectItem value="CANCELADA">Cancelada</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -116,61 +89,50 @@ export default function RecepcionesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Código OR</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Proveedor/Origen</TableHead>
-                <TableHead>Almacén</TableHead>
-                <TableHead>Programada</TableHead>
+                <TableHead>ID</TableHead>
+                <TableHead>Proveedor ID</TableHead>
+                <TableHead>Comprobante ID</TableHead>
+                <TableHead>Entrega Req.</TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead>Progreso</TableHead>
+                <TableHead>Condiciones</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredOrders.map((order) => (
                 <TableRow key={order.id}>
-                  <TableCell className="font-medium">{order.code}</TableCell>
+                  <TableCell className="font-medium">{order.id}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">{order.type}</Badge>
+                    <Badge variant="outline">{order.proveedorId}</Badge>
                   </TableCell>
-                  <TableCell>{order.provider || 'N/A'}</TableCell>
-                  <TableCell>{order.warehouse.code}</TableCell>
+                  <TableCell>{order.comprobanteId}</TableCell>
                   <TableCell className="text-sm">
-                    {order.scheduledDate.toLocaleDateString('es-AR')}
+                    {order.fechaEntregaReq ? new Date(order.fechaEntregaReq).toLocaleDateString('es-AR') : '-'}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      {getStatusIcon(order.status)}
-                      <Badge variant={estadoBadgeVariant[order.status]}>
-                        {order.status}
+                      {getStatusIcon(order.estadoOc)}
+                      <Badge variant={estadoBadgeVariant[order.estadoOc] ?? 'outline'}>
+                        {order.estadoOc}
                       </Badge>
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2 w-24">
-                      <Progress value={(order.receivedItems / order.totalItems) * 100} />
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {order.receivedItems}/{order.totalItems}
-                      </span>
-                    </div>
-                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{order.condicionesEntrega ?? '-'}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => {
-                          setSelectedOrder(order)
-                          setIsDetailOpen(true)
-                        }}
+                        onClick={() => { setSelectedOrder(order); setIsDetailOpen(true) }}
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
-                      {order.status === 'planificada' && (
+                      {order.estadoOc === 'PENDIENTE' && (
                         <Button
                           variant="ghost"
                           size="icon"
                           className="text-blue-600 hover:text-blue-700"
+                          onClick={async () => { await recibir(order.id) }}
                         >
                           <Play className="h-4 w-4" />
                         </Button>
@@ -190,113 +152,26 @@ export default function RecepcionesPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Truck className="h-5 w-5" />
-              {selectedOrder?.code}
+              Orden de Recepción #{selectedOrder?.id}
             </DialogTitle>
-            <DialogDescription>{selectedOrder?.provider}</DialogDescription>
+            <DialogDescription>Proveedor ID: {selectedOrder?.proveedorId}</DialogDescription>
           </DialogHeader>
 
-          <Tabs defaultValue="general" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="items">Ítems</TabsTrigger>
-              <TabsTrigger value="incidencias">Incidencias</TabsTrigger>
-            </TabsList>
-
-            {/* General Tab */}
-            <TabsContent value="general" className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground block mb-1">Código</span>
-                  <p className="font-semibold">{selectedOrder?.code}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Estado</span>
-                  <Badge>{selectedOrder?.status}</Badge>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Tipo de Entrada</span>
-                  <p className="font-semibold capitalize">{selectedOrder?.type}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Proveedor</span>
-                  <p className="font-semibold">{selectedOrder?.provider || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Almacén Destino</span>
-                  <p className="font-semibold">{selectedOrder?.warehouse.name}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Fecha Programada</span>
-                  <p className="font-semibold">
-                    {selectedOrder?.scheduledDate.toLocaleDateString('es-AR')}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Transportista</span>
-                  <p className="font-semibold">{selectedOrder?.carrier || 'No especificado'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block mb-1">Documento Origen</span>
-                  <p className="font-semibold">{selectedOrder?.documentReference || 'N/A'}</p>
-                </div>
+          <div className="grid grid-cols-2 gap-4 text-sm py-4">
+            {[
+              ['ID',               String(selectedOrder?.id ?? '-')],
+              ['Estado',           selectedOrder?.estadoOc ?? '-'],
+              ['Proveedor ID',     String(selectedOrder?.proveedorId ?? '-')],
+              ['Comprobante ID',   String(selectedOrder?.comprobanteId ?? '-')],
+              ['Fecha Entrega',    selectedOrder?.fechaEntregaReq ?? '-'],
+              ['Condiciones',      selectedOrder?.condicionesEntrega ?? '-'],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <span className="text-muted-foreground block mb-1">{k}</span>
+                <p className="font-semibold">{v}</p>
               </div>
-
-              {/* Progreso */}
-              <div className="space-y-2 border-t pt-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Ítems recibidos:</span>
-                  <span className="font-semibold">
-                    {selectedOrder?.receivedItems} / {selectedOrder?.totalItems}
-                  </span>
-                </div>
-                <Progress value={(selectedOrder?.receivedItems / selectedOrder?.totalItems) * 100} />
-              </div>
-            </TabsContent>
-
-            {/* Items Tab */}
-            <TabsContent value="items" className="space-y-4 mt-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Descripción</TableHead>
-                    <TableHead>Esperado</TableHead>
-                    <TableHead>Recibido</TableHead>
-                    <TableHead>Estado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {selectedOrder?.items.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-mono text-sm">{item.sku}</TableCell>
-                      <TableCell>{item.productName}</TableCell>
-                      <TableCell>{item.expectedQuantity} {item.uom}</TableCell>
-                      <TableCell className="font-semibold text-green-600">
-                        {item.receivedQuantity} {item.uom}
-                      </TableCell>
-                      <TableCell>
-                        <Badge 
-                          variant={item.qualityInspection === 'ok' ? 'default' : 'secondary'}
-                        >
-                          {item.qualityInspection}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TabsContent>
-
-            {/* Incidencias Tab */}
-            <TabsContent value="incidencias" className="space-y-4 mt-4">
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Sin incidencias registradas
-                </AlertDescription>
-              </Alert>
-            </TabsContent>
-          </Tabs>
+            ))}
+          </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
@@ -309,94 +184,32 @@ export default function RecepcionesPage() {
 
       {/* Form Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Nueva Orden de Recepción</DialogTitle>
             <DialogDescription>
-              Completa los datos para crear una nueva entrada de mercancía
+              Completa los datos para crear una nueva orden de compra
             </DialogDescription>
           </DialogHeader>
 
-          <Tabs defaultValue="info" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="info">Información</TabsTrigger>
-              <TabsTrigger value="items">Ítems</TabsTrigger>
-              <TabsTrigger value="revision">Revisión</TabsTrigger>
-            </TabsList>
-
-            {/* Info Tab */}
-            <TabsContent value="info" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label>Tipo de Entrada</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona tipo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="compra">Compra</SelectItem>
-                    <SelectItem value="devolucion">Devolución</SelectItem>
-                    <SelectItem value="traslado">Traslado</SelectItem>
-                    <SelectItem value="produccion">Producción</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Proveedor/Origen</Label>
-                <Input placeholder="Nombre del proveedor" />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Almacén Destino</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona almacén" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {warehouses.map((w) => (
-                      <SelectItem key={w.id} value={w.id}>
-                        {w.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Fecha Programada</Label>
-                <Input type="date" />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Transportista</Label>
-                <Input placeholder="Nombre de la transportista" />
-              </div>
-            </TabsContent>
-
-            {/* Items Tab */}
-            <TabsContent value="items" className="space-y-4 mt-4">
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Agregar ítems a la orden de recepción
-                </AlertDescription>
-              </Alert>
-              <Button variant="outline" className="w-full bg-transparent">
-                <Plus className="h-4 w-4 mr-2" />
-                Agregar Ítem
-              </Button>
-            </TabsContent>
-
-            {/* Revision Tab */}
-            <TabsContent value="revision" className="space-y-4 mt-4">
-              <Alert>
-                <CheckCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Revisa la información antes de crear la orden
-                </AlertDescription>
-              </Alert>
-            </TabsContent>
-          </Tabs>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Proveedor ID</Label>
+              <Input type="number" placeholder="ID del proveedor" />
+            </div>
+            <div className="space-y-2">
+              <Label>Comprobante ID (opcional)</Label>
+              <Input type="number" placeholder="ID del comprobante asociado" />
+            </div>
+            <div className="space-y-2">
+              <Label>Fecha de Entrega Requerida</Label>
+              <Input type="date" />
+            </div>
+            <div className="space-y-2">
+              <Label>Condiciones de Entrega</Label>
+              <Input placeholder="Ej: FOB, CIF, EXW..." />
+            </div>
+          </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsFormOpen(false)}>

@@ -18,35 +18,28 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { Progress } from '@/components/ui/progress'
-import { salesOrders, customers, products, priceLists } from '@/lib/sales-data'
-import type { SalesOrder, OrderItem, OrderStatus } from '@/lib/sales-types'
+import { useComprobantes } from '@/lib/hooks/useComprobantes'
+import { useTerceros } from '@/lib/hooks/useTerceros'
+import { useItems } from '@/lib/hooks/useItems'
+import type { Comprobante } from '@/lib/types/comprobantes'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const estadoConfig: Record<OrderStatus, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive'; icon: React.ReactNode }> = {
-  borrador:       { label: 'Borrador',       variant: 'secondary',    icon: <Clock className="h-3 w-3" /> },
-  confirmado:     { label: 'Confirmado',     variant: 'default',      icon: <CheckCircle2 className="h-3 w-3" /> },
-  en_preparacion: { label: 'En Preparación', variant: 'outline',      icon: <Package className="h-3 w-3" /> },
-  despachado:     { label: 'Despachado',     variant: 'outline',      icon: <Truck className="h-3 w-3" /> },
-  facturado:      { label: 'Facturado',      variant: 'default',      icon: <FileText className="h-3 w-3" /> },
-  cancelado:      { label: 'Cancelado',      variant: 'destructive',  icon: <X className="h-3 w-3" /> },
+const estadoConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive'; icon: React.ReactNode }> = {
+  BORRADOR:  { label: 'Borrador',  variant: 'secondary',   icon: <Clock className="h-3 w-3" /> },
+  EMITIDO:   { label: 'Emitido',   variant: 'default',     icon: <CheckCircle2 className="h-3 w-3" /> },
+  PAGADO:    { label: 'Pagado',    variant: 'default',     icon: <FileText className="h-3 w-3" /> },
+  VENCIDO:   { label: 'Vencido',   variant: 'outline',     icon: <AlertCircle className="h-3 w-3" /> },
+  ANULADO:   { label: 'Anulado',   variant: 'destructive', icon: <X className="h-3 w-3" /> },
+  CANCELADO: { label: 'Cancelado', variant: 'destructive', icon: <X className="h-3 w-3" /> },
 }
 
 function fmtARS(n: number) {
   return n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 }
 
-function getCustomerById(id: string) {
-  return customers.find(c => c.id === id)
-}
-
-function getPriceForProduct(productId: string, customerId: string) {
-  const customer = getCustomerById(customerId)
-  const listName = customer?.listaAsignada
-  const list = priceLists.find(l => l.nombre === listName)
-  const item = list?.items.find(i => i.productoId === productId)
-  if (item) return item.precioLista
-  const product = products.find(p => p.id === productId)
+function getPriceForProduct(productId: string, items: { id: number; precioVenta: number }[]) {
+  const product = items.find(p => String(p.id) === productId)
   return product?.precioVenta ?? 0
 }
 
@@ -70,6 +63,8 @@ function calcItem(i: FormItem) {
 }
 
 function NuevoPedidoForm({ onClose }: { onClose: () => void }) {
+  const { terceros: customers } = useTerceros()
+  const { items: products } = useItems()
   const [clienteId, setClienteId] = useState('')
   const [vendedor, setVendedor] = useState('')
   const [fuente, setFuente] = useState<'web' | 'telefono' | 'vendedor' | 'otro'>('vendedor')
@@ -79,10 +74,10 @@ function NuevoPedidoForm({ onClose }: { onClose: () => void }) {
   const [productSearch, setProductSearch] = useState('')
   const [tab, setTab] = useState('datos')
 
-  const customer = useMemo(() => customers.find(c => c.id === clienteId), [clienteId])
+  const customer = useMemo(() => customers.find(c => String(c.id) === clienteId), [clienteId, customers])
 
   const addProduct = (productId: string) => {
-    const prod = products.find(p => p.id === productId)
+    const prod = products.find(p => String(p.id) === productId)
     if (!prod) return
     const existing = items.find(i => i.productoId === productId)
     if (existing) {
@@ -91,10 +86,10 @@ function NuevoPedidoForm({ onClose }: { onClose: () => void }) {
       setItems([...items, {
         id: `fi-${Date.now()}`,
         productoId: productId,
-        descripcion: prod.nombre,
+        descripcion: prod.descripcion,
         cantidad: 1,
-        precioUnitario: getPriceForProduct(productId, clienteId),
-        descuentoPorcentaje: customer?.descuentoGeneral ?? 0,
+        precioUnitario: getPriceForProduct(productId, products),
+        descuentoPorcentaje: 0,
       }])
     }
     setProductSearch('')
@@ -114,14 +109,14 @@ function NuevoPedidoForm({ onClose }: { onClose: () => void }) {
   }, [items])
 
   const creditPct = customer
-    ? Math.min(Math.round(((customer.creditoUtilizado + totals.total) / customer.creditoLimite) * 100), 100)
+    ? Math.min(Math.round(((totals.total) / (customer.limiteCredito ?? 0 || 1)) * 100), 100)
     : 0
   const creditWarning = creditPct >= 90
-  const creditBlocked = customer?.estado === 'bloqueado' || customer?.estado === 'moroso'
+  const creditBlocked = !customer?.activo
 
   const filteredProducts = products.filter(p =>
-    p.nombre.toLowerCase().includes(productSearch.toLowerCase()) ||
-    p.sku.toLowerCase().includes(productSearch.toLowerCase())
+    p.descripcion.toLowerCase().includes(productSearch.toLowerCase()) ||
+    p.codigo.toLowerCase().includes(productSearch.toLowerCase())
   ).slice(0, 8)
 
   return (
@@ -144,7 +139,7 @@ function NuevoPedidoForm({ onClose }: { onClose: () => void }) {
                 </SelectTrigger>
                 <SelectContent>
                   {customers.map(c => (
-                    <SelectItem key={c.id} value={c.id}>
+                    <SelectItem key={c.id} value={String(c.id)}>
                       <span className="font-medium">{c.razonSocial}</span>
                       <span className="text-xs text-muted-foreground ml-2">{c.cuitCuil}</span>
                     </SelectItem>
@@ -163,11 +158,8 @@ function NuevoPedidoForm({ onClose }: { onClose: () => void }) {
                 </div>
                 <Progress value={creditPct} className="h-1.5 mb-1" />
                 <p className="text-xs text-muted-foreground">
-                  Disponible: ${(customer.creditoLimite - customer.creditoUtilizado).toLocaleString('es-AR')} / Límite: ${customer.creditoLimite.toLocaleString('es-AR')}
+                  Límite de crédito: ${(customer?.limiteCredito ?? 0).toLocaleString('es-AR')}
                 </p>
-                {customer.listaAsignada && (
-                  <p className="text-xs mt-1">Lista: <span className="font-medium">{customer.listaAsignada}</span></p>
-                )}
               </div>
             )}
           </div>
@@ -228,16 +220,16 @@ function NuevoPedidoForm({ onClose }: { onClose: () => void }) {
                 {filteredProducts.map(p => (
                   <button
                     key={p.id}
-                    onClick={() => addProduct(p.id)}
+                    onClick={() => addProduct(String(p.id))}
                     className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/60 text-sm border-b last:border-0"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="font-mono text-xs text-muted-foreground w-20 shrink-0">{p.sku}</span>
-                      <span className="font-medium">{p.nombre}</span>
+                      <span className="font-mono text-xs text-muted-foreground w-20 shrink-0">{p.codigo}</span>
+                      <span className="font-medium">{p.descripcion}</span>
                     </div>
                     <div className="flex items-center gap-4 text-right shrink-0">
-                      <span className="text-xs text-muted-foreground">Stock: {p.stock}</span>
-                      <span className="font-semibold text-primary">${getPriceForProduct(p.id, clienteId).toLocaleString('es-AR')}</span>
+                      <span className="text-xs text-muted-foreground">Stock: {p.stock ?? 0}</span>
+                      <span className="font-semibold text-primary">${getPriceForProduct(String(p.id), products).toLocaleString('es-AR')}</span>
                     </div>
                   </button>
                 ))}
@@ -362,111 +354,32 @@ function NuevoPedidoForm({ onClose }: { onClose: () => void }) {
   )
 }
 
-// ─── Detail Dialog ─────────────────────────────────────────────────────────────
-
-function OrderDetail({ order }: { order: SalesOrder }) {
-  const customer = getCustomerById(order.clienteId)
-
-  return (
-    <Tabs defaultValue="general" className="w-full">
-      <TabsList className="grid w-full grid-cols-3">
-        <TabsTrigger value="general">General</TabsTrigger>
-        <TabsTrigger value="items">Items ({order.items.length})</TabsTrigger>
-        <TabsTrigger value="totales">Totales</TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="general" className="space-y-4 mt-4">
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          {[
-            ['Cliente', customer?.razonSocial ?? order.clienteId],
-            ['CUIT', customer?.cuitCuil ?? '-'],
-            ['Vendedor', order.vendedor ?? '-'],
-            ['Fuente', order.fuente],
-            ['Fecha Pedido', new Date(order.fecha).toLocaleDateString('es-AR')],
-            ['Entrega Estimada', new Date(order.entregaEstimada).toLocaleDateString('es-AR')],
-            ['Lista de Precios', customer?.listaAsignada ?? '-'],
-            ['Condición Pago', `${customer?.condicionesPago?.plazo ?? 30} días`],
-          ].map(([k, v]) => (
-            <div key={k} className="p-3 rounded-lg bg-muted/50">
-              <span className="text-xs text-muted-foreground block mb-0.5">{k}</span>
-              <p className="font-medium">{v}</p>
-            </div>
-          ))}
-        </div>
-        {order.observacionesCliente && (
-          <div className="p-3 rounded-lg bg-muted/50">
-            <span className="text-xs text-muted-foreground block mb-0.5">Observaciones</span>
-            <p className="text-sm">{order.observacionesCliente}</p>
-          </div>
-        )}
-      </TabsContent>
-
-      <TabsContent value="items" className="mt-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Producto</TableHead>
-              <TableHead className="text-right">Cant.</TableHead>
-              <TableHead className="text-right">P.Unitario</TableHead>
-              <TableHead className="text-right">Dto.</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {order.items.map(item => (
-              <TableRow key={item.id}>
-                <TableCell className="font-medium">{item.descripcion}</TableCell>
-                <TableCell className="text-right">{item.cantidad}</TableCell>
-                <TableCell className="text-right">${fmtARS(item.precioUnitario)}</TableCell>
-                <TableCell className="text-right text-orange-600">
-                  {item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje}%` : '-'}
-                </TableCell>
-                <TableCell className="text-right font-semibold">${fmtARS(item.total)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TabsContent>
-
-      <TabsContent value="totales" className="mt-4">
-        <div className="max-w-sm ml-auto space-y-2 text-sm">
-          <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>${fmtARS(order.subtotal)}</span></div>
-          <div className="flex justify-between text-orange-600"><span>Descuentos</span><span>-${fmtARS(order.descuentos)}</span></div>
-          <div className="flex justify-between text-purple-600"><span>IVA</span><span>${fmtARS(order.iva)}</span></div>
-          <Separator />
-          <div className="flex justify-between font-bold text-base"><span>Total</span><span className="text-primary">${fmtARS(order.total)}</span></div>
-        </div>
-      </TabsContent>
-    </Tabs>
-  )
-}
-
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 const PedidosPage = () => {
+  const { comprobantes, loading, error } = useComprobantes({ esVenta: true })
   const [searchTerm, setSearchTerm]         = useState('')
   const [statusFilter, setStatusFilter]     = useState('todos')
   const [isNewOpen, setIsNewOpen]           = useState(false)
   const [isDetailOpen, setIsDetailOpen]     = useState(false)
-  const [detailOrder, setDetailOrder]       = useState<SalesOrder | null>(null)
+  const [detailOrder, setDetailOrder]       = useState<Comprobante | null>(null)
 
-  const filtered = useMemo(() => salesOrders.filter(o => {
-    const customer = getCustomerById(o.clienteId)
+  const filtered = useMemo(() => comprobantes.filter(o => {
     const matchSearch =
-      o.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (customer?.razonSocial ?? '').toLowerCase().includes(searchTerm.toLowerCase())
-    const matchStatus = statusFilter === 'todos' || o.estado === statusFilter
+      String(o.nroComprobante ?? o.id).includes(searchTerm) ||
+      String(o.terceroId).includes(searchTerm)
+    const matchStatus = statusFilter === 'todos' || o.estado.toLowerCase() === statusFilter.toLowerCase()
     return matchSearch && matchStatus
-  }), [searchTerm, statusFilter])
+  }), [comprobantes, searchTerm, statusFilter])
 
   const kpis = useMemo(() => ({
-    total:         salesOrders.length,
-    confirmados:   salesOrders.filter(o => o.estado === 'confirmado').length,
-    preparacion:   salesOrders.filter(o => o.estado === 'en_preparacion').length,
-    despachados:   salesOrders.filter(o => o.estado === 'despachado').length,
-    montoTotal:    salesOrders.reduce((s, o) => s + o.total, 0),
-    montoPendiente: salesOrders.filter(o => !['facturado', 'cancelado'].includes(o.estado)).reduce((s, o) => s + o.total, 0),
-  }), [])
+    total:         comprobantes.length,
+    emitidos:      comprobantes.filter(o => o.estado === 'EMITIDO').length,
+    pagados:       comprobantes.filter(o => o.estado === 'PAGADO').length,
+    anulados:      comprobantes.filter(o => o.estado === 'ANULADO').length,
+    montoTotal:    comprobantes.reduce((s, o) => s + o.total, 0),
+    montoPendiente: comprobantes.filter(o => o.estado === 'EMITIDO').reduce((s, o) => s + o.saldo, 0),
+  }), [comprobantes])
 
   return (
     <div className="space-y-6 pb-6">
@@ -486,9 +399,9 @@ const PedidosPage = () => {
       <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
         {[
           { label: 'Total Pedidos',    value: kpis.total,         color: 'text-foreground' },
-          { label: 'Confirmados',      value: kpis.confirmados,   color: 'text-green-600' },
-          { label: 'En Preparación',   value: kpis.preparacion,   color: 'text-orange-600' },
-          { label: 'Despachados',      value: kpis.despachados,   color: 'text-blue-600' },
+          { label: 'Emitidos',          value: kpis.emitidos,      color: 'text-green-600' },
+          { label: 'Pagados',           value: kpis.pagados,       color: 'text-blue-600' },
+          { label: 'Anulados',          value: kpis.anulados,      color: 'text-destructive' },
           { label: 'Monto Total',      value: `$${(kpis.montoTotal / 1000).toFixed(0)}K`,      color: 'text-primary' },
           { label: 'Monto Pendiente',  value: `$${(kpis.montoPendiente / 1000).toFixed(0)}K`,  color: 'text-orange-600' },
         ].map(k => (
@@ -542,19 +455,23 @@ const PedidosPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map(order => {
-                const cfg = estadoConfig[order.estado]
-                const customer = getCustomerById(order.clienteId)
+              {loading && (
+                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Cargando comprobantes...</TableCell></TableRow>
+              )}
+              {error && (
+                <TableRow><TableCell colSpan={7} className="text-center py-10 text-destructive">{error}</TableCell></TableRow>
+              )}
+              {!loading && !error && filtered.map(order => {
+                const cfg = estadoConfig[order.estado] ?? { label: order.estado, variant: 'secondary' as const, icon: null }
                 return (
                   <TableRow key={order.id} className="cursor-pointer hover:bg-muted/50" onClick={() => { setDetailOrder(order); setIsDetailOpen(true) }}>
-                    <TableCell className="font-mono font-semibold text-primary">{order.codigo}</TableCell>
+                    <TableCell className="font-mono font-semibold text-primary">{order.nroComprobante ?? `#${order.id}`}</TableCell>
                     <TableCell>
-                      <p className="font-medium text-sm">{customer?.razonSocial ?? order.clienteId}</p>
-                      <p className="text-xs text-muted-foreground">{customer?.cuitCuil}</p>
+                      <p className="font-medium text-sm">Cliente #{order.terceroId}</p>
                     </TableCell>
-                    <TableCell className="text-sm">{order.vendedor ?? '-'}</TableCell>
+                    <TableCell className="text-sm">-</TableCell>
                     <TableCell className="text-sm">{new Date(order.fecha).toLocaleDateString('es-AR')}</TableCell>
-                    <TableCell className="text-sm">{new Date(order.entregaEstimada).toLocaleDateString('es-AR')}</TableCell>
+                    <TableCell className="text-sm">{order.fechaVto ? new Date(order.fechaVto).toLocaleDateString('es-AR') : '-'}</TableCell>
                     <TableCell>
                       <Badge variant={cfg.variant} className="flex items-center gap-1 w-fit">
                         {cfg.icon}
@@ -570,7 +487,7 @@ const PedidosPage = () => {
                   </TableRow>
                 )
               })}
-              {filtered.length === 0 && (
+              {!loading && !error && filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
                     No se encontraron pedidos con los filtros actuales.
@@ -614,30 +531,36 @@ const PedidosPage = () => {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <span className="font-mono">{detailOrder?.codigo}</span>
-              {detailOrder && (
-                <Badge variant={estadoConfig[detailOrder.estado].variant} className="flex items-center gap-1">
-                  {estadoConfig[detailOrder.estado].icon}
-                  {estadoConfig[detailOrder.estado].label}
+              <span className="font-mono">{detailOrder?.nroComprobante ?? `#${detailOrder?.id}`}</span>
+              {detailOrder && (() => { const cfg = estadoConfig[detailOrder.estado] ?? { label: detailOrder.estado, variant: 'secondary' as const, icon: null }; return (
+                <Badge variant={cfg.variant} className="flex items-center gap-1">
+                  {cfg.icon}{cfg.label}
                 </Badge>
-              )}
+              ) })()}
             </DialogTitle>
           </DialogHeader>
-          {detailOrder && <OrderDetail order={detailOrder} />}
+          {detailOrder && (
+            <div className="grid grid-cols-2 gap-3 text-sm mt-4">
+              {[
+                ['Comprobante', detailOrder.nroComprobante ?? detailOrder.id],
+                ['Cliente', `#${detailOrder.terceroId}`],
+                ['Fecha', new Date(detailOrder.fecha).toLocaleDateString('es-AR')],
+                ['Vencimiento', detailOrder.fechaVto ? new Date(detailOrder.fechaVto).toLocaleDateString('es-AR') : '-'],
+                ['Neto Gravado', `$${fmtARS(detailOrder.netoGravado ?? 0)}`],
+                ['IVA', `$${fmtARS(detailOrder.ivaRi ?? 0)}`],
+                ['Total', `$${fmtARS(detailOrder.total)}`],
+                ['Saldo', `$${fmtARS(detailOrder.saldo ?? 0)}`],
+                ['CAE', detailOrder.cae ?? '-'],
+              ].map(([k, v]) => (
+                <div key={String(k)} className="p-3 rounded-lg bg-muted/50">
+                  <span className="text-xs text-muted-foreground block mb-0.5">{k}</span>
+                  <p className="font-medium">{v}</p>
+                </div>
+              ))}
+            </div>
+          )}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setIsDetailOpen(false)}>Cerrar</Button>
-            {detailOrder?.estado === 'confirmado' && (
-              <Button variant="outline">
-                <Truck className="h-4 w-4 mr-2" />
-                Generar Remito
-              </Button>
-            )}
-            {detailOrder?.estado === 'despachado' && (
-              <Button>
-                <FileText className="h-4 w-4 mr-2" />
-                Generar Factura
-              </Button>
-            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

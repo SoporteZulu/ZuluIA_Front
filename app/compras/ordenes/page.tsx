@@ -49,12 +49,13 @@ import {
 } from "lucide-react"
 import type { PurchaseOrder, PurchaseOrderItem } from "@/lib/compras-types"
 import {
-  purchaseOrders as initialOrders,
   suppliers,
   paymentConditions,
   warehouses,
   products,
 } from "@/lib/compras-data"
+import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
+import type { OrdenCompra } from "@/lib/types/configuracion"
 
 const estadoBadgeVariant = {
   borrador: "secondary",
@@ -71,14 +72,14 @@ export default function OrdenesCompraPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   
-  const [orders, setOrders] = useState<PurchaseOrder[]>(initialOrders)
+  const { ordenes, loading, error, recibir, cancelar } = useOrdenesCompra()
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [isWizardOpen, setIsWizardOpen] = useState(false)
   const [wizardStep, setWizardStep] = useState(1)
   const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [detailOrder, setDetailOrder] = useState<PurchaseOrder | null>(null)
+  const [detailOrder, setDetailOrder] = useState<OrdenCompra | null>(null)
 
   // Wizard Form State
   const [formData, setFormData] = useState<Partial<PurchaseOrder>>({
@@ -102,18 +103,17 @@ export default function OrdenesCompraPage() {
 
   const [formItems, setFormItems] = useState<PurchaseOrderItem[]>([])
 
-  const filteredOrders = orders.filter((order) => {
-    const matchesSearch =
-      order.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      suppliers.find(s => s.id === order.proveedorId)?.razonSocial.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesEstado = filterEstado === "todos" || order.estado === filterEstado
+  const filteredOrders = ordenes.filter((order) => {
+    const matchesSearch = String(order.id).includes(searchTerm) ||
+      String(order.proveedorId).includes(searchTerm)
+    const matchesEstado = filterEstado === "todos" || order.estadoOc.toLowerCase() === filterEstado.toLowerCase()
     return matchesSearch && matchesEstado
   })
 
   const handleNew = () => {
     setEditingOrder(null)
     setFormData({
-      codigo: `OC-2024-${String(orders.length + 1).padStart(3, '0')}`,
+      codigo: `OC-2024-${String(ordenes.length + 1).padStart(3, '0')}`,
       proveedorId: "",
       fechaEmision: new Date(),
       fechaEntregaEsperada: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
@@ -135,7 +135,7 @@ export default function OrdenesCompraPage() {
     setIsWizardOpen(true)
   }
 
-  const handleViewDetail = (order: PurchaseOrder) => {
+  const handleViewDetail = (order: OrdenCompra) => {
     setDetailOrder(order)
     setIsDetailOpen(true)
   }
@@ -211,22 +211,7 @@ export default function OrdenesCompraPage() {
   }
 
   const handleSaveOrder = () => {
-    const totals = calculateTotals()
-    const newOrder: PurchaseOrder = {
-      ...formData as PurchaseOrder,
-      items: formItems,
-      ...totals,
-      id: editingOrder?.id || `oc-${Date.now()}`,
-      createdAt: editingOrder?.createdAt || new Date(),
-      updatedAt: new Date(),
-    }
-
-    if (editingOrder) {
-      setOrders(orders.map(o => o.id === editingOrder.id ? newOrder : o))
-    } else {
-      setOrders([...orders, newOrder])
-    }
-    
+    // Note: no backend create endpoint yet
     setIsWizardOpen(false)
     setWizardStep(1)
   }
@@ -304,72 +289,68 @@ export default function OrdenesCompraPage() {
           <CardTitle>Lista de Órdenes ({filteredOrders.length})</CardTitle>
         </CardHeader>
         <CardContent>
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+            </div>
+          ) : error ? (
+            <p className="text-center py-8 text-red-600 text-sm">{error}</p>
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Código</TableHead>
-                <TableHead>Proveedor</TableHead>
-                <TableHead>Fecha Emisión</TableHead>
-                <TableHead>Fecha Entrega</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Ítems</TableHead>
-                <TableHead>Total</TableHead>
+                <TableHead>ID</TableHead>
+                <TableHead>Proveedor ID</TableHead>
+                <TableHead>Fecha Entrega Req.</TableHead>
+                <TableHead>Estado OC</TableHead>
+                <TableHead>Habilitada</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrders.map((order) => (
+              {filteredOrders.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Sin ordenes de compra.</TableCell></TableRow>
+              ) : filteredOrders.map((order) => (
                 <TableRow
                   key={order.id}
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() => handleViewDetail(order)}
                 >
-                  <TableCell className="font-medium">{order.codigo}</TableCell>
-                  <TableCell>{getSupplierName(order.proveedorId)}</TableCell>
-                  <TableCell>{new Date(order.fechaEmision).toLocaleDateString('es-AR')}</TableCell>
-                  <TableCell>{new Date(order.fechaEntregaEsperada).toLocaleDateString('es-AR')}</TableCell>
+                  <TableCell className="font-medium font-mono">OC-{order.id}</TableCell>
+                  <TableCell className="text-muted-foreground">{order.proveedorId}</TableCell>
+                  <TableCell>{order.fechaEntregaReq ? new Date(order.fechaEntregaReq).toLocaleDateString('es-AR') : '-'}</TableCell>
                   <TableCell>
-                    <Badge variant={estadoBadgeVariant[order.estado] as any}>
-                      {order.estado.replace('_', ' ')}
+                    <Badge variant={order.estadoOc === 'CANCELADA' ? 'destructive' : order.estadoOc === 'RECIBIDA' ? 'secondary' : 'default'}>
+                      {order.estadoOc}
                     </Badge>
                   </TableCell>
-                  <TableCell>{order.items.length}</TableCell>
-                  <TableCell className="font-medium">
-                    ${order.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  <TableCell>
+                    {order.habilitada
+                      ? <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Si</Badge>
+                      : <Badge variant="outline" className="text-xs">No</Badge>}
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => handleViewDetail(order)}
-                        title="Ver detalle"
-                      >
+                      <Button variant="ghost" size="icon" onClick={() => handleViewDetail(order)} title="Ver detalle">
                         <Eye className="h-4 w-4" />
                       </Button>
-                      {order.estado === 'borrador' && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon"
-                          onClick={() => handleEdit(order)}
-                          title="Editar"
-                        >
-                          <Edit className="h-4 w-4" />
+                      {order.estadoOc === 'PENDIENTE' && (
+                        <Button variant="ghost" size="icon" title="Recibir" onClick={() => recibir(order.id)}>
+                          <CheckCircle className="h-4 w-4 text-green-600" />
                         </Button>
                       )}
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        title="Imprimir"
-                      >
-                        <Printer className="h-4 w-4" />
-                      </Button>
+                      {order.estadoOc === 'PENDIENTE' && (
+                        <Button variant="ghost" size="icon" title="Cancelar" onClick={() => cancelar(order.id)}>
+                          <XCircle className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
 

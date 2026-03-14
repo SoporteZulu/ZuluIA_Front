@@ -10,24 +10,149 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Plus, MoreHorizontal, FolderTree } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Plus, FolderTree, MoreHorizontal } from "lucide-react"
+import { useItemsConfig } from '@/lib/hooks/useItems'
 
-const mockCategories = [
-  { id: "1", name: "Electronica", description: "Equipos electronicos y computadoras", products: 156, parent: null },
-  { id: "2", name: "Laptops", description: "Computadoras portatiles", products: 45, parent: "Electronica" },
-  { id: "3", name: "Monitores", description: "Pantallas y monitores", products: 32, parent: "Electronica" },
-  { id: "4", name: "Perifericos", description: "Teclados, mouse y accesorios", products: 89, parent: null },
-  { id: "5", name: "Teclados", description: "Teclados de escritorio", products: 34, parent: "Perifericos" },
-  { id: "6", name: "Mouse", description: "Dispositivos apuntadores", products: 28, parent: "Perifericos" },
-  { id: "7", name: "Accesorios", description: "Cables, adaptadores y mas", products: 234, parent: null },
-  { id: "8", name: "Audio", description: "Audifonos y parlantes", products: 67, parent: null },
-]
+export default function CategoriasPage() {
+  const { categorias, loading, error } = useItemsConfig()
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Categorias</h1>
+          <p className="text-muted-foreground">
+            Organiza los productos del inventario por categorias.
+          </p>
+        </div>
+        <Button>
+          <Plus className="mr-2 h-4 w-4" />
+          Nueva Categoria
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FolderTree className="h-4 w-4" />
+            Categorias de Items ({categorias.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading && <p className="text-center py-8 text-muted-foreground">Cargando categorias...</p>}
+          {error && <p className="text-center py-8 text-destructive">{error}</p>}
+          {!loading && !error && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Codigo</TableHead>
+                  <TableHead>Descripcion</TableHead>
+                  <TableHead className="w-[50px]"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {categorias.map((cat) => (
+                  <TableRow key={cat.id}>
+                    <TableCell className="font-mono text-sm">{cat.codigo}</TableCell>
+                    <TableCell className="font-medium">{cat.descripcion}</TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem>Ver productos</DropdownMenuItem>
+                          <DropdownMenuItem>Editar</DropdownMenuItem>
+                          <DropdownMenuItem>Agregar subcategoria</DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive">Eliminar</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {categorias.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                      No hay categorias registradas.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+
+export default function CategoriasPage() {
+  const { categorias, loading, error } = useItemsConfig()
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Categorias</h1>
+          <p className="text-muted-foreground">
+            Organiza los productos del inventario por categorias.
+          </p>
+        </div>
+        <Button>
+          <Plus className="mr-2 h-4 w-4" />
+          Nueva Categoria
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FolderTree className="h-4 w-4" />
+            Categorias de Items ({categorias.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading && <p className="text-center py-8 text-muted-foreground">Cargando categorias...</p>}
+          {error && <p className="text-center py-8 text-destructive">{error}</p>}
+          {!loading && !error && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Codigo</TableHead>
+                  <TableHead>Descripcion</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {categorias.map((cat) => (
+                  <TableRow key={cat.id}>
+                    <TableCell className="font-mono text-sm">{cat.codigo}</TableCell>
+                    <TableCell className="font-medium">{cat.descripcion}</TableCell>
+                  </TableRow>
+                ))}
+                {categorias.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={2} className="text-center py-8 text-muted-foreground">
+                      No hay categorias registradas.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
 export default function CategoriasPage() {
   return (

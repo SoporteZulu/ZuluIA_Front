@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useMemo } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,121 +15,131 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Plus, Search, Filter, ArrowDownLeft, ArrowUpRight, RefreshCw, ArrowLeftRight } from "lucide-react"
 import { Suspense } from "react"
-import { useSearchParams } from "next/navigation"
-
-const mockMovements = [
-  { id: "1", date: "2024-01-15", type: "entrada", product: "Laptop HP ProBook", warehouse: "Almacen Central", quantity: 20, reference: "OC-001", user: "Juan Perez" },
-  { id: "2", date: "2024-01-15", type: "salida", product: "Monitor Dell 24\"", warehouse: "Almacen Central", quantity: 5, reference: "PED-045", user: "Maria Garcia" },
-  { id: "3", date: "2024-01-14", type: "transferencia", product: "Teclado Mecanico", warehouse: "Almacen Norte → Central", quantity: 30, reference: "TRF-012", user: "Carlos Lopez" },
-  { id: "4", date: "2024-01-14", type: "ajuste", product: "Mouse Inalambrico", warehouse: "Almacen Central", quantity: -2, reference: "AJ-003", user: "Ana Martinez" },
-  { id: "5", date: "2024-01-13", type: "entrada", product: "Cable HDMI 2m", warehouse: "Almacen Sur", quantity: 100, reference: "OC-002", user: "Juan Perez" },
-  { id: "6", date: "2024-01-13", type: "salida", product: "Webcam HD", warehouse: "Almacen Central", quantity: 10, reference: "PED-044", user: "Maria Garcia" },
-  { id: "7", date: "2024-01-12", type: "entrada", product: "Audifonos Bluetooth", warehouse: "Almacen Central", quantity: 50, reference: "OC-003", user: "Carlos Lopez" },
-  { id: "8", date: "2024-01-12", type: "ajuste", product: "Cargador USB-C", warehouse: "Almacen Norte", quantity: 5, reference: "AJ-004", user: "Ana Martinez" },
-]
+import { useStockMovimientos } from "@/lib/hooks/useStock"
 
 function getTypeBadge(type: string) {
-  switch (type) {
-    case "entrada":
-      return (
-        <Badge variant="secondary" className="bg-green-500/10 text-green-500">
-          <ArrowDownLeft className="mr-1 h-3 w-3" />
-          Entrada
-        </Badge>
-      )
-    case "salida":
-      return (
-        <Badge variant="secondary" className="bg-red-500/10 text-red-500">
-          <ArrowUpRight className="mr-1 h-3 w-3" />
-          Salida
-        </Badge>
-      )
-    case "transferencia":
-      return (
-        <Badge variant="secondary" className="bg-blue-500/10 text-blue-500">
-          <ArrowLeftRight className="mr-1 h-3 w-3" />
-          Transferencia
-        </Badge>
-      )
-    case "ajuste":
-      return (
-        <Badge variant="secondary" className="bg-yellow-500/10 text-yellow-500">
-          <RefreshCw className="mr-1 h-3 w-3" />
-          Ajuste
-        </Badge>
-      )
-    default:
-      return null
-  }
+  const t = type.toLowerCase()
+  if (t.includes('entrada') || t === 'compra') return (
+    <Badge variant="secondary" className="bg-green-500/10 text-green-500">
+      <ArrowDownLeft className="mr-1 h-3 w-3" />
+      Entrada
+    </Badge>
+  )
+  if (t.includes('salida') || t === 'venta') return (
+    <Badge variant="secondary" className="bg-red-500/10 text-red-500">
+      <ArrowUpRight className="mr-1 h-3 w-3" />
+      Salida
+    </Badge>
+  )
+  if (t.includes('transfer')) return (
+    <Badge variant="secondary" className="bg-blue-500/10 text-blue-500">
+      <ArrowLeftRight className="mr-1 h-3 w-3" />
+      Transferencia
+    </Badge>
+  )
+  return (
+    <Badge variant="secondary" className="bg-yellow-500/10 text-yellow-500">
+      <RefreshCw className="mr-1 h-3 w-3" />
+      {type}
+    </Badge>
+  )
 }
 
 function Loading() {
   return null
 }
 
-export default function MovimientosPage() {
-  const searchParams = useSearchParams()
+function MovimientosContent() {
+  const { movimientos, loading, error } = useStockMovimientos()
+  const [search, setSearch] = useState('')
+
+  const filtered = useMemo(() => movimientos.filter(m =>
+    String(m.itemId).includes(search) ||
+    m.tipoMovimiento.toLowerCase().includes(search.toLowerCase()) ||
+    (m.observacion ?? '').toLowerCase().includes(search.toLowerCase())
+  ), [movimientos, search])
 
   return (
-    <Suspense fallback={<Loading />}>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Movimientos de Stock</h1>
-            <p className="text-muted-foreground">
-              Historial de entradas, salidas y ajustes de inventario.
-            </p>
-          </div>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Nuevo Movimiento
-          </Button>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Movimientos de Stock</h1>
+          <p className="text-muted-foreground">
+            Historial de entradas, salidas y ajustes de inventario.
+          </p>
         </div>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Buscar movimientos..." className="pl-8" />
-              </div>
-              <Button variant="outline" size="icon">
-                <Filter className="h-4 w-4" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Almacen</TableHead>
-                  <TableHead className="text-right">Cantidad</TableHead>
-                  <TableHead>Referencia</TableHead>
-                  <TableHead>Usuario</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {mockMovements.map((movement) => (
-                  <TableRow key={movement.id}>
-                    <TableCell className="text-muted-foreground">{movement.date}</TableCell>
-                    <TableCell>{getTypeBadge(movement.type)}</TableCell>
-                    <TableCell className="font-medium">{movement.product}</TableCell>
-                    <TableCell>{movement.warehouse}</TableCell>
-                    <TableCell className={`text-right font-mono ${movement.quantity > 0 ? "text-green-500" : "text-red-500"}`}>
-                      {movement.quantity > 0 ? `+${movement.quantity}` : movement.quantity}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">{movement.reference}</TableCell>
-                    <TableCell className="text-muted-foreground">{movement.user}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <Button>
+          <Plus className="mr-2 h-4 w-4" />
+          Nuevo Movimiento
+        </Button>
       </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar movimientos..."
+                className="pl-8"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <Button variant="outline" size="icon">
+              <Filter className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+            </div>
+          ) : error ? (
+            <p className="text-center py-8 text-red-600 text-sm">{error}</p>
+          ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Fecha</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Producto</TableHead>
+                <TableHead>Deposito</TableHead>
+                <TableHead className="text-right">Cantidad</TableHead>
+                <TableHead className="text-right">Saldo Result.</TableHead>
+                <TableHead>Observacion</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Sin movimientos registrados.</TableCell></TableRow>
+              ) : filtered.map((m) => (
+                <TableRow key={m.id}>
+                  <TableCell className="text-muted-foreground">{new Date(m.fecha).toLocaleDateString('es-AR')}</TableCell>
+                  <TableCell>{getTypeBadge(m.tipoMovimiento)}</TableCell>
+                  <TableCell className="font-medium">Item #{m.itemId}</TableCell>
+                  <TableCell>Dep. #{m.depositoId}</TableCell>
+                  <TableCell className={`text-right font-mono ${m.cantidad >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {m.cantidad >= 0 ? `+${m.cantidad}` : m.cantidad}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-muted-foreground">{m.saldoResultante}</TableCell>
+                  <TableCell className="text-muted-foreground text-sm">{m.observacion ?? '-'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+export default function MovimientosPage() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <MovimientosContent />
     </Suspense>
   )
 }

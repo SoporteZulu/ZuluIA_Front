@@ -9,7 +9,9 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Search, X, Users, Crown, UserCheck, UserMinus, Phone, Mail, Building2, ExternalLink, FileText } from "lucide-react"
-import { crmClients, contratos, slas, mapClienteToHDType, getSLAForCliente } from "@/lib/shared-data"
+import { useCrmClientes } from "@/lib/hooks/useCrm"
+import { useHdContratos, useHdSlas } from "@/lib/hooks/useHelpdesk"
+import { mapClienteToHDType, getSLAForCliente } from "@/lib/shared-data"
 import type { CRMClient } from "@/lib/types"
 import Link from "next/link"
 
@@ -33,6 +35,10 @@ function ClientesHDContent() {
   const [filterContrato, setFilterContrato] = useState<string>("all")
 
   // Obtener solo clientes activos o prospectos del CRM
+  const { clientes: crmClients, loading } = useCrmClientes()
+  const { contratos } = useHdContratos()
+  const { slas } = useHdSlas()
+
   const clientesActivos = crmClients.filter(c => c.tipoCliente === "activo" || c.tipoCliente === "prospecto")
 
   // Mapear clientes con información de Help Desk

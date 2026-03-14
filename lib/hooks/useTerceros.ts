@@ -23,18 +23,12 @@ export function useTerceros() {
     setLoading(true)
     setError(null)
     try {
-      const result = await apiGet<PagedResult<Tercero> | Tercero[]>(
-        `/api/terceros?esCliente=true&soloActivos=true&page=${page}&pageSize=50&search=${encodeURIComponent(search)}`
+      const result = await apiGet<PagedResult<Tercero>>(
+        `/api/terceros?soloClientes=true&soloActivos=true&page=${page}&pageSize=50&search=${encodeURIComponent(search)}`
       )
-      if (Array.isArray(result)) {
-        setTerceros(result as Tercero[])
-        setTotalCount((result as Tercero[]).length)
-        setTotalPages(1)
-      } else {
-        setTerceros(result.data)
-        setTotalCount(result.totalCount)
-        setTotalPages(result.totalPages)
-      }
+      setTerceros(result.items)
+      setTotalCount(result.totalCount)
+      setTotalPages(result.totalPages)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar clientes')
     } finally {
@@ -98,12 +92,12 @@ export function useTercerosConfig() {
 
   useEffect(() => {
     Promise.all([
-      apiGet<CondicionIva[] | PagedResult<CondicionIva>>('/api/condiciones-iva'),
-      apiGet<Moneda[] | PagedResult<Moneda>>('/api/monedas?soloActivas=true'),
+      apiGet<CondicionIva[] | PagedResult<CondicionIva>>('/api/configuracion/condiciones-iva'),
+      apiGet<Moneda[] | PagedResult<Moneda>>('/api/configuracion/monedas'),
     ])
       .then(([conds, mons]) => {
         const toArray = <T>(r: T[] | PagedResult<T>): T[] =>
-          Array.isArray(r) ? r : r.data
+          Array.isArray(r) ? r : r.items
 
         setCondicionesIva(toArray(conds))
         setMonedas(toArray(mons))
@@ -115,4 +109,79 @@ export function useTercerosConfig() {
   }, [])
 
   return { condicionesIva, monedas, loading }
+}
+
+export function useProveedores() {
+  const [terceros, setTerceros] = useState<Tercero[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [totalCount, setTotalCount] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+
+  const fetchProveedores = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await apiGet<PagedResult<Tercero>>(
+        `/api/terceros?soloProveedores=true&soloActivos=true&page=${page}&pageSize=50&search=${encodeURIComponent(search)}`
+      )
+      setTerceros(result.items)
+      setTotalCount(result.totalCount)
+      setTotalPages(result.totalPages)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al cargar proveedores')
+    } finally {
+      setLoading(false)
+    }
+  }, [page, search])
+
+  useEffect(() => { fetchProveedores() }, [fetchProveedores])
+
+  const createProveedor = async (dto: CreateTerceroDto): Promise<boolean> => {
+    try {
+      await apiPost<Tercero>('/api/terceros', dto)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al crear proveedor')
+      return false
+    }
+  }
+
+  const updateProveedor = async (id: number, dto: Partial<CreateTerceroDto>): Promise<boolean> => {
+    try {
+      await apiPut<Tercero>(`/api/terceros/${id}`, dto)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al actualizar proveedor')
+      return false
+    }
+  }
+
+  const deleteProveedor = async (id: number): Promise<boolean> => {
+    try {
+      await apiDelete(`/api/terceros/${id}`)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al desactivar proveedor')
+      return false
+    }
+  }
+
+  return {
+    terceros,
+    loading,
+    error,
+    totalCount,
+    totalPages,
+    page,
+    setPage,
+    search,
+    setSearch,
+    createProveedor,
+    updateProveedor,
+    deleteProveedor,
+    refetch: fetchProveedores,
+  }
 }

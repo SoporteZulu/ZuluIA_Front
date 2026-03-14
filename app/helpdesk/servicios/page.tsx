@@ -48,7 +48,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { servicios as initialServicios, categoriasServicio } from "@/lib/shared-data"
+import { useHdServicios } from "@/lib/hooks/useHelpdesk"
+import { categoriasServicio } from "@/lib/helpdesk-data"
 import type { HDServicio } from "@/lib/types"
 import Loading from "@/components/ui/loading" // Declare the Loading variable
 
@@ -62,7 +63,7 @@ const tipoPrecioLabels: Record<string, string> = {
 function ServiciosContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [serviciosList, setServiciosList] = useState<HDServicio[]>(initialServicios)
+  const { servicios: serviciosList, loading, error, createServicio, updateServicio, deleteServicio } = useHdServicios()
   const [searchTerm, setSearchTerm] = useState("")
   const [filterCategoria, setFilterCategoria] = useState<string>("todos")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
@@ -130,30 +131,18 @@ function ServiciosContent() {
     router.push("/helpdesk/servicios")
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (selectedServicio) {
-      setServiciosList((prev) =>
-        prev.map((s) =>
-          s.id === selectedServicio.id
-            ? { ...s, ...formData, updatedAt: new Date() }
-            : s
-        )
-      )
+      await updateServicio(selectedServicio.id, formData)
     } else {
-      const newServicio: HDServicio = {
-        id: `srv-${Date.now()}`,
-        ...formData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setServiciosList((prev) => [newServicio, ...prev])
+      await createServicio(formData as Omit<HDServicio, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (selectedServicio) {
-      setServiciosList((prev) => prev.filter((s) => s.id !== selectedServicio.id))
+      await deleteServicio(selectedServicio.id)
       setIsDeleteOpen(false)
       setSelectedServicio(null)
     }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, Suspense } from "react"
+import React, { useState, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -62,17 +62,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  tickets as initialTickets,
-  ticketComments,
-  clientesHD,
-  agentes,
-  departamentos,
-  slas,
-  getClienteById,
-  getAgenteById,
-  getDepartamentoById,
-} from "@/lib/helpdesk-data"
+import { useHdTickets, useHdClientes, useHdAgentes } from "@/lib/hooks/useHelpdesk"
+import { departamentos, getDepartamentoById } from "@/lib/helpdesk-data"
 import type { HDTicket, HDTicketComment } from "@/lib/types"
 
 const prioridadColors: Record<string, string> = {
@@ -119,8 +110,14 @@ const canalLabels: Record<string, string> = {
 function TicketsContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [ticketsList, setTicketsList] = useState<HDTicket[]>(initialTickets)
-  const [commentsList, setCommentsList] = useState<HDTicketComment[]>(ticketComments)
+  const { tickets: ticketsList, loading, error, createTicket, updateTicket, deleteTicket, addComment } = useHdTickets()
+  const { clientes: clientesHD } = useHdClientes()
+  const { agentes } = useHdAgentes()
+
+  const getClienteById = (id: string) => clientesHD.find(c => c.id === id)
+  const getAgenteById = (id: string) => agentes.find(a => a.id === id)
+
+  const [commentsList, setCommentsList] = React.useState<HDTicketComment[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [filterPrioridad, setFilterPrioridad] = useState<string>("todos")
@@ -196,24 +193,15 @@ function TicketsContent() {
     setIsDetailOpen(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (selectedTicket) {
-      setTicketsList((prev) =>
-        prev.map((t) =>
-          t.id === selectedTicket.id
-            ? {
-                ...t,
-                ...formData,
-                tags: formData.tags ? formData.tags.split(",").map((s) => s.trim()) : [],
-                estado: formData.asignadoAId && t.estado === "nuevo" ? "asignado" : t.estado,
-                updatedAt: new Date(),
-              }
-            : t
-        )
-      )
+      await updateTicket(selectedTicket.id, {
+        ...formData,
+        tags: formData.tags ? formData.tags.split(",").map((s) => s.trim()) : [],
+        estado: formData.asignadoAId && selectedTicket.estado === "nuevo" ? "asignado" : selectedTicket.estado,
+      })
     } else {
-      const newTicket: HDTicket = {
-        id: `tk-${Date.now()}`,
+      await createTicket({
         numero: `TK-2024-${String(ticketsList.length + 1).padStart(4, "0")}`,
         asunto: formData.asunto,
         descripcion: formData.descripcion,
@@ -224,54 +212,39 @@ function TicketsContent() {
         canal: formData.canal,
         asignadoAId: formData.asignadoAId || undefined,
         departamentoId: formData.departamentoId || undefined,
-        slaId: clientesHD.find((c) => c.id === formData.clienteId)?.slaId,
         fechaCreacion: new Date(),
         cumpleSLA: true,
         tags: formData.tags ? formData.tags.split(",").map((s) => s.trim()) : [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setTicketsList((prev) => [newTicket, ...prev])
+      } as Omit<HDTicket, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (selectedTicket) {
-      setTicketsList((prev) => prev.filter((t) => t.id !== selectedTicket.id))
+      await deleteTicket(selectedTicket.id)
       setIsDeleteOpen(false)
       setSelectedTicket(null)
     }
   }
 
-  const handleStatusChange = (ticketId: string, newStatus: HDTicket["estado"]) => {
-    setTicketsList((prev) =>
-      prev.map((t) =>
-        t.id === ticketId
-          ? {
-              ...t,
-              estado: newStatus,
-              fechaResolucion: newStatus === "resuelto" ? new Date() : t.fechaResolucion,
-              fechaCierre: newStatus === "cerrado" ? new Date() : t.fechaCierre,
-              updatedAt: new Date(),
-            }
-          : t
-      )
-    )
+  const handleStatusChange = async (ticketId: string, newStatus: HDTicket["estado"]) => {
+    await updateTicket(ticketId, {
+      estado: newStatus,
+      fechaResolucion: newStatus === "resuelto" ? new Date() : undefined,
+      fechaCierre: newStatus === "cerrado" ? new Date() : undefined,
+    })
   }
 
-  const handleAddComment = () => {
+  const handleAddComment = async () => {
     if (!selectedTicket || !newComment.trim()) return
-    const comment: HDTicketComment = {
-      id: `com-${Date.now()}`,
+    const comment = await addComment(selectedTicket.id, {
       ticketId: selectedTicket.id,
-      usuarioId: "ag-001", // Usuario actual simulado
+      usuarioId: "ag-001",
       texto: newComment,
       esInterno: isInternalComment,
       fechaHora: new Date(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
+    })
     setCommentsList((prev) => [...prev, comment])
     setNewComment("")
   }
