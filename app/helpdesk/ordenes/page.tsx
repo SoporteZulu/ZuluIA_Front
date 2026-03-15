@@ -48,15 +48,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  ordenesServicio as initialOrdenes,
-  servicios,
-  clientesHD,
-  agentes,
-  getClienteById,
-  getAgenteById,
-  getServicioById,
-} from "@/lib/helpdesk-data"
+import { useHdOrdenesServicio, useHdServicios, useHdClientes, useHdAgentes } from "@/lib/hooks/useHelpdesk"
 import type { HDOrdenServicio } from "@/lib/types"
 
 const estadoColors: Record<string, string> = {
@@ -80,7 +72,13 @@ const estadoLabels: Record<string, string> = {
 function OrdenesContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [ordenesList, setOrdenesList] = useState<HDOrdenServicio[]>(initialOrdenes)
+  const { ordenes, createOrden, updateOrden, deleteOrden } = useHdOrdenesServicio()
+  const { servicios } = useHdServicios()
+  const { clientes } = useHdClientes()
+  const { agentes } = useHdAgentes()
+  const getClienteById = (id: string) => clientes.find((c) => c.id === id)
+  const getAgenteById = (id: string) => agentes.find((a) => a.id === id)
+  const getServicioById = (id: string) => servicios.find((s) => s.id === id)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [filterPrioridad, setFilterPrioridad] = useState<string>("todos")
@@ -100,7 +98,7 @@ function OrdenesContent() {
     observaciones: "",
   })
 
-  const filteredOrdenes = ordenesList.filter((orden) => {
+  const filteredOrdenes = ordenes.filter((orden) => {
     const cliente = getClienteById(orden.clienteId)
     const matchesSearch =
       orden.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -152,24 +150,15 @@ function OrdenesContent() {
     setIsDetailOpen(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (selectedOrden) {
-      setOrdenesList((prev) =>
-        prev.map((o) =>
-          o.id === selectedOrden.id
-            ? {
-                ...o,
-                ...formData,
-                fechaProgramada: formData.fechaProgramada ? new Date(formData.fechaProgramada) : undefined,
-                updatedAt: new Date(),
-              }
-            : o
-        )
-      )
+      await updateOrden(selectedOrden.id, {
+        ...formData,
+        fechaProgramada: formData.fechaProgramada ? new Date(formData.fechaProgramada) : undefined,
+      })
     } else {
-      const newOrden: HDOrdenServicio = {
-        id: `os-${Date.now()}`,
-        numero: `OS-2024-${String(ordenesList.length + 1).padStart(4, "0")}`,
+      await createOrden({
+        numero: `OS-${Date.now()}`,
         clienteId: formData.clienteId,
         servicioId: formData.servicioId,
         tecnicoAsignadoId: formData.tecnicoAsignadoId || undefined,
@@ -179,36 +168,26 @@ function OrdenesContent() {
         direccionServicio: formData.direccionServicio || undefined,
         descripcionTrabajo: formData.descripcionTrabajo || undefined,
         observaciones: formData.observaciones || undefined,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setOrdenesList((prev) => [newOrden, ...prev])
+        cumpleSLA: true,
+      } as Omit<HDOrdenServicio, 'id' | 'createdAt' | 'updatedAt'>)
     }
     closeForm()
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (selectedOrden) {
-      setOrdenesList((prev) => prev.filter((o) => o.id !== selectedOrden.id))
+      await deleteOrden(selectedOrden.id)
       setIsDeleteOpen(false)
       setSelectedOrden(null)
     }
   }
 
-  const handleStatusChange = (ordenId: string, newStatus: HDOrdenServicio["estado"]) => {
-    setOrdenesList((prev) =>
-      prev.map((o) =>
-        o.id === ordenId
-          ? {
-              ...o,
-              estado: newStatus,
-              fechaInicio: newStatus === "en_proceso" && !o.fechaInicio ? new Date() : o.fechaInicio,
-              fechaFin: newStatus === "completada" ? new Date() : o.fechaFin,
-              updatedAt: new Date(),
-            }
-          : o
-      )
-    )
+  const handleStatusChange = async (ordenId: string, newStatus: HDOrdenServicio["estado"]) => {
+    await updateOrden(ordenId, {
+      estado: newStatus,
+      fechaInicio: newStatus === "en_proceso" ? new Date() : undefined,
+      fechaFin: newStatus === "completada" ? new Date() : undefined,
+    })
   }
 
   const formatDate = (date: Date | undefined) => {
@@ -223,10 +202,10 @@ function OrdenesContent() {
   }
 
   const stats = {
-    total: ordenesList.length,
-    pendientes: ordenesList.filter((o) => o.estado === "pendiente" || o.estado === "programada").length,
-    enProceso: ordenesList.filter((o) => o.estado === "en_proceso").length,
-    completadas: ordenesList.filter((o) => o.estado === "completada").length,
+    total: ordenes.length,
+    pendientes: ordenes.filter((o) => o.estado === "pendiente" || o.estado === "programada").length,
+    enProceso: ordenes.filter((o) => o.estado === "en_proceso").length,
+    completadas: ordenes.filter((o) => o.estado === "completada").length,
   }
 
   return (

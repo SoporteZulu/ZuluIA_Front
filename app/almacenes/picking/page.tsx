@@ -14,33 +14,34 @@ import {
   Check,
   Clock,
   Truck,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
-import { useComprobantes } from '@/lib/hooks/useComprobantes'
+import { useOrdenesPreparacion } from '@/lib/hooks/useOrdenesPreparacion'
 import { useTerceros } from '@/lib/hooks/useTerceros'
-import type { Comprobante } from '@/lib/types/comprobantes'
+import type { OrdenPreparacion } from '@/lib/types/ordenes-preparacion'
 
 const estadoBadgeVariant: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  BORRADOR:       'secondary',
-  EMITIDO:        'default',
-  PAGADO_PARCIAL: 'outline',
-  PAGADO:         'outline',
-  ANULADO:        'destructive',
+  PENDIENTE:   'secondary',
+  EN_PROCESO:  'default',
+  COMPLETADA:  'outline',
+  CANCELADA:   'destructive',
 }
 
 export default function PickingPage() {
-  const { comprobantes: orders, loading } = useComprobantes({ esVenta: true })
+  const [filterEstado, setFilterEstado] = useState('')
+  const { ordenes, loading, error, page, setPage, totalCount, totalPages } =
+    useOrdenesPreparacion({ estado: filterEstado || undefined })
   const { terceros } = useTerceros()
-  const [selectedOrder, setSelectedOrder] = useState<Comprobante | null>(null)
+  const [selectedOrden, setSelectedOrden] = useState<OrdenPreparacion | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [filterEstado, setFilterEstado] = useState('todos')
 
-  const filteredOrders = React.useMemo(
-    () => filterEstado === 'todos' ? orders : orders.filter(o => o.estado === filterEstado),
-    [orders, filterEstado]
-  )
+  const getTerceroName = (id?: number) =>
+    id ? (terceros.find(t => t.id === id)?.razonSocial ?? String(id)) : '-'
 
-  const getTerceroName = (id: number) =>
-    terceros.find(t => t.id === id)?.razonSocial ?? String(id)
+  const pendientes  = ordenes.filter(o => o.estado === 'PENDIENTE').length
+  const enProceso   = ordenes.filter(o => o.estado === 'EN_PROCESO').length
+  const completadas = ordenes.filter(o => o.estado === 'COMPLETADA').length
 
   return (
     <div className="space-y-6">
@@ -48,11 +49,11 @@ export default function PickingPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Picking y Preparación</h1>
-          <p className="text-muted-foreground mt-1">Gestión de órdenes de salida</p>
+          <p className="text-muted-foreground mt-1">Gestión de órdenes de preparación</p>
         </div>
         <Button>
           <Plus className="h-4 w-4 mr-2" />
-          Nueva Orden Salida
+          Nueva Orden
         </Button>
       </div>
 
@@ -60,115 +61,117 @@ export default function PickingPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">En Picking</CardTitle>
+            <CardTitle className="text-sm font-medium">Total</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {orders.filter(o => o.estado === 'BORRADOR').length}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">Órdenes activas</p>
+            <div className="text-2xl font-bold">{totalCount}</div>
+            <p className="text-xs text-muted-foreground mt-1">Órdenes registradas</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Listas para Despacho</CardTitle>
+            <CardTitle className="text-sm font-medium">Pendientes</CardTitle>
+            <Clock className="h-4 w-4 text-yellow-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{pendientes}</div>
+            <p className="text-xs text-muted-foreground mt-1">Sin iniciar</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">En Proceso</CardTitle>
+            <Truck className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{enProceso}</div>
+            <p className="text-xs text-muted-foreground mt-1">En preparación</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Completadas</CardTitle>
             <Check className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {orders.filter(o => o.estado === 'EMITIDO').length}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">Esperando embalaje</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Tiempo Promedio</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">4.2h</div>
-            <p className="text-xs text-muted-foreground mt-1">Picking</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Eficiencia</CardTitle>
-            <Truck className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">95%</div>
-            <p className="text-xs text-muted-foreground mt-1">Órdenes completas</p>
+            <div className="text-2xl font-bold">{completadas}</div>
+            <p className="text-xs text-muted-foreground mt-1">Listas para despacho</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Filtros */}
       <div className="flex gap-4">
-        <Select value={filterEstado} onValueChange={setFilterEstado}>
+        <Select value={filterEstado || 'todos'} onValueChange={v => { setFilterEstado(v === 'todos' ? '' : v); setPage(1) }}>
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Filtrar por estado" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos los estados</SelectItem>
-            <SelectItem value="BORRADOR">Borrador</SelectItem>
-            <SelectItem value="EMITIDO">Emitido</SelectItem>
-            <SelectItem value="PAGADO_PARCIAL">Pagado Parcial</SelectItem>
-            <SelectItem value="PAGADO">Pagado</SelectItem>
-            <SelectItem value="ANULADO">Anulado</SelectItem>
+            <SelectItem value="PENDIENTE">Pendiente</SelectItem>
+            <SelectItem value="EN_PROCESO">En Proceso</SelectItem>
+            <SelectItem value="COMPLETADA">Completada</SelectItem>
+            <SelectItem value="CANCELADA">Cancelada</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      {/* Tabla de Órdenes */}
+      {/* Tabla */}
       <Card>
         <CardHeader>
-          <CardTitle>Órdenes de Salida</CardTitle>
-          <CardDescription>{filteredOrders.length} órdenes encontradas</CardDescription>
+          <CardTitle>Órdenes de Preparación</CardTitle>
+          <CardDescription>{totalCount} órdenes encontradas</CardDescription>
         </CardHeader>
         <CardContent>
+          {error && <p className="text-destructive text-sm mb-4">{error}</p>}
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nro. Comprobante</TableHead>
+                <TableHead>#</TableHead>
                 <TableHead>Tercero</TableHead>
-                <TableHead>Tipo</TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead>Total</TableHead>
                 <TableHead>Fecha</TableHead>
+                <TableHead>Observación</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrders.map((order) => (
-                <TableRow key={order.id}>
-                  <TableCell className="font-medium">{order.nroComprobante ?? order.id}</TableCell>
-                  <TableCell>{getTerceroName(order.terceroId)}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">
-                      {order.tipoComprobanteDescripcion ?? order.tipoComprobanteId}
-                    </Badge>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    Cargando...
                   </TableCell>
-                  <TableCell>
-                    <Badge variant={estadoBadgeVariant[order.estado] ?? 'outline'}>
-                      {order.estado}
-                    </Badge>
+                </TableRow>
+              ) : ordenes.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    No hay órdenes de preparación
                   </TableCell>
-                  <TableCell className="text-sm font-semibold">
-                    ${order.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                </TableRow>
+              ) : ordenes.map((orden) => (
+                <TableRow key={orden.id}>
+                  <TableCell className="font-medium">{orden.id}</TableCell>
+                  <TableCell>{getTerceroName(orden.terceroId)}</TableCell>
+                  <TableCell>
+                    <Badge variant={estadoBadgeVariant[orden.estado] ?? 'outline'}>
+                      {orden.estado}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-sm">
-                    {order.fecha ? new Date(order.fecha).toLocaleDateString('es-AR') : '-'}
+                    {orden.fecha ? new Date(orden.fecha).toLocaleDateString('es-AR') : '-'}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {orden.observacion ?? '-'}
                   </TableCell>
                   <TableCell>
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => { setSelectedOrder(order); setIsDetailOpen(true) }}
+                      onClick={() => { setSelectedOrden(orden); setIsDetailOpen(true) }}
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
@@ -177,10 +180,25 @@ export default function PickingPage() {
               ))}
             </TableBody>
           </Table>
+
+          {/* Paginación */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-sm text-muted-foreground">
+                Página {page} de {totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
-
-
 
       {/* Detail Dialog */}
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
@@ -188,25 +206,21 @@ export default function PickingPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Truck className="h-5 w-5" />
-              Comprobante #{selectedOrder?.nroComprobante ?? selectedOrder?.id}
+              Orden de Preparación #{selectedOrden?.id}
             </DialogTitle>
             <DialogDescription>
-              {selectedOrder ? getTerceroName(selectedOrder.terceroId) : ''}
+              {selectedOrden ? getTerceroName(selectedOrden.terceroId) : ''}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-4 text-sm py-4">
             {[
-              ['Nro. Comprobante', selectedOrder?.nroComprobante ?? '-'],
-              ['Tipo',            selectedOrder?.tipoComprobanteDescripcion ?? '-'],
-              ['Estado',          selectedOrder?.estado ?? '-'],
-              ['Tercero ID',      String(selectedOrder?.terceroId ?? '-')],
-              ['Fecha',           selectedOrder?.fecha ? new Date(selectedOrder.fecha).toLocaleDateString('es-AR') : '-'],
-              ['Vencimiento',     selectedOrder?.fechaVto ?? '-'],
-              ['Neto Gravado',    selectedOrder ? `$${selectedOrder.netoGravado.toLocaleString('es-AR')}` : '-'],
-              ['IVA',             selectedOrder ? `$${selectedOrder.ivaRi.toLocaleString('es-AR')}` : '-'],
-              ['Total',           selectedOrder ? `$${selectedOrder.total.toLocaleString('es-AR')}` : '-'],
-              ['Saldo',           selectedOrder ? `$${selectedOrder.saldo.toLocaleString('es-AR')}` : '-'],
+              ['ID',          String(selectedOrden?.id ?? '-')],
+              ['Estado',      selectedOrden?.estado ?? '-'],
+              ['Tercero',     selectedOrden ? getTerceroName(selectedOrden.terceroId) : '-'],
+              ['Sucursal ID', String(selectedOrden?.sucursalId ?? '-')],
+              ['Fecha',       selectedOrden?.fecha ? new Date(selectedOrden.fecha).toLocaleDateString('es-AR') : '-'],
+              ['Observación', selectedOrden?.observacion ?? '-'],
             ].map(([k, v]) => (
               <div key={k as string}>
                 <span className="text-muted-foreground block mb-1">{k}</span>

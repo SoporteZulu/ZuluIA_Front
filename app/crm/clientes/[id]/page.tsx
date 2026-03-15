@@ -33,91 +33,63 @@ import {
   Clock,
 } from "lucide-react"
 import {
-  crmClients,
-  getContactsByClientId,
-  getOpportunitiesByClientId,
-  getInteractionsByClientId,
-  getTasksByClientId,
-  getCommentsByReference,
-  getUserById,
-  getContactById,
-  crmComments,
-} from "@/lib/crm-data"
+  useCrmClientes,
+  useCrmContactos,
+  useCrmOportunidades,
+  useCrmInteracciones,
+  useCrmTareas,
+  useCrmUsuarios,
+} from "@/lib/hooks/useCrm"
 import type { CRMComment } from "@/lib/types"
-import { use } from "react" // Added import for use
+
+const getTipoColor = (tipo: string) => {
+  switch (tipo) {
+    case "prospecto": return "bg-blue-500/20 text-blue-400"
+    case "activo": return "bg-green-500/20 text-green-400"
+    case "inactivo": return "bg-yellow-500/20 text-yellow-400"
+    case "perdido": return "bg-red-500/20 text-red-400"
+    default: return "bg-gray-500/20 text-gray-400"
+  }
+}
+
+const getEtapaColor = (etapa: string) => {
+  switch (etapa) {
+    case "lead": return "bg-slate-500/20 text-slate-400"
+    case "calificado": return "bg-blue-500/20 text-blue-400"
+    case "propuesta": return "bg-purple-500/20 text-purple-400"
+    case "negociacion": return "bg-yellow-500/20 text-yellow-400"
+    case "cerrado_ganado": return "bg-green-500/20 text-green-400"
+    case "cerrado_perdido": return "bg-red-500/20 text-red-400"
+    default: return "bg-gray-500/20 text-gray-400"
+  }
+}
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("es-AR", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value)
+
+const formatDate = (date: Date) =>
+  new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric" }).format(date)
+
+const formatDateTime = (date: Date) =>
+  new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)
 
 export default function ClienteDetallePage() {
   const params = useParams()
   const id = params.id as string
   const router = useRouter()
-  const client = crmClients.find(c => c.id === id)
-  const [comments, setComments] = useState(getCommentsByReference(id, "cliente"))
   const [newComment, setNewComment] = useState("")
+  const [comments, setComments] = useState<CRMComment[]>([])
 
-  if (!client) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[50vh] space-y-4">
-        <p className="text-muted-foreground">Cliente no encontrado</p>
-        <Button asChild>
-          <Link href="/crm/clientes">Volver a Clientes</Link>
-        </Button>
-      </div>
-    )
-  }
+  const { clientes } = useCrmClientes()
+  const { contactos: contacts } = useCrmContactos(id)
+  const { oportunidades: opportunities } = useCrmOportunidades(id)
+  const { interacciones: interactions } = useCrmInteracciones(id)
+  const { tareas: tasks } = useCrmTareas(id)
+  const { usuarios } = useCrmUsuarios()
 
-  const contacts = getContactsByClientId(id)
-  const opportunities = getOpportunitiesByClientId(id)
-  const interactions = getInteractionsByClientId(id)
-  const tasks = getTasksByClientId(id)
-  const responsable = client.responsableId ? getUserById(client.responsableId) : null
-
-  const getTipoColor = (tipo: string) => {
-    switch (tipo) {
-      case "prospecto": return "bg-blue-500/20 text-blue-400"
-      case "activo": return "bg-green-500/20 text-green-400"
-      case "inactivo": return "bg-yellow-500/20 text-yellow-400"
-      case "perdido": return "bg-red-500/20 text-red-400"
-      default: return "bg-gray-500/20 text-gray-400"
-    }
-  }
-
-  const getEtapaColor = (etapa: string) => {
-    switch (etapa) {
-      case "lead": return "bg-slate-500/20 text-slate-400"
-      case "calificado": return "bg-blue-500/20 text-blue-400"
-      case "propuesta": return "bg-purple-500/20 text-purple-400"
-      case "negociacion": return "bg-yellow-500/20 text-yellow-400"
-      case "cerrado_ganado": return "bg-green-500/20 text-green-400"
-      case "cerrado_perdido": return "bg-red-500/20 text-red-400"
-      default: return "bg-gray-500/20 text-gray-400"
-    }
-  }
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 0,
-    }).format(value)
-  }
-
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat("es-AR", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }).format(date)
-  }
-
-  const formatDateTime = (date: Date) => {
-    return new Intl.DateTimeFormat("es-AR", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(date)
-  }
+  const client = clientes.find((c) => c.id === id)
+  const responsable = client?.responsableId ? usuarios.find((u) => u.id === client.responsableId) : null
+  const getUserById = (userId: string) => usuarios.find((u) => u.id === userId)
 
   const handleAddComment = () => {
     if (!newComment.trim()) return
@@ -134,6 +106,8 @@ export default function ClienteDetallePage() {
     setComments([...comments, comment])
     setNewComment("")
   }
+
+  if (!client) return <div className="p-8 text-center text-muted-foreground">Cliente no encontrado</div>
 
   return (
     <div className="space-y-6">

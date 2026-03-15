@@ -43,11 +43,8 @@ import {
   User,
 } from "lucide-react"
 import type { PurchaseRequest, PurchaseRequestItem } from "@/lib/compras-types"
-import {
-  purchaseRequests as initialRequests,
-  suppliers,
-  products,
-} from "@/lib/compras-data"
+import { useProveedores } from "@/lib/hooks/useTerceros"
+import { useItems } from "@/lib/hooks/useItems"
 
 const estadoBadgeVariant = {
   pendiente: "secondary",
@@ -61,7 +58,9 @@ export default function SolicitudesCompraPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   
-  const [requests, setRequests] = useState<PurchaseRequest[]>(initialRequests)
+  const { terceros: proveedores } = useProveedores()
+  const { items } = useItems()
+  const [requests, setRequests] = useState<PurchaseRequest[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [filterOrigen, setFilterOrigen] = useState<string>("todos")
@@ -179,11 +178,11 @@ export default function SolicitudesCompraPage() {
 
   const getSupplierName = (supplierId?: string) => {
     if (!supplierId) return "No asignado"
-    return suppliers.find(s => s.id === supplierId)?.razonSocial || "N/A"
+    return proveedores.find(p => String(p.id) === supplierId)?.razonSocial || "N/A"
   }
 
   const getProductName = (productId: string) => {
-    return products.find(p => p.id === productId)?.nombre || "N/A"
+    return items.find(i => String(i.id) === productId)?.descripcion || "N/A"
   }
 
   return (
@@ -407,9 +406,9 @@ export default function SolicitudesCompraPage() {
                   <SelectValue placeholder="Seleccione un proveedor (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  {suppliers.filter(s => s.estado === 'activo').map((supplier) => (
-                    <SelectItem key={supplier.id} value={supplier.id}>
-                      {supplier.razonSocial}
+                  {proveedores.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.razonSocial}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -458,9 +457,9 @@ export default function SolicitudesCompraPage() {
                             <SelectValue placeholder="Seleccione producto" />
                           </SelectTrigger>
                           <SelectContent>
-                            {products.map((product) => (
-                              <SelectItem key={product.id} value={product.id}>
-                                {product.nombre} ({product.sku})
+                            {items.map((item) => (
+                              <SelectItem key={item.id} value={String(item.id)}>
+                                {item.descripcion} ({item.codigo})
                               </SelectItem>
                             ))}
                           </SelectContent>

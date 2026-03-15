@@ -11,8 +11,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Search, X, Users, Crown, UserCheck, UserMinus, Phone, Mail, Building2, ExternalLink, FileText } from "lucide-react"
 import { useCrmClientes } from "@/lib/hooks/useCrm"
 import { useHdContratos, useHdSlas } from "@/lib/hooks/useHelpdesk"
-import { mapClienteToHDType, getSLAForCliente } from "@/lib/shared-data"
 import type { CRMClient } from "@/lib/types"
+
+function mapClienteToHDType(cliente: CRMClient): 'vip' | 'estandar' | 'basico' {
+  if (cliente.segmento === 'corporativo' || cliente.segmento === 'gobierno') return 'vip'
+  if (cliente.segmento === 'pyme') return 'estandar'
+  return 'basico'
+}
 import Link from "next/link"
 
 const tipoClienteLabels = {
@@ -44,7 +49,7 @@ function ClientesHDContent() {
   // Mapear clientes con información de Help Desk
   const clientesConHD = clientesActivos.map(cliente => {
     const tipoHD = mapClienteToHDType(cliente)
-    const sla = getSLAForCliente(cliente)
+    const sla = slas.find(s => s.tipoCliente === mapClienteToHDType(cliente) && s.estado === 'activo')
     const contratosCliente = contratos.filter(c => c.clienteId === cliente.id)
     const contratoActivo = contratosCliente.some(c => c.estado === "activo")
     const limiteTickets = tipoHD === "vip" ? 100 : tipoHD === "estandar" ? 50 : 20

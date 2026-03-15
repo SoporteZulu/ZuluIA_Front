@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { apiGet } from '@/lib/api'
-import type { FormaPago, CategoriaTercero, TipoDocumento } from '@/lib/types/configuracion'
+import type { FormaPago, CategoriaTercero, TipoDocumento, AlicuotaIva, UnidadMedida, CondicionIva } from '@/lib/types/configuracion'
 import type { TipoComprobante } from '@/lib/types/comprobantes'
 
 interface ConfiguracionData {
@@ -10,6 +10,9 @@ interface ConfiguracionData {
   categoriasTerceros: CategoriaTercero[]
   tiposDocumento: TipoDocumento[]
   tiposComprobante: TipoComprobante[]
+  alicuotasIva: AlicuotaIva[]
+  unidadesMedida: UnidadMedida[]
+  condicionesIva: CondicionIva[]
 }
 
 export function useConfiguracion() {
@@ -18,6 +21,9 @@ export function useConfiguracion() {
     categoriasTerceros: [],
     tiposDocumento: [],
     tiposComprobante: [],
+    alicuotasIva: [],
+    unidadesMedida: [],
+    condicionesIva: [],
   })
   const [loading, setLoading] = useState(true)
 
@@ -27,13 +33,19 @@ export function useConfiguracion() {
       apiGet<CategoriaTercero[]>('/api/configuracion/categorias-terceros'),
       apiGet<TipoDocumento[]>('/api/configuracion/tipos-documento'),
       apiGet<TipoComprobante[]>('/api/configuracion/tipos-comprobante'),
+      apiGet<AlicuotaIva[]>('/api/configuracion/alicuotas-iva'),
+      apiGet<UnidadMedida[]>('/api/configuracion/unidades-medida'),
+      apiGet<CondicionIva[]>('/api/configuracion/condiciones-iva'),
     ])
-      .then(([formasPago, categoriasTerceros, tiposDocumento, tiposComprobante]) => {
+      .then(([formasPago, categoriasTerceros, tiposDocumento, tiposComprobante, alicuotasIva, unidadesMedida, condicionesIva]) => {
         setData({
-          formasPago: Array.isArray(formasPago) ? formasPago : [],
+          formasPago:         Array.isArray(formasPago)         ? formasPago         : [],
           categoriasTerceros: Array.isArray(categoriasTerceros) ? categoriasTerceros : [],
-          tiposDocumento: Array.isArray(tiposDocumento) ? tiposDocumento : [],
-          tiposComprobante: Array.isArray(tiposComprobante) ? tiposComprobante : [],
+          tiposDocumento:     Array.isArray(tiposDocumento)     ? tiposDocumento     : [],
+          tiposComprobante:   Array.isArray(tiposComprobante)   ? tiposComprobante   : [],
+          alicuotasIva:       Array.isArray(alicuotasIva)       ? alicuotasIva.map(a => ({ ...a, porcentaje: Number(a.porcentaje ?? 0) })) : [],
+          unidadesMedida:     Array.isArray(unidadesMedida)     ? unidadesMedida     : [],
+          condicionesIva:     Array.isArray(condicionesIva)     ? condicionesIva     : [],
         })
       })
       .catch((e) => console.error('Error cargando configuración:', e))
@@ -43,26 +55,3 @@ export function useConfiguracion() {
   return { ...data, loading }
 }
 
-export function useGeografia() {
-  const [paises, setPaises] = useState<{ id: number; descripcion: string }[]>([])
-  const [provincias, setProvincias] = useState<{ id: number; descripcion: string; paisId: number }[]>([])
-  const [localidades, setLocalidades] = useState<{ id: number; descripcion: string; provinciaId: number }[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    Promise.all([
-      apiGet<{ id: number; descripcion: string }[]>('/api/geografia/paises'),
-      apiGet<{ id: number; descripcion: string; paisId: number }[]>('/api/geografia/provincias'),
-      apiGet<{ id: number; descripcion: string; provinciaId: number }[]>('/api/geografia/localidades'),
-    ])
-      .then(([p, pr, l]) => {
-        setPaises(Array.isArray(p) ? p : [])
-        setProvincias(Array.isArray(pr) ? pr : [])
-        setLocalidades(Array.isArray(l) ? l : [])
-      })
-      .catch((e) => console.error('Error cargando geografía:', e))
-      .finally(() => setLoading(false))
-  }, [])
-
-  return { paises, provincias, localidades, loading }
-}

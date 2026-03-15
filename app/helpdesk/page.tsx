@@ -19,16 +19,8 @@ import {
   Target,
   Headset,
 } from "lucide-react"
-import {
-  tickets,
-  ordenesServicio,
-  agentes,
-  clientesHD,
-  getTicketStats,
-  getOrdenStats,
-  getClienteById,
-  getAgenteById,
-} from "@/lib/helpdesk-data"
+import { useMemo } from "react"
+import { useHdTickets, useHdAgentes, useHdClientes, useHdOrdenesServicio } from "@/lib/hooks/useHelpdesk"
 
 const prioridadColors = {
   critica: "bg-red-500/10 text-red-500 border-red-500/20",
@@ -56,8 +48,28 @@ const estadoLabels: Record<string, string> = {
 }
 
 export default function HelpDeskDashboard() {
-  const ticketStats = getTicketStats()
-  const ordenStats = getOrdenStats()
+  const { tickets } = useHdTickets()
+  const { agentes } = useHdAgentes()
+  const { clientes } = useHdClientes()
+  const { ordenes } = useHdOrdenesServicio()
+
+  const getClienteById = (id: string) => clientes.find((c) => c.id === id)
+  const getAgenteById = (id: string) => agentes.find((a) => a.id === id)
+
+  const ticketStats = useMemo(() => {
+    const total = tickets.length
+    const resueltos = tickets.filter((t) => t.estado === "resuelto").length
+    const nuevos = tickets.filter((t) => t.estado === "nuevo").length
+    const esperandoCliente = tickets.filter((t) => t.estado === "esperando_cliente").length
+    const cumpleSLA = total > 0 ? ((tickets.filter((t) => t.cumpleSLA).length / total) * 100).toFixed(1) : "0"
+    return { total, resueltos, nuevos, esperandoCliente, tasaCumplimientoSLA: cumpleSLA }
+  }, [tickets])
+
+  const ordenStats = useMemo(() => {
+    const enProceso = ordenes.filter((o) => o.estado === "en_proceso").length
+    const pendientes = ordenes.filter((o) => o.estado === "programada" || o.estado === "pendiente").length
+    return { enProceso, pendientes }
+  }, [ordenes])
 
   // Tickets recientes (ultimos 5)
   const ticketsRecientes = [...tickets]

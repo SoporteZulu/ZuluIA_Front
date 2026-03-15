@@ -17,21 +17,15 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
-import { promotions, preciosEspeciales, products, customers } from '@/lib/sales-data'
 import type { Promotion, PrecioEspecial } from '@/lib/sales-types'
+
+const promotions: Promotion[] = []
+const preciosEspeciales: PrecioEspecial[] = []
 import { useListasPrecios } from '@/lib/hooks/useListasPrecios'
 import type { ListaPrecios, ListaPreciosDetalle } from '@/lib/types/listas-precios'
 
 function fmtARS(n: number) {
   return n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
-}
-
-function getProductName(id: string) {
-  return products.find(p => p.id === id)?.nombre ?? id
-}
-
-function getCustomerName(id: string) {
-  return customers.find(c => c.id === id)?.razonSocial ?? id
 }
 
 // ─── Promotion Status Badge ───────────────────────────────────────────────────
@@ -110,7 +104,7 @@ function PriceListDetail({ list }: { list: ListaPreciosDetalle }) {
 // ─── New Price List Form ──────────────────────────────────────────────────────
 
 function NuevaListaForm() {
-  const [tipo, setTipo] = useState<PriceList['tipo']>('minorista')
+  const [tipo, setTipo] = useState<'minorista' | 'mayorista' | 'especial' | 'promocional'>('minorista')
   const [divisa, setDivisa] = useState<'ARS' | 'USD' | 'EUR'>('ARS')
 
   return (
@@ -227,8 +221,8 @@ const ListasPreciosPage = () => {
   ), [searchTerm])
 
   const filteredPE = useMemo(() => preciosEspeciales.filter(pe =>
-    getCustomerName(pe.clienteId).toLowerCase().includes(searchTerm.toLowerCase()) ||
-    getProductName(pe.productoId).toLowerCase().includes(searchTerm.toLowerCase())
+    pe.clienteId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    pe.productoId.toLowerCase().includes(searchTerm.toLowerCase())
   ), [searchTerm])
 
   const kpis = {
@@ -452,10 +446,10 @@ const ListasPreciosPage = () => {
                     return (
                       <TableRow key={pe.id} className="hover:bg-muted/50">
                         <TableCell>
-                          <p className="font-medium text-sm">{getCustomerName(pe.clienteId)}</p>
+                          <p className="font-medium text-sm">{pe.clienteId}</p>
                         </TableCell>
                         <TableCell>
-                          <p className="text-sm">{getProductName(pe.productoId)}</p>
+                          <p className="text-sm">{pe.productoId}</p>
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground line-through text-sm">
                           ${fmtARS(pe.precioListaActual)}

@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { 
@@ -20,68 +21,74 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, Legend } from "recharts"
-import { comprasKPIs, comprasPorMes, comprasPorCategoria, topProveedores } from "@/lib/compras-data"
-
-const modules = [
-  {
-    title: "Proveedores",
-    url: "/compras/proveedores",
-    icon: Truck,
-    count: "15 activos",
-    color: "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20",
-  },
-  {
-    title: "Órdenes de Compra",
-    url: "/compras/ordenes",
-    icon: FileText,
-    count: `${comprasKPIs.ordenesActivas} activas`,
-    color: "bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20",
-  },
-  {
-    title: "Recepciones",
-    url: "/compras/recepciones",
-    icon: PackageCheck,
-    count: `${comprasKPIs.recepcionesPendientes} pendientes`,
-    color: "bg-green-500/10 text-green-600 hover:bg-green-500/20",
-  },
-  {
-    title: "Requisiciones",
-    url: "/compras/solicitudes",
-    icon: ClipboardList,
-    count: `${comprasKPIs.solicitudesPendientes} pendientes`,
-    color: "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20",
-  },
-  {
-    title: "Facturas",
-    url: "/compras/facturas",
-    icon: Receipt,
-    count: "Ver todas",
-    color: "bg-purple-500/10 text-purple-600 hover:bg-purple-500/20",
-  },
-  {
-    title: "Notas de Crédito",
-    url: "/compras/notas-credito",
-    icon: CreditCard,
-    count: "Ver todas",
-    color: "bg-pink-500/10 text-pink-600 hover:bg-pink-500/20",
-  },
-  {
-    title: "Cuentas a Pagar",
-    url: "/compras/cuentas-pagar",
-    icon: DollarSign,
-    count: `${comprasKPIs.proximosVencimientos} próximos`,
-    color: "bg-red-500/10 text-red-600 hover:bg-red-500/20",
-  },
-  {
-    title: "Reportes",
-    url: "/compras/reportes",
-    icon: BarChart3,
-    count: "Analíticas",
-    color: "bg-cyan-500/10 text-cyan-600 hover:bg-cyan-500/20",
-  },
-]
+import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
+import { useProveedores } from "@/lib/hooks/useTerceros"
 
 export default function ComprasDashboard() {
+  const { ordenes } = useOrdenesCompra()
+  const { terceros } = useProveedores()
+
+  const kpis = useMemo(() => {
+    const ordenesActivas = ordenes.filter((o) => o.estadoOc === "PENDIENTE" && o.habilitada).length
+    const recepcionesPendientes = ordenes.filter((o) => o.estadoOc === "PENDIENTE").length
+    const solicitudesPendientes = 0 // No hay endpoint de solicitudes en backend
+    const proximosVencimientos = ordenes.filter((o) => {
+      if (!o.fechaEntregaReq) return false
+      const diff = new Date(o.fechaEntregaReq).getTime() - Date.now()
+      return diff > 0 && diff <= 7 * 24 * 60 * 60 * 1000
+    }).length
+    const ordenesRetrasadas = ordenes.filter((o) => {
+      if (!o.fechaEntregaReq || o.estadoOc !== "PENDIENTE") return false
+      return new Date(o.fechaEntregaReq) < new Date()
+    }).length
+    const valorComprasMes = 0 // Se requiere endpoint de facturación para calcular
+    const ratingPromedioProveedores = 4.2
+    const productosStockBajo = 0
+    return { ordenesActivas, recepcionesPendientes, solicitudesPendientes, proximosVencimientos, ordenesRetrasadas, valorComprasMes, ratingPromedioProveedores, productosStockBajo }
+  }, [ordenes])
+
+  const topProveedores = useMemo(() => {
+    const counts: Record<number, number> = {}
+    ordenes.forEach((o) => { counts[o.proveedorId] = (counts[o.proveedorId] || 0) + 1 })
+    return Object.entries(counts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([proveedorId, ordenesCnt]) => {
+        const prov = terceros.find((t) => t.id === Number(proveedorId))
+        return { proveedor: prov?.razonSocial ?? `Proveedor #${proveedorId}`, ordenes: ordenesCnt, volumen: 0 }
+      })
+  }, [ordenes, terceros])
+
+  const comprasPorMes = useMemo(() => {
+    const meses: Record<string, number> = {}
+    ordenes.forEach((o) => {
+      const mes = new Date(o.createdAt).toLocaleDateString("es-AR", { month: "short", year: "2-digit" })
+      meses[mes] = (meses[mes] || 0) + 1
+    })
+    return Object.entries(meses).slice(-7).map(([mes, count]) => ({ mes, monto: count }))
+  }, [ordenes])
+
+  const comprasPorCategoria = useMemo(() => {
+    const colores = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6"]
+    const estados = ["PENDIENTE", "RECIBIDA", "CANCELADA"]
+    return estados.map((estado, i) => ({
+      name: estado,
+      valor: ordenes.filter((o) => o.estadoOc === estado).length,
+      color: colores[i] ?? "#94a3b8",
+    })).filter((e) => e.valor > 0)
+  }, [ordenes])
+
+  const modules = [
+    { title: "Proveedores", url: "/compras/proveedores", icon: Truck, count: `${terceros.length} activos`, color: "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20" },
+    { title: "Órdenes de Compra", url: "/compras/ordenes", icon: FileText, count: `${kpis.ordenesActivas} activas`, color: "bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20" },
+    { title: "Recepciones", url: "/compras/recepciones", icon: PackageCheck, count: `${kpis.recepcionesPendientes} pendientes`, color: "bg-green-500/10 text-green-600 hover:bg-green-500/20" },
+    { title: "Requisiciones", url: "/compras/solicitudes", icon: ClipboardList, count: `${kpis.solicitudesPendientes} pendientes`, color: "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20" },
+    { title: "Facturas", url: "/compras/facturas", icon: Receipt, count: "Ver todas", color: "bg-purple-500/10 text-purple-600 hover:bg-purple-500/20" },
+    { title: "Notas de Crédito", url: "/compras/notas-credito", icon: CreditCard, count: "Ver todas", color: "bg-pink-500/10 text-pink-600 hover:bg-pink-500/20" },
+    { title: "Cuentas a Pagar", url: "/compras/cuentas-pagar", icon: DollarSign, count: `${kpis.proximosVencimientos} próximos`, color: "bg-red-500/10 text-red-600 hover:bg-red-500/20" },
+    { title: "Reportes", url: "/compras/reportes", icon: BarChart3, count: "Analíticas", color: "bg-cyan-500/10 text-cyan-600 hover:bg-cyan-500/20" },
+  ]
+
   return (
     <div className="flex-1 space-y-6 p-6">
       <div className="flex items-center justify-between">
@@ -130,7 +137,7 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                ${comprasKPIs.valorComprasMes.toLocaleString('es-AR')}
+                ${kpis.valorComprasMes.toLocaleString('es-AR')}
               </div>
               <div className="flex items-center text-xs text-green-600 mt-1">
                 <TrendingUp className="h-3 w-3 mr-1" />
@@ -147,7 +154,7 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold flex items-center">
-                {comprasKPIs.ratingPromedioProveedores}
+                {kpis.ratingPromedioProveedores}
                 <Star className="h-5 w-5 fill-yellow-400 text-yellow-400 ml-2" />
               </div>
               <p className="text-xs text-muted-foreground mt-1">
@@ -163,7 +170,7 @@ export default function ComprasDashboard() {
               <Package className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{comprasKPIs.productosStockBajo}</div>
+              <div className="text-2xl font-bold">{kpis.productosStockBajo}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 Productos bajo punto de reorden
               </p>
@@ -185,7 +192,7 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold text-red-600">{comprasKPIs.ordenesRetrasadas}</span> órdenes de compra con fecha de entrega vencida
+                <span className="font-semibold text-red-600">{kpis.ordenesRetrasadas}</span> órdenes de compra con fecha de entrega vencida
               </p>
               <Link href="/compras/ordenes?filtro=retrasadas" className="text-sm text-primary hover:underline mt-2 inline-block">
                 Ver detalles →
@@ -202,7 +209,7 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold text-orange-600">{comprasKPIs.proximosVencimientos}</span> facturas vencen en los próximos 7 días
+                <span className="font-semibold text-orange-600">{kpis.proximosVencimientos}</span> facturas vencen en los próximos 7 días
               </p>
               <Link href="/compras/facturas?filtro=proximos-vencimientos" className="text-sm text-primary hover:underline mt-2 inline-block">
                 Ver detalles →
@@ -219,7 +226,7 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold text-yellow-600">{comprasKPIs.productosStockBajo}</span> productos por debajo del punto de reorden
+                <span className="font-semibold text-yellow-600">{kpis.productosStockBajo}</span> productos por debajo del punto de reorden
               </p>
               <Link href="/compras/solicitudes?tipo=automatico" className="text-sm text-primary hover:underline mt-2 inline-block">
                 Ver solicitudes →
@@ -236,7 +243,7 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold text-blue-600">{comprasKPIs.solicitudesPendientes}</span> solicitudes de compra esperando aprobación
+                <span className="font-semibold text-blue-600">{kpis.solicitudesPendientes}</span> solicitudes de compra esperando aprobación
               </p>
               <Link href="/compras/solicitudes?estado=pendiente" className="text-sm text-primary hover:underline mt-2 inline-block">
                 Revisar →

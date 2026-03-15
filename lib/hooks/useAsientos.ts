@@ -36,7 +36,7 @@ export function useAsientos(options: UseAsientosOptions = {}) {
       if (hasta) params.set('hasta', hasta)
 
       const result = await apiGet<PagedResult<Asiento>>(
-        `/api/contabilidad/asientos?${params.toString()}`
+        `/api/asientos?${params.toString()}`
       )
       const items = (Array.isArray(result) ? result : result.items ?? []).map(
         (a: Asiento) => ({
@@ -59,7 +59,7 @@ export function useAsientos(options: UseAsientosOptions = {}) {
 
   const getById = async (id: number): Promise<AsientoDetalle | null> => {
     try {
-      return await apiGet<AsientoDetalle>(`/api/contabilidad/asientos/${id}`)
+      return await apiGet<AsientoDetalle>(`/api/asientos/${id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar asiento')
       return null
@@ -68,11 +68,44 @@ export function useAsientos(options: UseAsientosOptions = {}) {
 
   const crear = async (dto: CreateAsientoDto): Promise<boolean> => {
     try {
-      await apiPost<{ id: number }>('/api/contabilidad/asientos', dto)
+      await apiPost<{ id: number }>('/api/asientos', dto)
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al crear asiento')
       return false
+    }
+  }
+
+  const getLibroDiario = async (
+    ejercicioId: number,
+    sucursalId: number,
+    desde: string,
+    hasta: string
+  ) => {
+    try {
+      const params = new URLSearchParams({
+        ejercicioId: String(ejercicioId),
+        sucursalId:  String(sucursalId),
+        desde,
+        hasta,
+      })
+      return await apiGet<unknown>(`/api/asientos/libro-diario?${params.toString()}`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al cargar libro diario')
+      return null
+    }
+  }
+
+  const getByOrigen = async (origenTabla: string, origenId: number) => {
+    try {
+      const params = new URLSearchParams({
+        origenTabla,
+        origenId: String(origenId),
+      })
+      return await apiGet<Asiento[]>(`/api/asientos/por-origen?${params.toString()}`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al cargar asientos por origen')
+      return null
     }
   }
 
@@ -92,6 +125,8 @@ export function useAsientos(options: UseAsientosOptions = {}) {
     setHasta,
     getById,
     crear,
+    getLibroDiario,
+    getByOrigen,
     refetch: fetchAsientos,
   }
 }

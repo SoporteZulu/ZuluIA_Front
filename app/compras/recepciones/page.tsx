@@ -1,12 +1,11 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState, useCallback } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Table,
   TableBody,
@@ -30,146 +29,102 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
-  Plus,
   Search,
-  Eye,
-  CheckCircle,
-  AlertTriangle,
   PackageCheck,
   Truck,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  XCircle,
 } from "lucide-react"
-import type { MerchandiseReceipt, MerchandiseReceiptItem, PurchaseOrderItem } from "@/lib/compras-types"
-import {
-  merchandiseReceipts as initialReceipts,
-  purchaseOrders,
-  suppliers,
-  warehouses,
-} from "@/lib/compras-data"
+import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
+import { useProveedores } from "@/lib/hooks/useTerceros"
+import type { OrdenCompra } from "@/lib/types/configuracion"
+
+const ESTADO_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ElementType }> = {
+  PENDIENTE: { label: "Pendiente", variant: "secondary", icon: Clock },
+  RECIBIDA: { label: "Recibida", variant: "default", icon: CheckCircle2 },
+  CANCELADA: { label: "Cancelada", variant: "destructive", icon: XCircle },
+}
 
 export default function RecepcionesPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  
-  const [receipts, setReceipts] = useState<MerchandiseReceipt[]>(initialReceipts)
+  const { ordenes, loading, error, estado, setEstado, recibir, refetch } = useOrdenesCompra()
+  const { terceros: proveedores } = useProveedores()
+
   const [searchTerm, setSearchTerm] = useState("")
-  const [filterEstado, setFilterEstado] = useState<string>("todos")
-  const [isFormOpen, setIsFormOpen] = useState(false)
-  const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [detailReceipt, setDetailReceipt] = useState<MerchandiseReceipt | null>(null)
+  const [confirmId, setConfirmId] = useState<number | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [detailOrder, setDetailOrder] = useState<OrdenCompra | null>(null)
 
-  // Form state
-  const [selectedOrderId, setSelectedOrderId] = useState("")
-  const [formData, setFormData] = useState({
-    fechaRecepcion: new Date(),
-    almacenId: warehouses[0]?.id || "",
-    observaciones: "",
-  })
-  const [receiptItems, setReceiptItems] = useState<MerchandiseReceiptItem[]>([])
-
-  const filteredReceipts = receipts.filter((receipt) => {
-    const matchesSearch =
-      receipt.codigo.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesEstado = filterEstado === "todos" || receipt.estado === filterEstado
-    return matchesSearch && matchesEstado
-  })
-
-  const handleNew = () => {
-    setSelectedOrderId("")
-    setFormData({
-      fechaRecepcion: new Date(),
-      almacenId: warehouses[0]?.id || "",
-      observaciones: "",
-    })
-    setReceiptItems([])
-    setIsFormOpen(true)
-  }
-
-  const handleOrderSelect = (orderId: string) => {
-    setSelectedOrderId(orderId)
-    const order = purchaseOrders.find(o => o.id === orderId)
-    if (order) {
-      // Initialize receipt items from order items
-      const items: MerchandiseReceiptItem[] = order.items.map(item => ({
-        id: `rec-item-${item.id}`,
-        ordenRecepcionId: "",
-        itemOcId: item.id,
-        productoId: item.productoId,
-        cantidadRecibida: item.cantidad - item.cantidadRecibida,
-        cantidadRechazada: 0,
-        motivoRechazo: "",
-        conforme: true,
-      }))
-      setReceiptItems(items)
-      setFormData({ ...formData, almacenId: order.almacenId })
-    }
-  }
-
-  const updateReceiptItem = (index: number, field: keyof MerchandiseReceiptItem, value: any) => {
-    const updated = [...receiptItems]
-    updated[index] = { ...updated[index], [field]: value }
-    setReceiptItems(updated)
-  }
-
-  const handleSaveReceipt = () => {
-    const newReceipt: MerchandiseReceipt = {
-      id: `rec-${Date.now()}`,
-      codigo: `REC-2024-${String(receipts.length + 1).padStart(3, '0')}`,
-      ordenCompraId: selectedOrderId,
-      fechaRecepcion: formData.fechaRecepcion,
-      almacenId: formData.almacenId,
-      usuarioReceptorId: "user-001",
-      estado: receiptItems.some(i => i.cantidadRechazada > 0) ? "con_rechazos" : "completa",
-      observaciones: formData.observaciones,
-      items: receiptItems,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-
-    setReceipts([...receipts, newReceipt])
-    setIsFormOpen(false)
-  }
-
-  const handleViewDetail = (receipt: MerchandiseReceipt) => {
-    setDetailReceipt(receipt)
-    setIsDetailOpen(true)
-  }
-
-  const getOrderCode = (orderId: string) => {
-    return purchaseOrders.find(o => o.id === orderId)?.codigo || "N/A"
-  }
-
-  const getSupplierName = (orderId: string) => {
-    const order = purchaseOrders.find(o => o.id === orderId)
-    if (!order) return "N/A"
-    return suppliers.find(s => s.id === order.proveedorId)?.razonSocial || "N/A"
-  }
-
-  const getWarehouseName = (warehouseId: string) => {
-    return warehouses.find(w => w.id === warehouseId)?.nombre || "N/A"
-  }
-
-  const getOrderItemDescription = (itemOcId: string) => {
-    for (const order of purchaseOrders) {
-      const item = order.items.find(i => i.id === itemOcId)
-      if (item) return item.descripcion
-    }
-    return "N/A"
-  }
-
-  const getOrderItemQuantity = (itemOcId: string) => {
-    for (const order of purchaseOrders) {
-      const item = order.items.find(i => i.id === itemOcId)
-      if (item) return item.cantidad
-    }
-    return 0
-  }
-
-  const pendingOrders = purchaseOrders.filter(o => 
-    o.estado === 'confirmada' || o.estado === 'en_transito' || o.estado === 'recibida_parcial'
+  const getProveedorNombre = useCallback(
+    (proveedorId: number) =>
+      proveedores.find((p) => p.id === proveedorId)?.razonSocial ?? `ID ${proveedorId}`,
+    [proveedores]
   )
+
+  const filteredOrdenes = ordenes.filter((oc) => {
+    const nombreProv = getProveedorNombre(oc.proveedorId).toLowerCase()
+    const matchSearch =
+      searchTerm === "" ||
+      String(oc.id).includes(searchTerm) ||
+      nombreProv.includes(searchTerm.toLowerCase())
+    return matchSearch
+  })
+
+  const handleRecibir = async () => {
+    if (confirmId === null) return
+    setSubmitting(true)
+    const ok = await recibir(confirmId)
+    setSubmitting(false)
+    setConfirmId(null)
+    if (ok) refetch()
+  }
+
+  const { pendientes, recibidas, canceladas } = {
+    pendientes: filteredOrdenes.filter((o) => o.estadoOc === "PENDIENTE"),
+    recibidas: filteredOrdenes.filter((o) => o.estadoOc === "RECIBIDA"),
+    canceladas: filteredOrdenes.filter((o) => o.estadoOc === "CANCELADA"),
+  }
+
+
+
+  const OrdenRow = ({ oc }: { oc: OrdenCompra }) => {
+    const cfg = ESTADO_CONFIG[oc.estadoOc] ?? { label: oc.estadoOc, variant: "outline" as const, icon: Clock }
+    const Icon = cfg.icon
+    return (
+      <TableRow
+        className="cursor-pointer hover:bg-muted/50"
+        onClick={() => setDetailOrder(oc)}
+      >
+        <TableCell className="font-medium">OC-{oc.id}</TableCell>
+        <TableCell>{getProveedorNombre(oc.proveedorId)}</TableCell>
+        <TableCell>
+          {oc.fechaEntregaReq
+            ? new Date(oc.fechaEntregaReq).toLocaleDateString("es-AR")
+            : "-"}
+        </TableCell>
+        <TableCell>
+          <Badge variant={cfg.variant} className="gap-1">
+            <Icon className="h-3 w-3" />
+            {cfg.label}
+          </Badge>
+        </TableCell>
+        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+          {oc.estadoOc === "PENDIENTE" && (
+            <Button
+              size="sm"
+              onClick={() => setConfirmId(oc.id)}
+            >
+              <PackageCheck className="h-4 w-4 mr-1" />
+              Recibir
+            </Button>
+          )}
+        </TableCell>
+      </TableRow>
+    )
+  }
 
   return (
     <div className="flex-1 space-y-6 p-6">
@@ -177,359 +132,196 @@ export default function RecepcionesPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Recepciones de Mercadería</h1>
           <p className="text-muted-foreground">
-            Registro de recepciones de órdenes de compra
+            Gestión de recepciones de órdenes de compra
           </p>
         </div>
-        <Button onClick={handleNew}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nueva Recepción
+        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          Actualizar
         </Button>
+      </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* KPIs */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pendientes de Recepción</CardTitle>
+            <Truck className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{pendientes.length}</div>
+            <p className="text-xs text-muted-foreground">órdenes en tránsito / por recibir</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Recibidas</CardTitle>
+            <PackageCheck className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{recibidas.length}</div>
+            <p className="text-xs text-muted-foreground">confirmadas en sistema</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Canceladas</CardTitle>
+            <XCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{canceladas.length}</div>
+            <p className="text-xs text-muted-foreground">órdenes dadas de baja</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle>Filtros</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           <div className="flex gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por código..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8"
-                />
-              </div>
+            <div className="relative flex-1">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por ID o proveedor..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-8"
+              />
             </div>
-            <Select value={filterEstado} onValueChange={setFilterEstado}>
+            <Select value={estado} onValueChange={setEstado}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="completa">Completa</SelectItem>
-                <SelectItem value="con_rechazos">Con Rechazos</SelectItem>
+                <SelectItem value="">Todos</SelectItem>
+                <SelectItem value="PENDIENTE">Pendiente</SelectItem>
+                <SelectItem value="RECIBIDA">Recibida</SelectItem>
+                <SelectItem value="CANCELADA">Cancelada</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </CardContent>
       </Card>
 
-      {/* Receipts Table */}
+      {/* Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Lista de Recepciones ({filteredReceipts.length})</CardTitle>
+          <CardTitle>Órdenes de Compra ({filteredOrdenes.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Código</TableHead>
-                <TableHead>Orden de Compra</TableHead>
-                <TableHead>Proveedor</TableHead>
-                <TableHead>Fecha Recepción</TableHead>
-                <TableHead>Almacén</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Ítems</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredReceipts.map((receipt) => (
-                <TableRow
-                  key={receipt.id}
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleViewDetail(receipt)}
-                >
-                  <TableCell className="font-medium">{receipt.codigo}</TableCell>
-                  <TableCell>{getOrderCode(receipt.ordenCompraId)}</TableCell>
-                  <TableCell>{getSupplierName(receipt.ordenCompraId)}</TableCell>
-                  <TableCell>{new Date(receipt.fechaRecepcion).toLocaleDateString('es-AR')}</TableCell>
-                  <TableCell>{getWarehouseName(receipt.almacenId)}</TableCell>
-                  <TableCell>
-                    <Badge variant={receipt.estado === "completa" ? "default" : "destructive"}>
-                      {receipt.estado === "completa" ? "Completa" : "Con Rechazos"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{receipt.items.length}</TableCell>
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon">
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
+          {loading ? (
+            <p className="py-8 text-center text-muted-foreground">Cargando órdenes...</p>
+          ) : filteredOrdenes.length === 0 ? (
+            <p className="py-8 text-center text-muted-foreground">No hay órdenes de compra registradas.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nro. OC</TableHead>
+                  <TableHead>Proveedor</TableHead>
+                  <TableHead>Entrega Requerida</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredOrdenes.map((oc) => (
+                  <OrdenRow key={oc.id} oc={oc} />
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      {/* Form Dialog */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+      {/* Confirm recibir dialog */}
+      <Dialog open={confirmId !== null} onOpenChange={(open) => { if (!open) setConfirmId(null) }}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Registrar Recepción de Mercadería</DialogTitle>
+            <DialogTitle>Confirmar Recepción</DialogTitle>
             <DialogDescription>
-              Complete la información de los productos recibidos
+              ¿Confirma que la OC-{confirmId} fue recibida en su totalidad? Esta acción marcará
+              la orden como RECIBIDA y no podrá revertirse.
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-6 py-4">
-            {/* Paso 1: Seleccionar Orden */}
-            {!selectedOrderId && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Seleccione la Orden de Compra</CardTitle>
-                  <CardDescription>
-                    Órdenes con recepciones pendientes
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {pendingOrders.map((order) => (
-                      <div
-                        key={order.id}
-                        className="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
-                        onClick={() => handleOrderSelect(order.id)}
-                      >
-                        <div>
-                          <p className="font-medium">{order.codigo}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {suppliers.find(s => s.id === order.proveedorId)?.razonSocial}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <Badge variant="outline">{order.estado.replace('_', ' ')}</Badge>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {order.items.length} ítems
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Paso 2: Datos de Recepción */}
-            {selectedOrderId && (
-              <>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="fechaRecepcion">Fecha de Recepción</Label>
-                    <Input
-                      id="fechaRecepcion"
-                      type="date"
-                      value={formData.fechaRecepcion.toISOString().split('T')[0]}
-                      onChange={(e) => setFormData({ ...formData, fechaRecepcion: new Date(e.target.value) })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="almacen">Almacén de Recepción</Label>
-                    <Select
-                      value={formData.almacenId}
-                      onValueChange={(value) => setFormData({ ...formData, almacenId: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {warehouses.map((warehouse) => (
-                          <SelectItem key={warehouse.id} value={warehouse.id}>
-                            {warehouse.nombre}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Orden de Compra</Label>
-                    <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm">
-                      {getOrderCode(selectedOrderId)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Items */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Productos a Recibir</CardTitle>
-                    <CardDescription>
-                      Indique las cantidades recibidas y rechazadas
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="min-w-[250px]">Producto</TableHead>
-                          <TableHead>Cant. Solicitada</TableHead>
-                          <TableHead>Cant. Recibida</TableHead>
-                          <TableHead>Cant. Rechazada</TableHead>
-                          <TableHead>Motivo Rechazo</TableHead>
-                          <TableHead>Conforme</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {receiptItems.map((item, index) => (
-                          <TableRow key={item.id}>
-                            <TableCell>{getOrderItemDescription(item.itemOcId)}</TableCell>
-                            <TableCell>{getOrderItemQuantity(item.itemOcId)}</TableCell>
-                            <TableCell>
-                              <Input
-                                type="number"
-                                value={item.cantidadRecibida}
-                                onChange={(e) => updateReceiptItem(index, 'cantidadRecibida', Number(e.target.value))}
-                                min="0"
-                                className="w-24"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Input
-                                type="number"
-                                value={item.cantidadRechazada}
-                                onChange={(e) => updateReceiptItem(index, 'cantidadRechazada', Number(e.target.value))}
-                                min="0"
-                                className="w-24"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Input
-                                value={item.motivoRechazo || ''}
-                                onChange={(e) => updateReceiptItem(index, 'motivoRechazo', e.target.value)}
-                                placeholder="Motivo..."
-                                disabled={item.cantidadRechazada === 0}
-                                className="min-w-[200px]"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Checkbox
-                                checked={item.conforme}
-                                onCheckedChange={(checked) => updateReceiptItem(index, 'conforme', checked as boolean)}
-                              />
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-
-                <div className="space-y-2">
-                  <Label htmlFor="observaciones">Observaciones Generales</Label>
-                  <Textarea
-                    id="observaciones"
-                    value={formData.observaciones}
-                    onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
-                    rows={3}
-                    placeholder="Comentarios adicionales sobre la recepción..."
-                  />
-                </div>
-              </>
-            )}
-          </div>
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsFormOpen(false)}>
+            <Button variant="outline" onClick={() => setConfirmId(null)} disabled={submitting}>
               Cancelar
             </Button>
-            {selectedOrderId && (
-              <Button onClick={handleSaveReceipt}>
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Confirmar Recepción
-              </Button>
-            )}
+            <Button onClick={handleRecibir} disabled={submitting}>
+              <PackageCheck className="h-4 w-4 mr-2" />
+              {submitting ? "Procesando..." : "Confirmar Recepción"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Detail Dialog */}
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-w-4xl">
+      {/* Detail dialog */}
+      <Dialog open={detailOrder !== null} onOpenChange={(open) => { if (!open) setDetailOrder(null) }}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Detalle de Recepción</DialogTitle>
+            <DialogTitle>Detalle OC-{detailOrder?.id}</DialogTitle>
             <DialogDescription>
-              {detailReceipt?.codigo} - OC: {detailReceipt && getOrderCode(detailReceipt.ordenCompraId)}
+              {getProveedorNombre(detailOrder?.proveedorId ?? 0)}
             </DialogDescription>
           </DialogHeader>
-          
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+          {detailOrder && (
+            <div className="grid grid-cols-2 gap-4 text-sm py-2">
               <div>
-                <span className="text-muted-foreground">Proveedor:</span>
-                <p className="font-medium">
-                  {detailReceipt && getSupplierName(detailReceipt.ordenCompraId)}
-                </p>
+                <p className="text-muted-foreground">Proveedor</p>
+                <p className="font-medium">{getProveedorNombre(detailOrder.proveedorId)}</p>
               </div>
               <div>
-                <span className="text-muted-foreground">Fecha Recepción:</span>
-                <p className="font-medium">
-                  {detailReceipt ? new Date(detailReceipt.fechaRecepcion).toLocaleDateString('es-AR') : '-'}
-                </p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Almacén:</span>
-                <p className="font-medium">
-                  {detailReceipt && getWarehouseName(detailReceipt.almacenId)}
-                </p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Estado:</span>
-                <Badge variant={detailReceipt?.estado === "completa" ? "default" : "destructive"} className="ml-2">
-                  {detailReceipt?.estado === "completa" ? "Completa" : "Con Rechazos"}
+                <p className="text-muted-foreground">Estado</p>
+                <Badge variant={ESTADO_CONFIG[detailOrder.estadoOc]?.variant ?? "outline"}>
+                  {ESTADO_CONFIG[detailOrder.estadoOc]?.label ?? detailOrder.estadoOc}
                 </Badge>
               </div>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-3">Productos Recibidos</h4>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Producto</TableHead>
-                    <TableHead>Cant. Recibida</TableHead>
-                    <TableHead>Cant. Rechazada</TableHead>
-                    <TableHead>Motivo Rechazo</TableHead>
-                    <TableHead>Conforme</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {detailReceipt?.items.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{getOrderItemDescription(item.itemOcId)}</TableCell>
-                      <TableCell>{item.cantidadRecibida}</TableCell>
-                      <TableCell className={item.cantidadRechazada > 0 ? "text-destructive font-medium" : ""}>
-                        {item.cantidadRechazada}
-                      </TableCell>
-                      <TableCell>{item.motivoRechazo || "-"}</TableCell>
-                      <TableCell>
-                        {item.conforme ? (
-                          <CheckCircle className="h-4 w-4 text-green-600" />
-                        ) : (
-                          <AlertTriangle className="h-4 w-4 text-orange-600" />
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-
-            {detailReceipt?.observaciones && (
               <div>
-                <h4 className="font-semibold mb-2">Observaciones</h4>
-                <p className="text-sm text-muted-foreground">{detailReceipt.observaciones}</p>
+                <p className="text-muted-foreground">Comprobante ID</p>
+                <p className="font-medium">{detailOrder.comprobanteId}</p>
               </div>
-            )}
-          </div>
-
+              <div>
+                <p className="text-muted-foreground">Entrega requerida</p>
+                <p className="font-medium">
+                  {detailOrder.fechaEntregaReq
+                    ? new Date(detailOrder.fechaEntregaReq).toLocaleDateString("es-AR")
+                    : "-"}
+                </p>
+              </div>
+              {detailOrder.condicionesEntrega && (
+                <div className="col-span-2">
+                  <p className="text-muted-foreground">Condiciones de entrega</p>
+                  <p className="font-medium">{detailOrder.condicionesEntrega}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-muted-foreground">Creada</p>
+                <p className="font-medium">
+                  {new Date(detailOrder.createdAt).toLocaleDateString("es-AR")}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Habilitada</p>
+                <p className="font-medium">{detailOrder.habilitada ? "Sí" : "No"}</p>
+              </div>
+            </div>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
-              Cerrar
-            </Button>
+            <Button variant="outline" onClick={() => setDetailOrder(null)}>Cerrar</Button>
+            {detailOrder?.estadoOc === "PENDIENTE" && (
+              <Button onClick={() => { setDetailOrder(null); setConfirmId(detailOrder.id) }}>
+                <PackageCheck className="h-4 w-4 mr-2" />
+                Recibir
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

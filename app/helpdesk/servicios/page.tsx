@@ -49,8 +49,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useHdServicios } from "@/lib/hooks/useHelpdesk"
-import { categoriasServicio } from "@/lib/helpdesk-data"
 import type { HDServicio } from "@/lib/types"
+
+const categoriasServicio = [
+  { id: "cat-001", nombre: "Soporte Técnico" },
+  { id: "cat-002", nombre: "Instalaciones" },
+  { id: "cat-003", nombre: "Mantenimiento" },
+  { id: "cat-004", nombre: "Consultoría" },
+]
 import Loading from "@/components/ui/loading" // Declare the Loading variable
 
 const tipoPrecioLabels: Record<string, string> = {

@@ -3,6 +3,31 @@ export interface FormaPago {
   descripcion: string
 }
 
+export interface AlicuotaIva {
+  id: number
+  codigo: string
+  descripcion: string
+  porcentaje: number
+}
+
+export interface UnidadMedida {
+  id: number
+  codigo: string
+  descripcion: string
+}
+
+export interface CondicionIva {
+  id: number
+  codigo: string
+  descripcion: string
+}
+
+export interface Moneda {
+  id: number
+  codigo: string
+  descripcion: string
+}
+
 export interface CategoriaTercero {
   id: number
   descripcion: string

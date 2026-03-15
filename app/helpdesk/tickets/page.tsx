@@ -63,8 +63,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useHdTickets, useHdClientes, useHdAgentes } from "@/lib/hooks/useHelpdesk"
-import { departamentos, getDepartamentoById } from "@/lib/helpdesk-data"
 import type { HDTicket, HDTicketComment } from "@/lib/types"
+
+const departamentos = [
+  { id: "dep-001", nombre: "Soporte Técnico" },
+  { id: "dep-002", nombre: "Atención al Cliente" },
+  { id: "dep-003", nombre: "Servicios en Campo" },
+]
+const getDepartamentoById = (id: string) => departamentos.find((d) => d.id === id)
 
 const prioridadColors: Record<string, string> = {
   critica: "bg-red-500/10 text-red-500 border-red-500/20",

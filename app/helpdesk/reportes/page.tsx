@@ -7,73 +7,8 @@ import { Progress } from "@/components/ui/progress"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Ticket, Clock, CheckCircle, AlertTriangle, TrendingUp, Users, DollarSign, Timer } from "lucide-react"
-import { tickets as hdTickets, agentes as hdAgentes, crmClients as hdClientes, slas as hdSLAs, ordenesServicio as hdOrdenesServicio, facturas as hdFacturas } from "@/lib/shared-data"
-
-// Calcular metricas
-const ticketsPorEstado = [
-  { estado: "Nuevos", cantidad: hdTickets.filter(t => t.estado === "nuevo").length, fill: "hsl(var(--chart-1))" },
-  { estado: "Asignados", cantidad: hdTickets.filter(t => t.estado === "asignado").length, fill: "hsl(var(--chart-2))" },
-  { estado: "En Progreso", cantidad: hdTickets.filter(t => t.estado === "en_progreso").length, fill: "hsl(var(--chart-3))" },
-  { estado: "Esperando", cantidad: hdTickets.filter(t => t.estado === "esperando_cliente").length, fill: "hsl(var(--chart-4))" },
-  { estado: "Resueltos", cantidad: hdTickets.filter(t => t.estado === "resuelto").length, fill: "hsl(var(--chart-5))" },
-  { estado: "Cerrados", cantidad: hdTickets.filter(t => t.estado === "cerrado").length, fill: "hsl(220 70% 50%)" },
-]
-
-const ticketsPorPrioridad = [
-  { prioridad: "Critica", cantidad: hdTickets.filter(t => t.prioridad === "critica").length, fill: "#ef4444" },
-  { prioridad: "Alta", cantidad: hdTickets.filter(t => t.prioridad === "alta").length, fill: "#f97316" },
-  { prioridad: "Media", cantidad: hdTickets.filter(t => t.prioridad === "media").length, fill: "#eab308" },
-  { prioridad: "Baja", cantidad: hdTickets.filter(t => t.prioridad === "baja").length, fill: "#22c55e" },
-]
-
-const ticketsPorCategoria = [
-  { categoria: "Soporte Tecnico", cantidad: hdTickets.filter(t => t.categoria === "soporte_tecnico").length },
-  { categoria: "Consulta", cantidad: hdTickets.filter(t => t.categoria === "consulta").length },
-  { categoria: "Reclamo", cantidad: hdTickets.filter(t => t.categoria === "reclamo").length },
-  { categoria: "Solicitud", cantidad: hdTickets.filter(t => t.categoria === "solicitud_servicio").length },
-  { categoria: "Sugerencia", cantidad: hdTickets.filter(t => t.categoria === "sugerencia").length },
-]
-
-const ticketsPorCanal = [
-  { canal: "Email", cantidad: hdTickets.filter(t => t.canal === "email").length },
-  { canal: "Telefono", cantidad: hdTickets.filter(t => t.canal === "telefono").length },
-  { canal: "Chat", cantidad: hdTickets.filter(t => t.canal === "chat").length },
-  { canal: "Web", cantidad: hdTickets.filter(t => t.canal === "web").length },
-  { canal: "Presencial", cantidad: hdTickets.filter(t => t.canal === "presencial").length },
-]
-
-// Metricas generales
-const totalTickets = hdTickets.length
-const ticketsAbiertos = hdTickets.filter(t => !["resuelto", "cerrado"].includes(t.estado)).length
-const ticketsResueltos = hdTickets.filter(t => ["resuelto", "cerrado"].includes(t.estado)).length
-const ticketsCumplenSLA = hdTickets.filter(t => t.cumpleSLA).length
-const porcentajeSLA = totalTickets > 0 ? Math.round((ticketsCumplenSLA / totalTickets) * 100) : 0
-
-const tiempoPromedioRespuesta = hdTickets.filter(t => t.tiempoRespuesta).length > 0
-  ? Math.round(hdTickets.filter(t => t.tiempoRespuesta).reduce((sum, t) => sum + (t.tiempoRespuesta || 0), 0) / hdTickets.filter(t => t.tiempoRespuesta).length)
-  : 0
-
-const tiempoPromedioResolucion = hdTickets.filter(t => t.tiempoResolucion).length > 0
-  ? Math.round(hdTickets.filter(t => t.tiempoResolucion).reduce((sum, t) => sum + (t.tiempoResolucion || 0), 0) / hdTickets.filter(t => t.tiempoResolucion).length)
-  : 0
-
-// Datos de ordenes
-const ordenesCompletadas = hdOrdenesServicio.filter(o => o.estado === "completada").length
-const totalOrdenes = hdOrdenesServicio.length
-const tasaCompletacion = totalOrdenes > 0 ? Math.round((ordenesCompletadas / totalOrdenes) * 100) : 0
-
-// Datos de facturacion
-const totalFacturado = hdFacturas.reduce((sum, f) => sum + f.total, 0)
-const totalCobrado = hdFacturas.filter(f => f.estado === "pagada").reduce((sum, f) => sum + f.total, 0)
-const tasaCobranza = totalFacturado > 0 ? Math.round((totalCobrado / totalFacturado) * 100) : 0
-
-// Performance de agentes
-const agentesPerformance = hdAgentes.map(agente => ({
-  nombre: `${agente.nombre} ${agente.apellido}`,
-  ticketsResueltos: agente.ticketsResueltos,
-  tiempoPromedio: agente.tiempoPromedioResolucion,
-  calificacion: agente.calificacionPromedio,
-})).sort((a, b) => b.ticketsResueltos - a.ticketsResueltos)
+import { useMemo } from "react"
+import { useHdTickets, useHdAgentes, useHdClientes, useHdOrdenesServicio, useHdFacturacion } from "@/lib/hooks/useHelpdesk"
 
 function formatMinutes(minutes: number): string {
   if (minutes < 60) return `${minutes} min`
@@ -88,6 +23,75 @@ function formatCurrency(value: number) {
 }
 
 export default function ReportesHDPage() {
+  const { tickets: hdTickets } = useHdTickets()
+  const { agentes: hdAgentes } = useHdAgentes()
+  const { clientes: hdClientes } = useHdClientes()
+  const { ordenes: hdOrdenesServicio } = useHdOrdenesServicio()
+  const { facturas: hdFacturas } = useHdFacturacion()
+
+  const ticketsPorEstado = useMemo(() => [
+    { estado: "Nuevos", cantidad: hdTickets.filter(t => t.estado === "nuevo").length, fill: "hsl(var(--chart-1))" },
+    { estado: "Asignados", cantidad: hdTickets.filter(t => t.estado === "asignado").length, fill: "hsl(var(--chart-2))" },
+    { estado: "En Progreso", cantidad: hdTickets.filter(t => t.estado === "en_progreso").length, fill: "hsl(var(--chart-3))" },
+    { estado: "Esperando", cantidad: hdTickets.filter(t => t.estado === "esperando_cliente").length, fill: "hsl(var(--chart-4))" },
+    { estado: "Resueltos", cantidad: hdTickets.filter(t => t.estado === "resuelto").length, fill: "hsl(var(--chart-5))" },
+    { estado: "Cerrados", cantidad: hdTickets.filter(t => t.estado === "cerrado").length, fill: "hsl(220 70% 50%)" },
+  ], [hdTickets])
+
+  const ticketsPorPrioridad = useMemo(() => [
+    { prioridad: "Critica", cantidad: hdTickets.filter(t => t.prioridad === "critica").length, fill: "#ef4444" },
+    { prioridad: "Alta", cantidad: hdTickets.filter(t => t.prioridad === "alta").length, fill: "#f97316" },
+    { prioridad: "Media", cantidad: hdTickets.filter(t => t.prioridad === "media").length, fill: "#eab308" },
+    { prioridad: "Baja", cantidad: hdTickets.filter(t => t.prioridad === "baja").length, fill: "#22c55e" },
+  ], [hdTickets])
+
+  const ticketsPorCategoria = useMemo(() => [
+    { categoria: "Soporte Tecnico", cantidad: hdTickets.filter(t => t.categoria === "soporte_tecnico").length },
+    { categoria: "Consulta", cantidad: hdTickets.filter(t => t.categoria === "consulta").length },
+    { categoria: "Reclamo", cantidad: hdTickets.filter(t => t.categoria === "reclamo").length },
+    { categoria: "Solicitud", cantidad: hdTickets.filter(t => t.categoria === "solicitud_servicio").length },
+    { categoria: "Sugerencia", cantidad: hdTickets.filter(t => t.categoria === "sugerencia").length },
+  ], [hdTickets])
+
+  const ticketsPorCanal = useMemo(() => [
+    { canal: "Email", cantidad: hdTickets.filter(t => t.canal === "email").length },
+    { canal: "Telefono", cantidad: hdTickets.filter(t => t.canal === "telefono").length },
+    { canal: "Chat", cantidad: hdTickets.filter(t => t.canal === "chat").length },
+    { canal: "Web", cantidad: hdTickets.filter(t => t.canal === "web").length },
+    { canal: "Presencial", cantidad: hdTickets.filter(t => t.canal === "presencial").length },
+  ], [hdTickets])
+
+  const totalTickets = hdTickets.length
+  const ticketsAbiertos = hdTickets.filter(t => !["resuelto", "cerrado"].includes(t.estado)).length
+  const ticketsResueltos = hdTickets.filter(t => ["resuelto", "cerrado"].includes(t.estado)).length
+  const ticketsCumplenSLA = hdTickets.filter(t => t.cumpleSLA).length
+  const porcentajeSLA = totalTickets > 0 ? Math.round((ticketsCumplenSLA / totalTickets) * 100) : 0
+
+  const tiempoPromedioRespuesta = hdTickets.filter(t => t.tiempoRespuesta).length > 0
+    ? Math.round(hdTickets.filter(t => t.tiempoRespuesta).reduce((sum, t) => sum + (t.tiempoRespuesta || 0), 0) / hdTickets.filter(t => t.tiempoRespuesta).length)
+    : 0
+
+  const tiempoPromedioResolucion = hdTickets.filter(t => t.tiempoResolucion).length > 0
+    ? Math.round(hdTickets.filter(t => t.tiempoResolucion).reduce((sum, t) => sum + (t.tiempoResolucion || 0), 0) / hdTickets.filter(t => t.tiempoResolucion).length)
+    : 0
+
+  const ordenesCompletadas = hdOrdenesServicio.filter(o => o.estado === "completada").length
+  const totalOrdenes = hdOrdenesServicio.length
+  const tasaCompletacion = totalOrdenes > 0 ? Math.round((ordenesCompletadas / totalOrdenes) * 100) : 0
+
+  const totalFacturado = hdFacturas.reduce((sum, f) => sum + f.total, 0)
+  const totalCobrado = hdFacturas.filter(f => f.estado === "pagada").reduce((sum, f) => sum + f.total, 0)
+  const tasaCobranza = totalFacturado > 0 ? Math.round((totalCobrado / totalFacturado) * 100) : 0
+
+  const agentesPerformance = useMemo(() =>
+    hdAgentes.map(agente => ({
+      nombre: `${agente.nombre} ${agente.apellido}`,
+      ticketsResueltos: agente.ticketsResueltos,
+      tiempoPromedio: agente.tiempoPromedioResolucion,
+      calificacion: agente.calificacionPromedio,
+    })).sort((a, b) => b.ticketsResueltos - a.ticketsResueltos)
+  , [hdAgentes])
+
   return (
     <div className="space-y-6">
       <div>

@@ -48,13 +48,9 @@ import {
   Package,
 } from "lucide-react"
 import type { PurchaseOrder, PurchaseOrderItem } from "@/lib/compras-types"
-import {
-  suppliers,
-  paymentConditions,
-  warehouses,
-  products,
-} from "@/lib/compras-data"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
+import { useProveedores } from "@/lib/hooks/useTerceros"
+import { useSucursales } from "@/lib/hooks/useSucursales"
 import type { OrdenCompra } from "@/lib/types/configuracion"
 
 const estadoBadgeVariant = {
@@ -73,6 +69,8 @@ export default function OrdenesCompraPage() {
   const searchParams = useSearchParams()
   
   const { ordenes, loading, error, recibir, cancelar } = useOrdenesCompra()
+  const { terceros: proveedores } = useProveedores()
+  const { sucursales } = useSucursales()
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [isWizardOpen, setIsWizardOpen] = useState(false)
@@ -117,8 +115,8 @@ export default function OrdenesCompraPage() {
       proveedorId: "",
       fechaEmision: new Date(),
       fechaEntregaEsperada: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      almacenId: warehouses[0]?.id || "",
-      condicionPagoId: paymentConditions[0]?.id || "",
+      almacenId: "",
+      condicionPagoId: "",
       divisa: "ARS",
       estado: "borrador",
       estadoAprobacion: "pendiente",
@@ -225,11 +223,11 @@ export default function OrdenesCompraPage() {
   }
 
   const getSupplierName = (supplierId: string) => {
-    return suppliers.find(s => s.id === supplierId)?.razonSocial || "N/A"
+    return proveedores.find(p => String(p.id) === supplierId)?.razonSocial || "N/A"
   }
 
   const getWarehouseName = (warehouseId: string) => {
-    return warehouses.find(w => w.id === warehouseId)?.nombre || "N/A"
+    return sucursales.find(s => String(s.id) === warehouseId)?.descripcion || "N/A"
   }
 
   return (
@@ -386,8 +384,8 @@ export default function OrdenesCompraPage() {
                         <SelectValue placeholder="Seleccione un proveedor" />
                       </SelectTrigger>
                       <SelectContent>
-                        {suppliers.filter(s => s.estado === 'activo').map((supplier) => (
-                          <SelectItem key={supplier.id} value={supplier.id}>
+                        {proveedores.map((supplier) => (
+                          <SelectItem key={supplier.id} value={String(supplier.id)}>
                             {supplier.razonSocial}
                           </SelectItem>
                         ))}
@@ -404,9 +402,9 @@ export default function OrdenesCompraPage() {
                         <SelectValue placeholder="Seleccione un almacén" />
                       </SelectTrigger>
                       <SelectContent>
-                        {warehouses.filter(w => w.activo).map((warehouse) => (
-                          <SelectItem key={warehouse.id} value={warehouse.id}>
-                            {warehouse.nombre}
+                        {sucursales.map((suc) => (
+                          <SelectItem key={suc.id} value={String(suc.id)}>
+                            {suc.descripcion}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -460,7 +458,12 @@ export default function OrdenesCompraPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {paymentConditions.map((condition) => (
+                        {[
+                          { id: 'contado', descripcion: 'Contado' },
+                          { id: '30dias', descripcion: '30 días' },
+                          { id: '60dias', descripcion: '60 días' },
+                          { id: '90dias', descripcion: '90 días' },
+                        ].map((condition) => (
                           <SelectItem key={condition.id} value={condition.id}>
                             {condition.descripcion}
                           </SelectItem>
