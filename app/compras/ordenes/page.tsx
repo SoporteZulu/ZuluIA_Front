@@ -1,20 +1,25 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
+import { useEffect, useMemo, useState } from "react"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+  AlertCircle,
+  Ban,
+  CheckCircle2,
+  Eye,
+  FileText,
+  Landmark,
+  PackageCheck,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  ShoppingBag,
+  Truck,
+} from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -23,6 +28,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -30,950 +37,1123 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
 import {
-  Plus,
-  Search,
-  Edit,
-  Trash2,
-  Eye,
-  Send,
-  FileText,
-  CheckCircle,
-  Clock,
-  XCircle,
-  ArrowLeft,
-  ArrowRight,
-  Printer,
-  Package,
-} from "lucide-react"
-import type { PurchaseOrder, PurchaseOrderItem } from "@/lib/compras-types"
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Textarea } from "@/components/ui/textarea"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
 import { useProveedores } from "@/lib/hooks/useTerceros"
-import { useSucursales } from "@/lib/hooks/useSucursales"
-import type { OrdenCompra } from "@/lib/types/configuracion"
+import type { Comprobante } from "@/lib/types/comprobantes"
+import type { CreateOrdenCompraDto, OrdenCompra } from "@/lib/types/configuracion"
+import type { Tercero } from "@/lib/types/terceros"
 
-const estadoBadgeVariant = {
-  borrador: "secondary",
-  enviada: "default",
-  confirmada: "default",
-  en_transito: "default",
-  recibida_parcial: "default",
-  recibida_total: "default",
-  cerrada: "secondary",
-  cancelada: "destructive",
+function formatDate(value?: string | null) {
+  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
 }
 
-export default function OrdenesCompraPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  
-  const { ordenes, loading, error, recibir, cancelar } = useOrdenesCompra()
-  const { terceros: proveedores } = useProveedores()
-  const { sucursales } = useSucursales()
-  const [searchTerm, setSearchTerm] = useState("")
-  const [filterEstado, setFilterEstado] = useState<string>("todos")
-  const [isWizardOpen, setIsWizardOpen] = useState(false)
-  const [wizardStep, setWizardStep] = useState(1)
-  const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
-  const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [detailOrder, setDetailOrder] = useState<OrdenCompra | null>(null)
+function formatMoney(value: number) {
+  return value.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
+}
 
-  // Wizard Form State
-  const [formData, setFormData] = useState<Partial<PurchaseOrder>>({
-    codigo: "",
-    proveedorId: "",
-    fechaEmision: new Date(),
-    fechaEntregaEsperada: new Date(),
-    almacenId: "",
-    condicionPagoId: "",
-    divisa: "ARS",
-    estado: "borrador",
-    estadoAprobacion: "pendiente",
-    prioridad: "normal",
-    referencia: "",
-    subtotal: 0,
-    descuento: 0,
-    impuestos: 0,
-    total: 0,
-    items: [],
-  })
+function formatProviderAddress(provider?: Tercero | null) {
+  if (!provider) return "Sin domicilio visible"
 
-  const [formItems, setFormItems] = useState<PurchaseOrderItem[]>([])
+  const parts = [
+    [provider.calle, provider.nro].filter(Boolean).join(" "),
+    provider.piso ? `Piso ${provider.piso}` : null,
+    provider.dpto ? `Dto ${provider.dpto}` : null,
+    provider.localidadDescripcion,
+    provider.codigoPostal,
+  ].filter(Boolean)
 
-  const filteredOrders = ordenes.filter((order) => {
-    const matchesSearch = String(order.id).includes(searchTerm) ||
-      String(order.proveedorId).includes(searchTerm)
-    const matchesEstado = filterEstado === "todos" || order.estadoOc.toLowerCase() === filterEstado.toLowerCase()
-    return matchesSearch && matchesEstado
-  })
+  return parts.length > 0 ? parts.join(" · ") : "Sin domicilio visible"
+}
 
-  const handleNew = () => {
-    setEditingOrder(null)
-    setFormData({
-      codigo: `OC-2024-${String(ordenes.length + 1).padStart(3, '0')}`,
-      proveedorId: "",
-      fechaEmision: new Date(),
-      fechaEntregaEsperada: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      almacenId: "",
-      condicionPagoId: "",
-      divisa: "ARS",
-      estado: "borrador",
-      estadoAprobacion: "pendiente",
-      prioridad: "normal",
-      referencia: "",
-      subtotal: 0,
-      descuento: 0,
-      impuestos: 0,
-      total: 0,
-      items: [],
-    })
-    setFormItems([])
-    setWizardStep(1)
-    setIsWizardOpen(true)
+function getDaysOffset(value?: string | null) {
+  if (!value) return null
+  const targetDate = new Date(value)
+  const today = new Date()
+  targetDate.setHours(0, 0, 0, 0)
+  today.setHours(0, 0, 0, 0)
+  return Math.floor((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function getDeliveryRequirementStatus(order: OrdenCompra) {
+  if (!order.fechaEntregaReq) return "Sin fecha requerida informada"
+
+  const offset = getDaysOffset(order.fechaEntregaReq)
+  if (offset === null) return "Sin fecha requerida informada"
+  if (offset < 0) return `Entrega requerida vencida hace ${Math.abs(offset)} días`
+  if (offset === 0) return "Entrega requerida para hoy"
+  return `Entrega requerida en ${offset} días`
+}
+
+function getOperationalStatus(order: OrdenCompra) {
+  if (order.estadoOc === "CANCELADA") return "Orden fuera de circuito"
+  if (order.estadoOc === "RECIBIDA") return "Orden ya recibida"
+  if (!order.habilitada) return "Pendiente pero no habilitada para recepción"
+  return "Orden pendiente habilitada para recepción"
+}
+
+const STATUS_CONFIG: Record<
+  string,
+  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
+> = {
+  PENDIENTE: { label: "Pendiente", variant: "secondary" },
+  RECIBIDA: { label: "Recibida", variant: "default" },
+  CANCELADA: { label: "Cancelada", variant: "destructive" },
+}
+
+function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {fields.map((field) => (
+        <div key={field.label} className="rounded-lg bg-muted/40 p-3">
+          <span className="mb-1 block text-xs text-muted-foreground">{field.label}</span>
+          <p className="text-sm font-medium">{field.value}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function getAvailableOrderBaseComprobantes(
+  comprobantes: Comprobante[],
+  linkedComprobanteIds: Set<number>,
+  proveedorId: number
+) {
+  return comprobantes
+    .filter((comprobante) => !linkedComprobanteIds.has(comprobante.id))
+    .filter((comprobante) => (proveedorId ? comprobante.terceroId === proveedorId : true))
+    .sort((left, right) => right.id - left.id)
+}
+
+function getDefaultOrderProviderId(
+  comprobantes: Comprobante[],
+  linkedComprobanteIds: Set<number>,
+  proveedores: Array<{ id: number; razonSocial: string }>
+) {
+  return (
+    proveedores.find(
+      (proveedor) =>
+        getAvailableOrderBaseComprobantes(comprobantes, linkedComprobanteIds, proveedor.id).length >
+        0
+    )?.id ??
+    proveedores[0]?.id ??
+    0
+  )
+}
+
+function createPurchaseOrderFormState(
+  proveedorId: number,
+  comprobanteId: number
+): CreateOrdenCompraDto {
+  return {
+    comprobanteId,
+    proveedorId,
+    fechaEntregaReq: null,
+    condicionesEntrega: null,
   }
+}
 
-  const handleViewDetail = (order: OrdenCompra) => {
-    setDetailOrder(order)
-    setIsDetailOpen(true)
-  }
+function PurchaseOrderForm({
+  comprobantes,
+  ordenes,
+  proveedores,
+  onClose,
+  onSaved,
+  crear,
+}: {
+  comprobantes: Comprobante[]
+  ordenes: OrdenCompra[]
+  proveedores: Array<{ id: number; razonSocial: string }>
+  onClose: () => void
+  onSaved: () => void
+  crear: (dto: CreateOrdenCompraDto) => Promise<boolean>
+}) {
+  const [tab, setTab] = useState("principal")
+  const linkedComprobanteIds = useMemo(
+    () => new Set(ordenes.map((orden) => orden.comprobanteId)),
+    [ordenes]
+  )
 
-  const handleEdit = (order: PurchaseOrder) => {
-    setEditingOrder(order)
-    setFormData({
-      codigo: order.codigo,
-      proveedorId: order.proveedorId,
-      fechaEmision: order.fechaEmision,
-      fechaEntregaEsperada: order.fechaEntregaEsperada,
-      almacenId: order.almacenId,
-      condicionPagoId: order.condicionPagoId,
-      divisa: order.divisa,
-      estado: order.estado,
-      estadoAprobacion: order.estadoAprobacion,
-      prioridad: order.prioridad,
-      referencia: order.referencia,
-      subtotal: order.subtotal,
-      descuento: order.descuento,
-      impuestos: order.impuestos,
-      total: order.total,
-      items: order.items,
-      direccionEnvio: order.direccionEnvio,
-      notasInternas: order.notasInternas,
-      notasProveedor: order.notasProveedor,
-    })
-    setFormItems(order.items)
-    setWizardStep(1)
-    setIsWizardOpen(true)
-  }
+  const defaultProveedorId = useMemo(
+    () => getDefaultOrderProviderId(comprobantes, linkedComprobanteIds, proveedores),
+    [comprobantes, linkedComprobanteIds, proveedores]
+  )
 
-  const addItem = () => {
-    const newItem: PurchaseOrderItem = {
-      id: `item-${Date.now()}`,
-      ordenCompraId: formData.codigo || "",
-      productoId: "",
-      descripcion: "",
-      cantidad: 1,
-      cantidadRecibida: 0,
-      cantidadRechazada: 0,
-      uom: "unid",
-      precioUnitario: 0,
-      descuentoPorcentaje: 0,
-      subtotal: 0,
+  const initialComprobanteId = useMemo(
+    () =>
+      getAvailableOrderBaseComprobantes(comprobantes, linkedComprobanteIds, defaultProveedorId)[0]
+        ?.id ?? 0,
+    [comprobantes, defaultProveedorId, linkedComprobanteIds]
+  )
+
+  const [form, setForm] = useState<CreateOrdenCompraDto>(() =>
+    createPurchaseOrderFormState(defaultProveedorId, initialComprobanteId)
+  )
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const effectiveProveedorId = form.proveedorId || defaultProveedorId
+
+  const availableComprobantes = useMemo(
+    () =>
+      getAvailableOrderBaseComprobantes(comprobantes, linkedComprobanteIds, effectiveProveedorId),
+    [comprobantes, effectiveProveedorId, linkedComprobanteIds]
+  )
+
+  const effectiveComprobanteId = availableComprobantes.some(
+    (comprobante) => comprobante.id === form.comprobanteId
+  )
+    ? form.comprobanteId
+    : (availableComprobantes[0]?.id ?? 0)
+
+  const selectedComprobante = useMemo(
+    () =>
+      availableComprobantes.find((comprobante) => comprobante.id === effectiveComprobanteId) ??
+      null,
+    [availableComprobantes, effectiveComprobanteId]
+  )
+
+  const handleSave = async () => {
+    if (!effectiveProveedorId || !effectiveComprobanteId) {
+      setError("Proveedor y comprobante base son obligatorios")
+      return
     }
-    setFormItems([...formItems, newItem])
-  }
 
-  const updateItem = (index: number, field: keyof PurchaseOrderItem, value: any) => {
-    const updated = [...formItems]
-    updated[index] = { ...updated[index], [field]: value }
-    
-    // Recalculate subtotal
-    const cantidad = updated[index].cantidad
-    const precio = updated[index].precioUnitario
-    const descuento = updated[index].descuentoPorcentaje
-    updated[index].subtotal = cantidad * precio * (1 - descuento / 100)
-    
-    setFormItems(updated)
-  }
+    const payload: CreateOrdenCompraDto = {
+      ...form,
+      proveedorId: effectiveProveedorId,
+      comprobanteId: effectiveComprobanteId,
+    }
 
-  const removeItem = (index: number) => {
-    setFormItems(formItems.filter((_, i) => i !== index))
-  }
+    setSaving(true)
+    setError(null)
+    const ok = await crear(payload)
+    setSaving(false)
 
-  const calculateTotals = () => {
-    const subtotal = formItems.reduce((sum, item) => sum + item.subtotal, 0)
-    const descuento = 0
-    const impuestos = subtotal * 0.21
-    const total = subtotal - descuento + impuestos
-    return { subtotal, descuento, impuestos, total }
-  }
+    if (ok) {
+      onSaved()
+      return
+    }
 
-  const handleSaveOrder = () => {
-    // Note: no backend create endpoint yet
-    setIsWizardOpen(false)
-    setWizardStep(1)
-  }
-
-  const nextStep = () => {
-    if (wizardStep < 4) setWizardStep(wizardStep + 1)
-  }
-
-  const prevStep = () => {
-    if (wizardStep > 1) setWizardStep(wizardStep - 1)
-  }
-
-  const getSupplierName = (supplierId: string) => {
-    return proveedores.find(p => String(p.id) === supplierId)?.razonSocial || "N/A"
-  }
-
-  const getWarehouseName = (warehouseId: string) => {
-    return sucursales.find(s => String(s.id) === warehouseId)?.descripcion || "N/A"
+    setError("No se pudo crear la orden de compra")
   }
 
   return (
-    <div className="flex-1 space-y-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="grid h-auto w-full grid-cols-3">
+          <TabsTrigger value="principal" className="py-2 text-xs">
+            Principal
+          </TabsTrigger>
+          <TabsTrigger value="vinculo" className="py-2 text-xs">
+            Vínculo
+          </TabsTrigger>
+          <TabsTrigger value="legado" className="py-2 text-xs">
+            Legado
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="principal" className="mt-4 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Proveedor</Label>
+              <Select
+                value={effectiveProveedorId ? String(effectiveProveedorId) : ""}
+                onValueChange={(value) => {
+                  const proveedorId = Number(value)
+                  const nextComprobanteId =
+                    getAvailableOrderBaseComprobantes(
+                      comprobantes,
+                      linkedComprobanteIds,
+                      proveedorId
+                    )[0]?.id ?? 0
+
+                  setForm((prev) => ({
+                    ...prev,
+                    proveedorId,
+                    comprobanteId: nextComprobanteId,
+                  }))
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar proveedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {proveedores.map((proveedor) => (
+                    <SelectItem key={proveedor.id} value={String(proveedor.id)}>
+                      {proveedor.razonSocial}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Comprobante base</Label>
+              <Select
+                value={effectiveComprobanteId ? String(effectiveComprobanteId) : ""}
+                onValueChange={(value) =>
+                  setForm((prev) => ({ ...prev, comprobanteId: Number(value) }))
+                }
+                disabled={!effectiveProveedorId || availableComprobantes.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar comprobante" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableComprobantes.map((comprobante) => (
+                    <SelectItem key={comprobante.id} value={String(comprobante.id)}>
+                      {(comprobante.nroComprobante ?? `#${comprobante.id}`) +
+                        " · " +
+                        formatDate(comprobante.fecha)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {effectiveProveedorId && availableComprobantes.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No hay comprobantes de compra disponibles para vincular con este proveedor.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Entrega requerida</Label>
+              <Input
+                type="date"
+                value={form.fechaEntregaReq ?? ""}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    fechaEntregaReq: event.target.value || null,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Condiciones de entrega</Label>
+              <Textarea
+                rows={4}
+                value={form.condicionesEntrega ?? ""}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    condicionesEntrega: event.target.value || null,
+                  }))
+                }
+                placeholder="Entrega parcial, horarios, recepción o notas operativas"
+              />
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="vinculo" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Resumen del comprobante seleccionado</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {selectedComprobante ? (
+                <DetailFieldGrid
+                  fields={[
+                    {
+                      label: "Comprobante",
+                      value: selectedComprobante.nroComprobante ?? `#${selectedComprobante.id}`,
+                    },
+                    {
+                      label: "Fecha",
+                      value: formatDate(selectedComprobante.fecha),
+                    },
+                    {
+                      label: "Estado",
+                      value: selectedComprobante.estado,
+                    },
+                    {
+                      label: "Total",
+                      value: formatMoney(selectedComprobante.total),
+                    },
+                    {
+                      label: "Saldo",
+                      value: formatMoney(selectedComprobante.saldo ?? 0),
+                    },
+                    {
+                      label: "Tipo",
+                      value:
+                        selectedComprobante.tipoComprobanteDescripcion ??
+                        `#${selectedComprobante.tipoComprobanteId}`,
+                    },
+                  ]}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Seleccione un comprobante base para crear la orden con un vínculo documental real.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="legado" className="mt-4 space-y-4">
+          <Card>
+            <CardContent className="pt-6 text-sm text-muted-foreground">
+              Esta alta cubre el contrato actual del backend: una orden básica vinculada a un
+              comprobante existente. El legado además resolvía renglones, aprobación, impresión,
+              recepción parcial y negociación comercial avanzada, que siguen reservados para la
+              siguiente etapa.
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {error && (
+        <p className="flex items-center gap-1 text-sm text-red-500">
+          <AlertCircle className="h-4 w-4" />
+          {error}
+        </p>
+      )}
+
+      <div className="flex justify-end gap-2 border-t pt-3">
+        <Button variant="outline" className="bg-transparent" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button onClick={handleSave} disabled={saving || availableComprobantes.length === 0}>
+          {saving ? "Guardando..." : "Crear orden"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function PurchaseOrderDetail({
+  order,
+  providerName,
+  provider,
+  relatedInvoice,
+}: {
+  order: OrdenCompra
+  providerName: string
+  provider?: Tercero | null
+  relatedInvoice: Comprobante | null
+}) {
+  const mainFields = [
+    { label: "Orden", value: `OC-${order.id}` },
+    { label: "Proveedor", value: providerName },
+    { label: "Comprobante relacionado", value: `#${order.comprobanteId}` },
+    { label: "Estado", value: STATUS_CONFIG[order.estadoOc]?.label ?? order.estadoOc },
+    { label: "Entrega requerida", value: formatDate(order.fechaEntregaReq) },
+    { label: "Habilitada", value: order.habilitada ? "Sí" : "No" },
+    { label: "Creada", value: formatDate(order.createdAt) },
+    { label: "Condiciones de entrega", value: order.condicionesEntrega ?? "-" },
+  ]
+
+  const operationFields = [
+    { label: "Estado operativo", value: getOperationalStatus(order) },
+    { label: "Estado de entrega", value: getDeliveryRequirementStatus(order) },
+    { label: "Recepción habilitada", value: order.habilitada ? "Sí" : "No" },
+    {
+      label: "Comprobante base",
+      value: relatedInvoice
+        ? (relatedInvoice.nroComprobante ?? `#${relatedInvoice.id}`)
+        : `#${order.comprobanteId}`,
+    },
+    {
+      label: "Saldo asociado",
+      value: relatedInvoice ? formatMoney(relatedInvoice.saldo ?? 0) : "No disponible en consulta",
+    },
+    {
+      label: "Condiciones operativas",
+      value: order.condicionesEntrega ?? "Sin condiciones de entrega informadas",
+    },
+  ]
+
+  const providerFields = [
+    { label: "Razón social", value: providerName },
+    { label: "Nombre fantasía", value: provider?.nombreFantasia ?? "-" },
+    { label: "CUIT / Documento", value: provider?.nroDocumento ?? "-" },
+    { label: "Condición IVA", value: provider?.condicionIvaDescripcion ?? "-" },
+    { label: "Domicilio", value: formatProviderAddress(provider) },
+    {
+      label: "Canales",
+      value:
+        [provider?.telefono, provider?.celular, provider?.email].filter(Boolean).join(" · ") ||
+        "Sin canales visibles",
+    },
+  ]
+
+  return (
+    <Tabs defaultValue="principal" className="w-full">
+      <TabsList className="grid w-full grid-cols-3">
+        <TabsTrigger value="principal">Principal</TabsTrigger>
+        <TabsTrigger value="operacion">Operación</TabsTrigger>
+        <TabsTrigger value="legado">Legado</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="principal" className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileText className="h-4 w-4" /> Cabecera de la orden
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DetailFieldGrid fields={mainFields} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Landmark className="h-4 w-4" /> Proveedor vinculado
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DetailFieldGrid fields={providerFields} />
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="operacion" className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <PackageCheck className="h-4 w-4" /> Estado operativo actual
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DetailFieldGrid fields={operationFields} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Truck className="h-4 w-4" /> Seguimiento de recepción
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              Esta orden ya participa del circuito real de recepción mediante los endpoints
+              disponibles hoy. La recepción parcial por ítem queda pendiente hasta que el backend
+              exponga el detalle completo del documento.
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <PackageCheck className="h-4 w-4" /> Estado operativo
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              La habilitación indica si la orden sigue disponible para recepción y el comprobante
+              relacionado deja trazabilidad con el documento base generado en compras.
+            </CardContent>
+          </Card>
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ShoppingBag className="h-4 w-4" /> Trazabilidad documental
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {relatedInvoice ? (
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <span className="mb-1 block text-xs text-muted-foreground">Comprobante</span>
+                    <p className="text-sm font-medium">
+                      {relatedInvoice.nroComprobante ?? `#${relatedInvoice.id}`}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <span className="mb-1 block text-xs text-muted-foreground">Estado</span>
+                    <p className="text-sm font-medium">{relatedInvoice.estado}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <span className="mb-1 block text-xs text-muted-foreground">Fecha</span>
+                    <p className="text-sm font-medium">{formatDate(relatedInvoice.fecha)}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <span className="mb-1 block text-xs text-muted-foreground">Saldo</span>
+                    <p className="text-sm font-medium">
+                      {new Intl.NumberFormat("es-AR", {
+                        style: "currency",
+                        currency: "ARS",
+                        maximumFractionDigits: 0,
+                      }).format(relatedInvoice.saldo ?? 0)}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Esta orden conserva el vínculo con el comprobante #{order.comprobanteId}, pero el
+                  documento no está disponible en la consulta actual de compras.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="legado" className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Landmark className="h-4 w-4" /> Bloques pendientes del legado
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 text-sm text-muted-foreground md:grid-cols-2">
+            <div className="rounded-lg border p-4">
+              Esta etapa ya deja visible disponibilidad para recepción, fecha requerida y
+              trazabilidad; alta completa por renglón, aprobación y autorización siguen reservadas.
+            </div>
+            <div className="rounded-lg border p-4">
+              Condiciones comerciales avanzadas, impresión formal, remitos enlazados y recepción
+              parcial por ítem quedan reservados para la siguiente fase.
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+    </Tabs>
+  )
+}
+
+export default function OrdenesCompraPage() {
+  const { ordenes, loading, error, getById, crear, recibir, cancelar, refetch } = useOrdenesCompra()
+  const { comprobantes } = useComprobantes({ esCompra: true })
+  const { terceros: proveedores } = useProveedores()
+  const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState("todos")
+  const [enabledFilter, setEnabledFilter] = useState("todos")
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [selectedOrder, setSelectedOrder] = useState<OrdenCompra | null>(null)
+  const [detailOrder, setDetailOrder] = useState<OrdenCompra | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  const [isDetailOpen, setIsDetailOpen] = useState(false)
+
+  const linkedComprobanteIds = useMemo(
+    () => new Set(ordenes.map((order) => order.comprobanteId)),
+    [ordenes]
+  )
+  const availableBaseComprobantes = useMemo(
+    () => comprobantes.filter((comprobante) => !linkedComprobanteIds.has(comprobante.id)),
+    [comprobantes, linkedComprobanteIds]
+  )
+
+  const getProviderName = (providerId: number) =>
+    proveedores.find((provider) => provider.id === providerId)?.razonSocial ?? `#${providerId}`
+
+  const getRelatedInvoice = (comprobanteId: number) =>
+    comprobantes.find((comprobante) => comprobante.id === comprobanteId) ?? null
+
+  const filtered = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
+    return ordenes.filter((order) => {
+      const providerName = getProviderName(order.proveedorId).toLowerCase()
+      const matchesSearch =
+        term === "" ||
+        String(order.id).includes(term) ||
+        String(order.comprobanteId).includes(term) ||
+        providerName.includes(term)
+
+      const matchesStatus = statusFilter === "todos" || order.estadoOc === statusFilter
+      const matchesEnabled =
+        enabledFilter === "todos" ||
+        (enabledFilter === "si" && order.habilitada) ||
+        (enabledFilter === "no" && !order.habilitada)
+
+      return matchesSearch && matchesStatus && matchesEnabled
+    })
+  }, [enabledFilter, ordenes, searchTerm, statusFilter, proveedores])
+
+  const kpis = useMemo(
+    () => ({
+      total: ordenes.length,
+      pendientes: ordenes.filter((order) => order.estadoOc === "PENDIENTE").length,
+      recibidas: ordenes.filter((order) => order.estadoOc === "RECIBIDA").length,
+      canceladas: ordenes.filter((order) => order.estadoOc === "CANCELADA").length,
+      habilitadas: ordenes.filter((order) => order.habilitada).length,
+      conEntregaReq: ordenes.filter((order) => Boolean(order.fechaEntregaReq)).length,
+    }),
+    [ordenes]
+  )
+
+  useEffect(() => {
+    if (!selectedOrder) return
+
+    const nextSelected = ordenes.find((order) => order.id === selectedOrder.id) ?? null
+
+    if (!nextSelected) {
+      setSelectedOrder(null)
+      setDetailOrder(null)
+      setIsDetailOpen(false)
+      return
+    }
+
+    if (nextSelected !== selectedOrder) {
+      setSelectedOrder(nextSelected)
+    }
+  }, [ordenes, selectedOrder])
+
+  const highlightedOrder =
+    selectedOrder && filtered.some((order) => order.id === selectedOrder.id)
+      ? selectedOrder
+      : (filtered[0] ?? null)
+  const highlightedProvider = highlightedOrder
+    ? (proveedores.find((provider) => provider.id === highlightedOrder.proveedorId) ?? null)
+    : null
+  const highlightedInvoice = highlightedOrder
+    ? getRelatedInvoice(highlightedOrder.comprobanteId)
+    : null
+  const overdueOrders = filtered.filter((order) => {
+    const offset = getDaysOffset(order.fechaEntregaReq)
+    return offset !== null && offset < 0 && order.estadoOc === "PENDIENTE"
+  }).length
+  const linkedSaldo = filtered.reduce((sum, order) => {
+    const relatedInvoice = getRelatedInvoice(order.comprobanteId)
+    return sum + (relatedInvoice?.saldo ?? 0)
+  }, 0)
+  const highlightedFields = highlightedOrder
+    ? [
+        {
+          label: "Proveedor",
+          value: highlightedProvider?.razonSocial ?? `#${highlightedOrder.proveedorId}`,
+        },
+        {
+          label: "Comprobante base",
+          value: highlightedInvoice?.nroComprobante ?? `#${highlightedOrder.comprobanteId}`,
+        },
+        { label: "Entrega requerida", value: formatDate(highlightedOrder.fechaEntregaReq) },
+        { label: "Estado operativo", value: getOperationalStatus(highlightedOrder) },
+        {
+          label: "Saldo asociado",
+          value: highlightedInvoice ? formatMoney(highlightedInvoice.saldo ?? 0) : "No visible",
+        },
+        { label: "Domicilio proveedor", value: formatProviderAddress(highlightedProvider) },
+      ]
+    : []
+
+  const openDetail = async (order: OrdenCompra) => {
+    setSelectedOrder(order)
+    setIsDetailOpen(true)
+    setLoadingDetail(true)
+    const detail = await getById(order.id)
+    setDetailOrder(detail ?? order)
+    setLoadingDetail(false)
+  }
+
+  const refreshSelection = async (orderId: number) => {
+    const updated = await getById(orderId)
+    if (updated) {
+      setDetailOrder(updated)
+      setSelectedOrder(updated)
+    }
+  }
+
+  const handleReceive = async (order: OrdenCompra) => {
+    if (!window.confirm(`¿Marcar como recibida la orden OC-${order.id}?`)) return
+    const ok = await recibir(order.id)
+    if (ok) {
+      await refetch()
+      await refreshSelection(order.id)
+    }
+  }
+
+  const handleCancel = async (order: OrdenCompra) => {
+    if (!window.confirm(`¿Cancelar la orden OC-${order.id}?`)) return
+    const ok = await cancelar(order.id)
+    if (ok) {
+      await refetch()
+      await refreshSelection(order.id)
+    }
+  }
+
+  return (
+    <div className="space-y-6 pb-6">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Órdenes de Compra</h1>
           <p className="text-muted-foreground">
-            Gestión de órdenes de compra a proveedores
+            Seguimiento real de órdenes registradas, con alta básica vinculada a comprobantes y
+            acciones de recepción o cancelación sobre el backend actual.
           </p>
         </div>
-        <Button onClick={handleNew}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nueva Orden de Compra
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => setIsCreateOpen(true)}
+            disabled={availableBaseComprobantes.length === 0 || proveedores.length === 0}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Nueva orden
+          </Button>
+          <Button variant="outline" className="bg-transparent" onClick={() => refetch()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Recargar
+          </Button>
+        </div>
       </div>
 
-      {/* Filters */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <Alert>
+        <ShieldAlert className="h-4 w-4" />
+        <AlertDescription>
+          La API actual permite una alta básica de la orden vinculada a un comprobante de compra ya
+          existente. La edición por renglón, aprobación y condiciones comerciales avanzadas siguen
+          pendientes del contrato ampliado del backend.
+        </AlertDescription>
+      </Alert>
+
+      {availableBaseComprobantes.length === 0 && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            No hay comprobantes de compra libres para crear nuevas órdenes. Cada orden actual se
+            vincula a un `comprobanteId`, por eso la alta queda condicionada a documentos todavía no
+            usados.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-5">
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Total órdenes</p>
+            <p className="mt-2 text-2xl font-bold">{kpis.total}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Pendientes</p>
+            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.pendientes}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Recibidas</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-600">{kpis.recibidas}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Canceladas</p>
+            <p className="mt-2 text-2xl font-bold text-red-600">{kpis.canceladas}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Habilitadas</p>
+            <p className="mt-2 text-2xl font-bold text-primary">{kpis.habilitadas}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {highlightedOrder ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Orden destacada</CardTitle>
+            <CardDescription>
+              OC-{highlightedOrder.id} ·{" "}
+              {highlightedProvider?.razonSocial ?? `Proveedor #${highlightedOrder.proveedorId}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                variant={
+                  (STATUS_CONFIG[highlightedOrder.estadoOc]?.variant ?? "outline") as
+                    | "default"
+                    | "secondary"
+                    | "outline"
+                    | "destructive"
+                }
+              >
+                {STATUS_CONFIG[highlightedOrder.estadoOc]?.label ?? highlightedOrder.estadoOc}
+              </Badge>
+              <Badge variant="outline">
+                {highlightedOrder.habilitada ? "Habilitada" : "No habilitada"}
+              </Badge>
+              <Badge variant="outline">{getDeliveryRequirementStatus(highlightedOrder)}</Badge>
+            </div>
+
+            <DetailFieldGrid fields={highlightedFields} />
+
+            <div className="grid gap-4 md:grid-cols-3 text-sm text-muted-foreground">
+              <div className="rounded-lg border p-4">
+                Riesgo de recepción: {overdueOrders} órdenes pendientes con entrega requerida
+                vencida dentro del filtro actual.
+              </div>
+              <div className="rounded-lg border p-4">
+                Saldo vinculado a comprobantes base del conjunto filtrado:{" "}
+                {formatMoney(linkedSaldo)}.
+              </div>
+              <div className="rounded-lg border p-4">
+                Observación del proveedor:{" "}
+                {highlightedProvider?.observacion ?? "Sin observaciones visibles"}.
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por código u orden..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8"
-                />
-              </div>
+          <div className="grid gap-4 md:grid-cols-[1fr_220px_180px]">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-10"
+                placeholder="Buscar por orden, comprobante o proveedor..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+              />
             </div>
-            <Select value={filterEstado} onValueChange={setFilterEstado}>
-              <SelectTrigger className="w-[200px]">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger>
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="borrador">Borrador</SelectItem>
-                <SelectItem value="enviada">Enviada</SelectItem>
-                <SelectItem value="confirmada">Confirmada</SelectItem>
-                <SelectItem value="en_transito">En Tránsito</SelectItem>
-                <SelectItem value="recibida_parcial">Recibida Parcial</SelectItem>
-                <SelectItem value="recibida_total">Recibida Total</SelectItem>
+                <SelectItem value="todos">Todos los estados</SelectItem>
+                <SelectItem value="PENDIENTE">Pendiente</SelectItem>
+                <SelectItem value="RECIBIDA">Recibida</SelectItem>
+                <SelectItem value="CANCELADA">Cancelada</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={enabledFilter} onValueChange={setEnabledFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Habilitada" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todas</SelectItem>
+                <SelectItem value="si">Habilitadas</SelectItem>
+                <SelectItem value="no">No habilitadas</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </CardContent>
       </Card>
 
-      {/* Orders Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Lista de Órdenes ({filteredOrders.length})</CardTitle>
+          <CardTitle>Órdenes registradas ({filtered.length})</CardTitle>
+          <CardDescription>
+            Vista centrada en operación real: consultar, recibir y cancelar órdenes ya emitidas.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex justify-center py-10">
-              <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
-            </div>
-          ) : error ? (
-            <p className="text-center py-8 text-red-600 text-sm">{error}</p>
-          ) : (
+        <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Proveedor ID</TableHead>
-                <TableHead>Fecha Entrega Req.</TableHead>
-                <TableHead>Estado OC</TableHead>
+                <TableHead>Orden</TableHead>
+                <TableHead>Proveedor</TableHead>
+                <TableHead>Comprobante</TableHead>
+                <TableHead>Entrega requerida</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead>Circuito</TableHead>
                 <TableHead>Habilitada</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrders.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Sin ordenes de compra.</TableCell></TableRow>
-              ) : filteredOrders.map((order) => (
-                <TableRow
-                  key={order.id}
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleViewDetail(order)}
-                >
-                  <TableCell className="font-medium font-mono">OC-{order.id}</TableCell>
-                  <TableCell className="text-muted-foreground">{order.proveedorId}</TableCell>
-                  <TableCell>{order.fechaEntregaReq ? new Date(order.fechaEntregaReq).toLocaleDateString('es-AR') : '-'}</TableCell>
-                  <TableCell>
-                    <Badge variant={order.estadoOc === 'CANCELADA' ? 'destructive' : order.estadoOc === 'RECIBIDA' ? 'secondary' : 'default'}>
-                      {order.estadoOc}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {order.habilitada
-                      ? <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Si</Badge>
-                      : <Badge variant="outline" className="text-xs">No</Badge>}
-                  </TableCell>
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => handleViewDetail(order)} title="Ver detalle">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      {order.estadoOc === 'PENDIENTE' && (
-                        <Button variant="ghost" size="icon" title="Recibir" onClick={() => recibir(order.id)}>
-                          <CheckCircle className="h-4 w-4 text-green-600" />
-                        </Button>
-                      )}
-                      {order.estadoOc === 'PENDIENTE' && (
-                        <Button variant="ghost" size="icon" title="Cancelar" onClick={() => cancelar(order.id)}>
-                          <XCircle className="h-4 w-4 text-destructive" />
-                        </Button>
-                      )}
-                    </div>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                    <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                    Cargando órdenes...
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                    No se encontraron órdenes con los filtros actuales.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((order) => {
+                  const status = STATUS_CONFIG[order.estadoOc] ?? {
+                    label: order.estadoOc,
+                    variant: "outline" as const,
+                  }
+                  return (
+                    <TableRow
+                      key={order.id}
+                      className="cursor-pointer hover:bg-muted/40"
+                      onClick={() => openDetail(order)}
+                    >
+                      <TableCell className="font-mono font-semibold">OC-{order.id}</TableCell>
+                      <TableCell>{getProviderName(order.proveedorId)}</TableCell>
+                      <TableCell>#{order.comprobanteId}</TableCell>
+                      <TableCell>{formatDate(order.fechaEntregaReq)}</TableCell>
+                      <TableCell>
+                        <Badge variant={status.variant}>{status.label}</Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {getOperationalStatus(order)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{order.habilitada ? "Sí" : "No"}</Badge>
+                      </TableCell>
+                      <TableCell
+                        className="text-right"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => openDetail(order)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {order.estadoOc === "PENDIENTE" && order.habilitada && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleReceive(order)}
+                            >
+                              <PackageCheck className="h-4 w-4 text-emerald-600" />
+                            </Button>
+                          )}
+                          {order.estadoOc === "PENDIENTE" && (
+                            <Button variant="ghost" size="icon" onClick={() => handleCancel(order)}>
+                              <Ban className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
             </TableBody>
           </Table>
-          )}
         </CardContent>
       </Card>
 
-      {/* Wizard Dialog */}
-      <Dialog open={isWizardOpen} onOpenChange={setIsWizardOpen}>
-        <DialogContent className="max-w-[95vw] w-[1400px] max-h-[95vh] overflow-y-auto">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShoppingBag className="h-4 w-4" /> Operación actual
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {kpis.total} órdenes registradas sobre la API actual; {kpis.habilitadas} siguen
+            habilitadas para recepción dentro del circuito disponible hoy.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Truck className="h-4 w-4" /> Flujo de recepción
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {kpis.pendientes} pendientes y {kpis.recibidas} recibidas dejan visible el estado real
+            del flujo de recepción, con {kpis.conEntregaReq} órdenes que ya exponen fecha requerida.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Landmark className="h-4 w-4" /> Próximo paso
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {kpis.canceladas} canceladas siguen visibles como control documental; edición por
+            renglones, aprobación formal y negociación avanzada quedan reservadas.
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editingOrder ? "Editar" : "Nueva"} Orden de Compra
-            </DialogTitle>
+            <DialogTitle>Nueva orden de compra</DialogTitle>
             <DialogDescription>
-              Paso {wizardStep} de 4: {
-                wizardStep === 1 ? "Información General" :
-                wizardStep === 2 ? "Detalle de Productos" :
-                wizardStep === 3 ? "Términos y Condiciones" :
-                "Revisión y Confirmación"
-              }
+              Alta real usando el DTO disponible hoy: proveedor, comprobante base y condiciones de
+              entrega.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-6">
-            {/* Step 1: Información General */}
-            {wizardStep === 1 && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="proveedor">Proveedor *</Label>
-                    <Select
-                      value={formData.proveedorId}
-                      onValueChange={(value) => setFormData({ ...formData, proveedorId: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccione un proveedor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {proveedores.map((supplier) => (
-                          <SelectItem key={supplier.id} value={String(supplier.id)}>
-                            {supplier.razonSocial}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="almacen">Almacén de Recepción *</Label>
-                    <Select
-                      value={formData.almacenId}
-                      onValueChange={(value) => setFormData({ ...formData, almacenId: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccione un almacén" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sucursales.map((suc) => (
-                          <SelectItem key={suc.id} value={String(suc.id)}>
-                            {suc.descripcion}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="fechaEmision">Fecha de Emisión</Label>
-                    <Input
-                      id="fechaEmision"
-                      type="date"
-                      value={formData.fechaEmision ? new Date(formData.fechaEmision).toISOString().split('T')[0] : ''}
-                      onChange={(e) => setFormData({ ...formData, fechaEmision: new Date(e.target.value) })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="fechaEntrega">Fecha de Entrega Esperada *</Label>
-                    <Input
-                      id="fechaEntrega"
-                      type="date"
-                      value={formData.fechaEntregaEsperada ? new Date(formData.fechaEntregaEsperada).toISOString().split('T')[0] : ''}
-                      onChange={(e) => setFormData({ ...formData, fechaEntregaEsperada: new Date(e.target.value) })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="prioridad">Prioridad</Label>
-                    <Select
-                      value={formData.prioridad}
-                      onValueChange={(value: any) => setFormData({ ...formData, prioridad: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="normal">Normal</SelectItem>
-                        <SelectItem value="urgente">Urgente</SelectItem>
-                        <SelectItem value="critica">Crítica</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="condicionPago">Condición de Pago</Label>
-                    <Select
-                      value={formData.condicionPagoId}
-                      onValueChange={(value) => setFormData({ ...formData, condicionPagoId: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[
-                          { id: 'contado', descripcion: 'Contado' },
-                          { id: '30dias', descripcion: '30 días' },
-                          { id: '60dias', descripcion: '60 días' },
-                          { id: '90dias', descripcion: '90 días' },
-                        ].map((condition) => (
-                          <SelectItem key={condition.id} value={condition.id}>
-                            {condition.descripcion}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="divisa">Divisa</Label>
-                    <Select
-                      value={formData.divisa}
-                      onValueChange={(value: any) => setFormData({ ...formData, divisa: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ARS">ARS - Peso Argentino</SelectItem>
-                        <SelectItem value="USD">USD - Dólar Estadounidense</SelectItem>
-                        <SelectItem value="EUR">EUR - Euro</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="referencia">Referencia / Cotización</Label>
-                  <Input
-                    id="referencia"
-                    value={formData.referencia}
-                    onChange={(e) => setFormData({ ...formData, referencia: e.target.value })}
-                    placeholder="Número de cotización del proveedor"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Step 2: Detalle de Productos */}
-            {wizardStep === 2 && (
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-semibold">Productos a Ordenar</h3>
-                  <Button onClick={addItem} variant="outline">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Agregar Ítem
-                  </Button>
-                </div>
-                
-                <div className="border rounded-lg overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="min-w-[300px]">Descripción</TableHead>
-                        <TableHead className="w-[120px]">Cantidad</TableHead>
-                        <TableHead className="w-[100px]">UOM</TableHead>
-                        <TableHead className="w-[140px]">Precio Unit.</TableHead>
-                        <TableHead className="w-[110px]">Desc. %</TableHead>
-                        <TableHead className="w-[150px] text-right">Subtotal</TableHead>
-                        <TableHead className="w-[60px]"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {formItems.map((item, index) => (
-                        <TableRow key={item.id}>
-                          <TableCell>
-                            <Input
-                              value={item.descripcion}
-                              onChange={(e) => updateItem(index, 'descripcion', e.target.value)}
-                              placeholder="Descripción del producto"
-                              className="min-w-[280px]"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={item.cantidad}
-                              onChange={(e) => updateItem(index, 'cantidad', Number(e.target.value))}
-                              min="1"
-                              className="w-full"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={item.uom}
-                              onChange={(e) => updateItem(index, 'uom', e.target.value)}
-                              placeholder="Unid."
-                              className="w-full"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={item.precioUnitario}
-                              onChange={(e) => updateItem(index, 'precioUnitario', Number(e.target.value))}
-                              min="0"
-                              step="0.01"
-                              placeholder="0.00"
-                              className="w-full text-right"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={item.descuentoPorcentaje}
-                              onChange={(e) => updateItem(index, 'descuentoPorcentaje', Number(e.target.value))}
-                              min="0"
-                              max="100"
-                              placeholder="0"
-                              className="w-full text-right"
-                            />
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            ${item.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => removeItem(index)}
-                              className="h-8 w-8"
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                {formItems.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No hay ítems agregados. Haga clic en "Agregar Ítem" para comenzar.
-                  </div>
-                )}
-
-                {formItems.length > 0 && (
-                  <div className="border-t pt-6 bg-muted/30 -mx-6 px-6 py-4">
-                    <div className="flex justify-end">
-                      <div className="w-[400px] space-y-3 text-sm">
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">Subtotal:</span>
-                          <span className="font-semibold text-base">${calculateTotals().subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">Descuento:</span>
-                          <span className="font-semibold text-base text-orange-600">-${calculateTotals().descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">IVA (21%):</span>
-                          <span className="font-semibold text-base">${calculateTotals().impuestos.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-lg font-bold border-t pt-3 mt-2">
-                          <span>Total:</span>
-                          <span className="text-primary">${calculateTotals().total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Step 3: Términos y Condiciones */}
-            {wizardStep === 3 && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="metodoEnvio">Método de Envío</Label>
-                  <Input
-                    id="metodoEnvio"
-                    value={formData.metodoEnvio || ''}
-                    onChange={(e) => setFormData({ ...formData, metodoEnvio: e.target.value })}
-                    placeholder="Ej: Transporte propio, Correo privado, etc."
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="direccionEntrega">Dirección de Entrega</Label>
-                  <Textarea
-                    id="direccionEntrega"
-                    value={formData.direccionEntrega || ''}
-                    onChange={(e) => setFormData({ ...formData, direccionEntrega: e.target.value })}
-                    rows={2}
-                    placeholder="Dirección completa de entrega"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="terminosPago">Términos de Pago Detallados</Label>
-                  <Textarea
-                    id="terminosPago"
-                    value={formData.terminosPago || ''}
-                    onChange={(e) => setFormData({ ...formData, terminosPago: e.target.value })}
-                    rows={3}
-                    placeholder="Descripción detallada de los términos de pago"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="notasEspeciales">Notas Especiales para el Proveedor</Label>
-                  <Textarea
-                    id="notasEspeciales"
-                    value={formData.notasEspeciales || ''}
-                    onChange={(e) => setFormData({ ...formData, notasEspeciales: e.target.value })}
-                    rows={4}
-                    placeholder="Instrucciones especiales, requisitos, etc."
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Step 4: Revisión y Confirmación */}
-            {wizardStep === 4 && (
-              <div className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Orden de Compra - {formData.codigo}</CardTitle>
-                    <CardDescription>Revise la información antes de confirmar</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    {/* Info General */}
-                    <div>
-                      <h4 className="font-semibold mb-3">Información General</h4>
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">Proveedor:</span>
-                          <p className="font-medium">{getSupplierName(formData.proveedorId || '')}</p>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Almacén:</span>
-                          <p className="font-medium">{getWarehouseName(formData.almacenId || '')}</p>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Fecha Emisión:</span>
-                          <p className="font-medium">{formData.fechaEmision ? new Date(formData.fechaEmision).toLocaleDateString('es-AR') : '-'}</p>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Fecha Entrega:</span>
-                          <p className="font-medium">{formData.fechaEntregaEsperada ? new Date(formData.fechaEntregaEsperada).toLocaleDateString('es-AR') : '-'}</p>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Prioridad:</span>
-                          <Badge variant="outline">{formData.prioridad}</Badge>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Divisa:</span>
-                          <p className="font-medium">{formData.divisa}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Items */}
-                    <div>
-                      <h4 className="font-semibold mb-3">Productos</h4>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Descripción</TableHead>
-                            <TableHead>Cantidad</TableHead>
-                            <TableHead>UOM</TableHead>
-                            <TableHead>Precio Unit.</TableHead>
-                            <TableHead className="text-right">Subtotal</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {formItems.map((item) => (
-                            <TableRow key={item.id}>
-                              <TableCell>{item.descripcion}</TableCell>
-                              <TableCell>{item.cantidad}</TableCell>
-                              <TableCell>{item.uom}</TableCell>
-                              <TableCell>${item.precioUnitario.toLocaleString('es-AR')}</TableCell>
-                              <TableCell className="text-right font-medium">
-                                ${item.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-
-                    {/* Totales */}
-                    <div className="border-t pt-4">
-                      <div className="flex justify-end">
-                        <div className="w-[300px] space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span>Subtotal:</span>
-                            <span className="font-medium">${calculateTotals().subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>IVA (21%):</span>
-                            <span className="font-medium">${calculateTotals().impuestos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                          <div className="flex justify-between text-lg font-bold border-t pt-2">
-                            <span>Total:</span>
-                            <span>${calculateTotals().total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="flex justify-between">
-            <div>
-              {wizardStep > 1 && (
-                <Button variant="outline" onClick={prevStep}>
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Atrás
-                </Button>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setIsWizardOpen(false)}>
-                Cancelar
-              </Button>
-              {wizardStep < 4 ? (
-                <Button onClick={nextStep}>
-                  Siguiente
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-              ) : (
-                <Button onClick={handleSaveOrder}>
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Confirmar Orden
-                </Button>
-              )}
-            </div>
-          </DialogFooter>
+          <PurchaseOrderForm
+            key={`purchase-order-${isCreateOpen ? "open" : "closed"}-${availableBaseComprobantes[0]?.id ?? 0}-${proveedores[0]?.id ?? 0}`}
+            comprobantes={comprobantes}
+            ordenes={ordenes}
+            proveedores={proveedores}
+            crear={crear}
+            onClose={() => setIsCreateOpen(false)}
+            onSaved={async () => {
+              setIsCreateOpen(false)
+              await refetch()
+            }}
+          />
         </DialogContent>
       </Dialog>
 
-      {/* Detail Dialog */}
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              Detalle de Orden de Compra
-              <Badge variant={detailOrder ? estadoBadgeVariant[detailOrder.estado] as any : "secondary"}>
-                {detailOrder?.estado.replace('_', ' ')}
-              </Badge>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              {selectedOrder ? `OC-${selectedOrder.id}` : "Detalle de orden"}
             </DialogTitle>
             <DialogDescription>
-              {detailOrder?.codigo} - {detailOrder && getSupplierName(detailOrder.proveedorId)}
+              {selectedOrder ? getProviderName(selectedOrder.proveedorId) : "Cargando..."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-6">
-            {/* Información General */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Información General</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Proveedor</span>
-                    <p className="font-medium">{detailOrder && getSupplierName(detailOrder.proveedorId)}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Almacén</span>
-                    <p className="font-medium">{detailOrder && getWarehouseName(detailOrder.almacenId)}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Divisa</span>
-                    <p className="font-medium">{detailOrder?.divisa}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Fecha Emisión</span>
-                    <p className="font-medium">
-                      {detailOrder ? new Date(detailOrder.fechaEmision).toLocaleDateString('es-AR') : '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Fecha Entrega Esperada</span>
-                    <p className="font-medium">
-                      {detailOrder ? new Date(detailOrder.fechaEntregaEsperada).toLocaleDateString('es-AR') : '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Prioridad</span>
-                    <Badge variant="outline" className={
-                      detailOrder?.prioridad === 'critica' ? 'border-red-500 text-red-600' :
-                      detailOrder?.prioridad === 'urgente' ? 'border-orange-500 text-orange-600' :
-                      'border-blue-500 text-blue-600'
-                    }>
-                      {detailOrder?.prioridad}
-                    </Badge>
-                  </div>
-                  {detailOrder?.referencia && (
-                    <div className="col-span-3">
-                      <span className="text-muted-foreground block mb-1">Referencia / Cotización</span>
-                      <p className="font-medium">{detailOrder.referencia}</p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
 
-            {/* Productos */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Productos ({detailOrder?.items.length || 0} ítems)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Descripción</TableHead>
-                      <TableHead>Cantidad</TableHead>
-                      <TableHead>Recibido</TableHead>
-                      <TableHead>Pendiente</TableHead>
-                      <TableHead>Precio Unit.</TableHead>
-                      <TableHead>Desc. %</TableHead>
-                      <TableHead className="text-right">Subtotal</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {detailOrder?.items.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.descripcion}</TableCell>
-                        <TableCell>{item.cantidad} {item.uom}</TableCell>
-                        <TableCell className="text-green-600 font-medium">
-                          {item.cantidadRecibida} {item.uom}
-                        </TableCell>
-                        <TableCell className="text-orange-600 font-medium">
-                          {item.cantidad - item.cantidadRecibida - item.cantidadRechazada} {item.uom}
-                        </TableCell>
-                        <TableCell>${item.precioUnitario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell>{item.descuentoPorcentaje}%</TableCell>
-                        <TableCell className="text-right font-medium">
-                          ${item.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-
-            {/* Notas */}
-            {(detailOrder?.notasProveedor || detailOrder?.notasInternas) && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Notas</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {detailOrder.notasProveedor && (
-                    <div>
-                      <span className="text-muted-foreground text-sm block mb-1">Notas para el Proveedor:</span>
-                      <p className="text-sm">{detailOrder.notasProveedor}</p>
-                    </div>
-                  )}
-                  {detailOrder.notasInternas && (
-                    <div>
-                      <span className="text-muted-foreground text-sm block mb-1">Notas Internas:</span>
-                      <p className="text-sm">{detailOrder.notasInternas}</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Totales */}
-            <div className="border-t pt-4 bg-muted/30 -mx-6 px-6 py-4">
-              <div className="flex justify-end">
-                <div className="w-[400px] space-y-3 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Subtotal:</span>
-                    <span className="font-semibold text-base">${detailOrder?.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Descuento:</span>
-                    <span className="font-semibold text-base text-orange-600">-${detailOrder?.descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">IVA (21%):</span>
-                    <span className="font-semibold text-base">${detailOrder?.impuestos.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-lg font-bold border-t pt-3 mt-2">
-                    <span>Total:</span>
-                    <span className="text-primary">${detailOrder?.total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                </div>
-              </div>
+          {loadingDetail ? (
+            <div className="py-10 text-center text-muted-foreground">
+              <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+              Cargando detalle...
             </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
+          ) : detailOrder ? (
+            <PurchaseOrderDetail
+              order={detailOrder}
+              providerName={getProviderName(detailOrder.proveedorId)}
+              provider={
+                proveedores.find((provider) => provider.id === detailOrder.proveedorId) ?? null
+              }
+              relatedInvoice={getRelatedInvoice(detailOrder.comprobanteId)}
+            />
+          ) : (
+            <p className="py-8 text-center text-muted-foreground">
+              No se pudo cargar el detalle de la orden.
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="bg-transparent"
+              onClick={() => setIsDetailOpen(false)}
+            >
               Cerrar
             </Button>
-            <Button variant="outline">
-              <Printer className="h-4 w-4 mr-2" />
-              Imprimir
-            </Button>
-            {detailOrder?.estado === 'borrador' && (
-              <>
-                <Button 
-                  variant="outline"
-                  onClick={() => {
-                    setIsDetailOpen(false)
-                    detailOrder && handleEdit(detailOrder)
-                  }}
-                >
-                  <Edit className="h-4 w-4 mr-2" />
-                  Editar
-                </Button>
-                <Button>
-                  <Send className="h-4 w-4 mr-2" />
-                  Enviar a Proveedor
-                </Button>
-              </>
+            {selectedOrder?.estadoOc === "PENDIENTE" && selectedOrder.habilitada && (
+              <Button onClick={() => handleReceive(selectedOrder)}>
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Marcar recibida
+              </Button>
+            )}
+            {selectedOrder?.estadoOc === "PENDIENTE" && (
+              <Button variant="destructive" onClick={() => handleCancel(selectedOrder)}>
+                <Ban className="mr-2 h-4 w-4" />
+                Cancelar
+              </Button>
             )}
           </DialogFooter>
         </DialogContent>

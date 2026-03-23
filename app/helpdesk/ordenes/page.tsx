@@ -1,13 +1,55 @@
 "use client"
 
-import { useState, Suspense } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Suspense, useMemo, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import {
+  CalendarClock,
+  ClipboardList,
+  Eye,
+  MapPin,
+  MoreHorizontal,
+  Package,
+  PenSquare,
+  Plus,
+  Search,
+  ShieldAlert,
+  Signature,
+  Star,
+  Trash2,
+  UserRound,
+  Wrench,
+  X,
+} from "lucide-react"
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
   SelectContent,
@@ -23,50 +65,202 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Textarea } from "@/components/ui/textarea"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Plus, Search, MoreHorizontal, Edit, Trash2, Eye, Calendar, MapPin, X, Star } from "lucide-react"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { useHdOrdenesServicio, useHdServicios, useHdClientes, useHdAgentes } from "@/lib/hooks/useHelpdesk"
+  useHdAgentes,
+  useHdClientes,
+  useHdOrdenesServicio,
+  useHdServicios,
+  useHdSlas,
+  useHdTickets,
+} from "@/lib/hooks/useHelpdesk"
 import type { HDOrdenServicio } from "@/lib/types"
 
-const estadoColors: Record<string, string> = {
-  pendiente: "bg-gray-500/10 text-gray-500 border-gray-500/20",
-  programada: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  en_proceso: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-  pausada: "bg-orange-500/10 text-orange-500 border-orange-500/20",
-  completada: "bg-green-500/10 text-green-500 border-green-500/20",
-  cancelada: "bg-red-500/10 text-red-500 border-red-500/20",
-}
+const priorityLabels = {
+  alta: "Alta",
+  media: "Media",
+  baja: "Baja",
+} as const
 
-const estadoLabels: Record<string, string> = {
+const statusLabels = {
   pendiente: "Pendiente",
   programada: "Programada",
-  en_proceso: "En Proceso",
+  en_proceso: "En proceso",
   pausada: "Pausada",
   completada: "Completada",
   cancelada: "Cancelada",
+} as const
+
+type FormState = {
+  ticketId: string
+  clienteId: string
+  servicioId: string
+  tecnicoAsignadoId: string
+  estado: HDOrdenServicio["estado"]
+  prioridad: HDOrdenServicio["prioridad"]
+  fechaProgramada: string
+  duracionReal: string
+  direccionServicio: string
+  descripcionTrabajo: string
+  observaciones: string
+  firmaCliente: string
+  calificacion: string
+  comentarioCliente: string
+}
+
+function parseDate(value?: string | Date | null) {
+  if (!value) return null
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatDateTime(value?: string | Date | null) {
+  const date = parseDate(value)
+  if (!date) return "Sin fecha"
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
+}
+
+function formatMinutes(value?: number | null) {
+  if (!value) return "Sin dato"
+  if (value < 60) return `${value} min`
+  const hours = Math.floor(value / 60)
+  const minutes = value % 60
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`
+}
+
+function formatCurrency(value?: number | null) {
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value ?? 0)
+}
+
+function buildFormState(order?: HDOrdenServicio | null): FormState {
+  return {
+    ticketId: order?.ticketId ?? "",
+    clienteId: order?.clienteId ?? "",
+    servicioId: order?.servicioId ?? "",
+    tecnicoAsignadoId: order?.tecnicoAsignadoId ?? "",
+    estado: order?.estado ?? "pendiente",
+    prioridad: order?.prioridad ?? "media",
+    fechaProgramada: order?.fechaProgramada
+      ? new Date(order.fechaProgramada).toISOString().slice(0, 16)
+      : "",
+    duracionReal: order?.duracionReal ? String(order.duracionReal) : "",
+    direccionServicio: order?.direccionServicio ?? "",
+    descripcionTrabajo: order?.descripcionTrabajo ?? "",
+    observaciones: order?.observaciones ?? "",
+    firmaCliente: order?.firmaCliente ?? "",
+    calificacion: order?.calificacion ? String(order.calificacion) : "",
+    comentarioCliente: order?.comentarioCliente ?? "",
+  }
+}
+
+function getStatusTone(status: HDOrdenServicio["estado"]) {
+  if (status === "completada") return "bg-emerald-500/10 text-emerald-700"
+  if (status === "cancelada") return "bg-rose-500/10 text-rose-700"
+  if (status === "pausada") return "bg-orange-500/10 text-orange-700"
+  if (status === "en_proceso") return "bg-sky-500/10 text-sky-700"
+  if (status === "programada") return "bg-indigo-500/10 text-indigo-700"
+  return "bg-slate-500/10 text-slate-700"
+}
+
+function getPriorityTone(priority: HDOrdenServicio["prioridad"]) {
+  if (priority === "alta") return "bg-rose-500/10 text-rose-700"
+  if (priority === "media") return "bg-amber-500/10 text-amber-700"
+  return "bg-emerald-500/10 text-emerald-700"
+}
+
+function getOrderCircuit(order: HDOrdenServicio) {
+  if (order.estado === "cancelada") return "Fuera de circuito"
+  if (order.estado === "completada") return "Cierre operativo"
+  if (order.estado === "en_proceso") return "Ejecucion en campo"
+  if (order.estado === "pausada") return "Seguimiento pendiente"
+  if (order.estado === "programada") return "Agenda comprometida"
+  return "Pendiente de planificacion"
+}
+
+function getLegacyCoverage() {
+  return "Cobertura visible: agenda, tecnico, ticket vinculado, feedback, firma y observaciones. Pendiente por contrato actual: catalogo maestro de recursos, adjuntos firmados, costos reales y optimizacion de rutas."
+}
+
+function SummaryCard({
+  title,
+  value,
+  description,
+}: {
+  title: string
+  value: string | number
+  description: string
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardDescription>{title}</CardDescription>
+        <CardTitle className="text-2xl">{value}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {fields.map((field) => (
+        <div key={field.label} className="rounded-lg bg-muted/40 p-3">
+          <Label>{field.label}</Label>
+          <p className="text-sm font-medium">{field.value}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function buildOrderPayload(
+  form: FormState,
+  previous?: HDOrdenServicio | null
+): Partial<HDOrdenServicio> {
+  const nextStatus = form.estado
+  const previousStatus = previous?.estado
+
+  return {
+    ticketId: form.ticketId || undefined,
+    clienteId: form.clienteId,
+    servicioId: form.servicioId,
+    tecnicoAsignadoId: form.tecnicoAsignadoId || undefined,
+    estado: nextStatus,
+    prioridad: form.prioridad,
+    fechaProgramada: form.fechaProgramada ? new Date(form.fechaProgramada) : undefined,
+    fechaInicio:
+      nextStatus === "en_proceso"
+        ? (previous?.fechaInicio ?? new Date())
+        : nextStatus === "completada"
+          ? previous?.fechaInicio
+          : undefined,
+    fechaFin:
+      nextStatus === "completada"
+        ? (previous?.fechaFin ?? new Date())
+        : nextStatus === previousStatus
+          ? previous?.fechaFin
+          : undefined,
+    duracionReal: form.duracionReal ? Number(form.duracionReal) : undefined,
+    direccionServicio: form.direccionServicio || undefined,
+    descripcionTrabajo: form.descripcionTrabajo || undefined,
+    observaciones: form.observaciones || undefined,
+    firmaCliente: form.firmaCliente || undefined,
+    calificacion: form.calificacion ? Number(form.calificacion) : undefined,
+    comentarioCliente: form.comentarioCliente || undefined,
+  }
 }
 
 function OrdenesContent() {
@@ -76,223 +270,313 @@ function OrdenesContent() {
   const { servicios } = useHdServicios()
   const { clientes } = useHdClientes()
   const { agentes } = useHdAgentes()
-  const getClienteById = (id: string) => clientes.find((c) => c.id === id)
-  const getAgenteById = (id: string) => agentes.find((a) => a.id === id)
-  const getServicioById = (id: string) => servicios.find((s) => s.id === id)
+  const { tickets } = useHdTickets()
+  const { slas } = useHdSlas()
+
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [filterPrioridad, setFilterPrioridad] = useState<string>("todos")
-  const [isFormOpen, setIsFormOpen] = useState(searchParams.get("action") === "new")
-  const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
-  const [selectedOrden, setSelectedOrden] = useState<HDOrdenServicio | null>(null)
-  const [formData, setFormData] = useState({
-    clienteId: "",
-    servicioId: "",
-    tecnicoAsignadoId: "",
-    estado: "pendiente" as HDOrdenServicio["estado"],
-    prioridad: "media" as HDOrdenServicio["prioridad"],
-    fechaProgramada: "",
-    direccionServicio: "",
-    descripcionTrabajo: "",
-    observaciones: "",
-  })
+  const [formOpen, setFormOpen] = useState(searchParams.get("action") === "new")
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [selectedOrder, setSelectedOrder] = useState<HDOrdenServicio | null>(null)
+  const [formData, setFormData] = useState<FormState>(() => buildFormState())
 
-  const filteredOrdenes = ordenes.filter((orden) => {
-    const cliente = getClienteById(orden.clienteId)
-    const matchesSearch =
-      orden.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      cliente?.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesEstado = filterEstado === "todos" || orden.estado === filterEstado
-    const matchesPrioridad = filterPrioridad === "todos" || orden.prioridad === filterPrioridad
-    return matchesSearch && matchesEstado && matchesPrioridad
-  })
+  const clientMap = useMemo(
+    () => new Map(clientes.map((client) => [client.id, client])),
+    [clientes]
+  )
+  const serviceMap = useMemo(
+    () => new Map(servicios.map((service) => [service.id, service])),
+    [servicios]
+  )
+  const agentMap = useMemo(() => new Map(agentes.map((agent) => [agent.id, agent])), [agentes])
+  const ticketMap = useMemo(() => new Map(tickets.map((ticket) => [ticket.id, ticket])), [tickets])
+  const slaMap = useMemo(() => new Map(slas.map((sla) => [sla.id, sla])), [slas])
 
-  const openForm = (orden?: HDOrdenServicio) => {
-    if (orden) {
-      setSelectedOrden(orden)
-      setFormData({
-        clienteId: orden.clienteId,
-        servicioId: orden.servicioId,
-        tecnicoAsignadoId: orden.tecnicoAsignadoId || "",
-        estado: orden.estado,
-        prioridad: orden.prioridad,
-        fechaProgramada: orden.fechaProgramada ? new Date(orden.fechaProgramada).toISOString().slice(0, 16) : "",
-        direccionServicio: orden.direccionServicio || "",
-        descripcionTrabajo: orden.descripcionTrabajo || "",
-        observaciones: orden.observaciones || "",
-      })
-    } else {
-      setSelectedOrden(null)
-      setFormData({
-        clienteId: "",
-        servicioId: "",
-        tecnicoAsignadoId: "",
-        estado: "pendiente",
-        prioridad: "media",
-        fechaProgramada: "",
-        direccionServicio: "",
-        descripcionTrabajo: "",
-        observaciones: "",
-      })
+  const filteredOrders = useMemo(() => {
+    return ordenes.filter((order) => {
+      const client = clientMap.get(order.clienteId)
+      const service = serviceMap.get(order.servicioId)
+      const technician = order.tecnicoAsignadoId ? agentMap.get(order.tecnicoAsignadoId) : null
+      const ticket = order.ticketId ? ticketMap.get(order.ticketId) : null
+
+      const haystack = [
+        order.numero,
+        client?.nombre,
+        service?.nombre,
+        technician ? `${technician.nombre} ${technician.apellido}` : null,
+        ticket?.numero,
+        order.descripcionTrabajo,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+
+      const matchesSearch = haystack.includes(searchTerm.toLowerCase())
+      const matchesEstado = filterEstado === "todos" || order.estado === filterEstado
+      const matchesPrioridad = filterPrioridad === "todos" || order.prioridad === filterPrioridad
+
+      return matchesSearch && matchesEstado && matchesPrioridad
+    })
+  }, [
+    agentMap,
+    clientMap,
+    filterEstado,
+    filterPrioridad,
+    ordenes,
+    searchTerm,
+    serviceMap,
+    ticketMap,
+  ])
+
+  const highlightedOrder =
+    selectedOrder && filteredOrders.some((order) => order.id === selectedOrder.id)
+      ? selectedOrder
+      : (filteredOrders[0] ?? null)
+  const overdueOrders = filteredOrders.filter((order) => {
+    const scheduled = parseDate(order.fechaProgramada)
+    if (!scheduled) return false
+    return !["completada", "cancelada"].includes(order.estado) && scheduled < new Date()
+  })
+  const linkedTickets = filteredOrders.filter((order) => Boolean(order.ticketId)).length
+  const withoutTechnician = filteredOrders.filter(
+    (order) => !order.tecnicoAsignadoId && !["completada", "cancelada"].includes(order.estado)
+  ).length
+  const completedWithRating = filteredOrders.filter(
+    (order) => order.estado === "completada" && typeof order.calificacion === "number"
+  )
+  const averageRating = completedWithRating.length
+    ? (
+        completedWithRating.reduce((sum, order) => sum + (order.calificacion ?? 0), 0) /
+        completedWithRating.length
+      ).toFixed(1)
+    : "-"
+
+  function openForm(order?: HDOrdenServicio) {
+    setSelectedOrder(order ?? null)
+    setFormData(buildFormState(order))
+    setFormOpen(true)
+  }
+
+  function closeForm() {
+    setFormOpen(false)
+    setSelectedOrder(null)
+    setFormData(buildFormState())
+    if (searchParams.get("action") === "new") {
+      router.push("/helpdesk/ordenes")
     }
-    setIsFormOpen(true)
   }
 
-  const closeForm = () => {
-    setIsFormOpen(false)
-    setSelectedOrden(null)
-    router.push("/helpdesk/ordenes")
+  function openDetail(order: HDOrdenServicio) {
+    setSelectedOrder(order)
+    setDetailOpen(true)
   }
 
-  const openDetail = (orden: HDOrdenServicio) => {
-    setSelectedOrden(orden)
-    setIsDetailOpen(true)
-  }
-
-  const handleSave = async () => {
-    if (selectedOrden) {
-      await updateOrden(selectedOrden.id, {
-        ...formData,
-        fechaProgramada: formData.fechaProgramada ? new Date(formData.fechaProgramada) : undefined,
-      })
+  async function handleSave() {
+    const payload = buildOrderPayload(formData, selectedOrder)
+    if (selectedOrder) {
+      await updateOrden(selectedOrder.id, payload)
     } else {
       await createOrden({
         numero: `OS-${Date.now()}`,
         clienteId: formData.clienteId,
         servicioId: formData.servicioId,
-        tecnicoAsignadoId: formData.tecnicoAsignadoId || undefined,
         estado: formData.estado,
         prioridad: formData.prioridad,
-        fechaProgramada: formData.fechaProgramada ? new Date(formData.fechaProgramada) : undefined,
-        direccionServicio: formData.direccionServicio || undefined,
-        descripcionTrabajo: formData.descripcionTrabajo || undefined,
-        observaciones: formData.observaciones || undefined,
-        cumpleSLA: true,
-      } as Omit<HDOrdenServicio, 'id' | 'createdAt' | 'updatedAt'>)
+        ...payload,
+      } as Omit<HDOrdenServicio, "id" | "createdAt" | "updatedAt">)
     }
     closeForm()
   }
 
-  const handleDelete = async () => {
-    if (selectedOrden) {
-      await deleteOrden(selectedOrden.id)
-      setIsDeleteOpen(false)
-      setSelectedOrden(null)
-    }
+  async function handleDelete() {
+    if (!selectedOrder) return
+    await deleteOrden(selectedOrder.id)
+    setDeleteOpen(false)
+    setDetailOpen(false)
+    setSelectedOrder(null)
   }
 
-  const handleStatusChange = async (ordenId: string, newStatus: HDOrdenServicio["estado"]) => {
-    await updateOrden(ordenId, {
-      estado: newStatus,
-      fechaInicio: newStatus === "en_proceso" ? new Date() : undefined,
-      fechaFin: newStatus === "completada" ? new Date() : undefined,
-    })
+  async function handleStatusChange(order: HDOrdenServicio, estado: HDOrdenServicio["estado"]) {
+    const payload = buildOrderPayload({ ...buildFormState(order), estado }, order)
+    await updateOrden(order.id, payload)
+    setSelectedOrder((current) =>
+      current ? ({ ...current, ...payload } as HDOrdenServicio) : current
+    )
   }
 
-  const formatDate = (date: Date | undefined) => {
-    if (!date) return "-"
-    return new Date(date).toLocaleString("es-AR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  }
+  const highlightedClient = highlightedOrder ? clientMap.get(highlightedOrder.clienteId) : null
+  const highlightedService = highlightedOrder ? serviceMap.get(highlightedOrder.servicioId) : null
+  const highlightedAgent = highlightedOrder?.tecnicoAsignadoId
+    ? agentMap.get(highlightedOrder.tecnicoAsignadoId)
+    : null
+  const highlightedTicket = highlightedOrder?.ticketId
+    ? ticketMap.get(highlightedOrder.ticketId)
+    : null
+  const highlightedSla = highlightedClient?.slaId ? slaMap.get(highlightedClient.slaId) : null
+  const highlightedResources = highlightedOrder?.recursosUtilizados ?? []
 
-  const stats = {
-    total: ordenes.length,
-    pendientes: ordenes.filter((o) => o.estado === "pendiente" || o.estado === "programada").length,
-    enProceso: ordenes.filter((o) => o.estado === "en_proceso").length,
-    completadas: ordenes.filter((o) => o.estado === "completada").length,
-  }
+  const highlightedFields = highlightedOrder
+    ? [
+        { label: "Circuito", value: getOrderCircuit(highlightedOrder) },
+        { label: "Agenda", value: formatDateTime(highlightedOrder.fechaProgramada) },
+        {
+          label: "SLA cliente",
+          value: highlightedSla
+            ? `${highlightedSla.nombre} · Resp ${formatMinutes(highlightedSla.tiempoRespuesta)}`
+            : "Sin SLA visible",
+        },
+        {
+          label: "Servicio",
+          value: highlightedService
+            ? `${highlightedService.nombre} · ${formatMinutes(highlightedService.duracionEstimada)} · ${formatCurrency(highlightedService.precioBase)}`
+            : "Sin servicio vinculado",
+        },
+      ]
+    : []
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Ordenes de Servicio</h1>
-          <p className="text-muted-foreground">Gestion de ordenes de trabajo</p>
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold">Ordenes de Servicio</h1>
+          <p className="text-muted-foreground">
+            Consola operativa de agenda, ejecucion y cierre de servicios sobre hooks reales.
+          </p>
+          <p className="text-sm text-muted-foreground">{getLegacyCoverage()}</p>
         </div>
         <Button onClick={() => openForm()}>
           <Plus className="mr-2 h-4 w-4" />
-          Nueva Orden
+          Nueva orden
         </Button>
       </div>
 
-      {/* Estadisticas */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Ordenes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Pendientes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-500">{stats.pendientes}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">En Proceso</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-500">{stats.enProceso}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Completadas</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-500">{stats.completadas}</div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          title="Ordenes activas"
+          value={
+            filteredOrders.filter((order) => !["completada", "cancelada"].includes(order.estado))
+              .length
+          }
+          description={`${withoutTechnician} sin tecnico asignado`}
+        />
+        <SummaryCard
+          title="Agenda vencida"
+          value={overdueOrders.length}
+          description="Ordenes con fecha programada ya superada"
+        />
+        <SummaryCard
+          title="Tickets vinculados"
+          value={linkedTickets}
+          description="Relacion visible entre mesa de ayuda y servicio"
+        />
+        <SummaryCard
+          title="Calificacion promedio"
+          value={averageRating}
+          description={`${completedWithRating.length} cierres con feedback del cliente`}
+        />
       </div>
 
-      {/* Filtros */}
+      {highlightedOrder ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Orden destacada</CardTitle>
+            <CardDescription>
+              {highlightedOrder.numero} · {highlightedClient?.nombre ?? "Cliente sin referencia"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className={getStatusTone(highlightedOrder.estado)}>
+                {statusLabels[highlightedOrder.estado]}
+              </Badge>
+              <Badge className={getPriorityTone(highlightedOrder.prioridad)}>
+                {priorityLabels[highlightedOrder.prioridad]}
+              </Badge>
+              <Badge variant="outline">{getOrderCircuit(highlightedOrder)}</Badge>
+              {highlightedTicket ? (
+                <Badge variant="outline">Ticket {highlightedTicket.numero}</Badge>
+              ) : null}
+            </div>
+
+            <DetailFieldGrid fields={highlightedFields} />
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <UserRound className="h-4 w-4 text-sky-600" />
+                  Tecnico
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {highlightedAgent
+                    ? `${highlightedAgent.nombre} ${highlightedAgent.apellido} · ${highlightedAgent.estado}`
+                    : "Sin tecnico asignado"}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Package className="h-4 w-4 text-amber-600" />
+                  Recursos
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {highlightedResources.length > 0
+                    ? `${highlightedResources.length} item(s) registrados en la orden.`
+                    : "Sin recursos visibles cargados por backend."}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Signature className="h-4 w-4 text-emerald-600" />
+                  Cierre cliente
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {highlightedOrder.firmaCliente
+                    ? `Firma cargada${highlightedOrder.calificacion ? ` · ${highlightedOrder.calificacion}/5` : ""}`
+                    : "Sin firma registrada aún."}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col gap-4 md:flex-row">
+          <div className="flex flex-col gap-4 lg:flex-row">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Buscar por numero o cliente..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Buscar por orden, cliente, servicio, tecnico o ticket..."
                 className="pl-10"
               />
             </div>
             <Select value={filterEstado} onValueChange={setFilterEstado}>
-              <SelectTrigger className="w-full md:w-[180px]">
+              <SelectTrigger className="w-full lg:w-48">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos los estados</SelectItem>
-                <SelectItem value="pendiente">Pendiente</SelectItem>
-                <SelectItem value="programada">Programada</SelectItem>
-                <SelectItem value="en_proceso">En Proceso</SelectItem>
-                <SelectItem value="pausada">Pausada</SelectItem>
-                <SelectItem value="completada">Completada</SelectItem>
-                <SelectItem value="cancelada">Cancelada</SelectItem>
+                {Object.entries(statusLabels).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={filterPrioridad} onValueChange={setFilterPrioridad}>
-              <SelectTrigger className="w-full md:w-[150px]">
+              <SelectTrigger className="w-full lg:w-44">
                 <SelectValue placeholder="Prioridad" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todas</SelectItem>
-                <SelectItem value="alta">Alta</SelectItem>
-                <SelectItem value="media">Media</SelectItem>
-                <SelectItem value="baja">Baja</SelectItem>
+                {Object.entries(priorityLabels).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             {(filterEstado !== "todos" || filterPrioridad !== "todos") && (
@@ -311,97 +595,118 @@ function OrdenesContent() {
         </CardContent>
       </Card>
 
-      {/* Tabla */}
       <Card>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Orden</TableHead>
-                <TableHead>Servicio</TableHead>
-                <TableHead>Cliente</TableHead>
+                <TableHead>Cliente / Servicio</TableHead>
                 <TableHead>Tecnico</TableHead>
-                <TableHead>Fecha Prog.</TableHead>
-                <TableHead>Prioridad</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Calificacion</TableHead>
+                <TableHead>Agenda</TableHead>
+                <TableHead>Ticket</TableHead>
+                <TableHead>Circuito</TableHead>
+                <TableHead>Feedback</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrdenes.map((orden) => {
-                const cliente = getClienteById(orden.clienteId)
-                const servicio = getServicioById(orden.servicioId)
-                const tecnico = orden.tecnicoAsignadoId ? getAgenteById(orden.tecnicoAsignadoId) : null
+              {filteredOrders.map((order) => {
+                const client = clientMap.get(order.clienteId)
+                const service = serviceMap.get(order.servicioId)
+                const agent = order.tecnicoAsignadoId ? agentMap.get(order.tecnicoAsignadoId) : null
+                const ticket = order.ticketId ? ticketMap.get(order.ticketId) : null
+
                 return (
-                  <TableRow key={orden.id} className="group">
-                    <TableCell className="font-mono text-xs">{orden.numero}</TableCell>
-                    <TableCell>{servicio?.nombre || "-"}</TableCell>
-                    <TableCell>{cliente?.nombre || "-"}</TableCell>
+                  <TableRow key={order.id} className="group">
                     <TableCell>
-                      {tecnico ? `${tecnico.nombre} ${tecnico.apellido}` : "-"}
+                      <div className="font-mono text-xs">{order.numero}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {statusLabels[order.estado]}
+                      </div>
                     </TableCell>
-                    <TableCell className="text-xs">
-                      {orden.fechaProgramada ? (
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3 text-muted-foreground" />
-                          {formatDate(orden.fechaProgramada)}
+                    <TableCell>
+                      <div className="font-medium">
+                        {client?.nombre ?? "Cliente sin referencia"}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {service?.nombre ?? "Servicio sin referencia"}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {agent ? (
+                        <div>
+                          <div>
+                            {agent.nombre} {agent.apellido}
+                          </div>
+                          <div className="text-xs text-muted-foreground">{agent.estado}</div>
                         </div>
                       ) : (
-                        "-"
+                        <span className="text-muted-foreground">Sin asignar</span>
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={
-                          orden.prioridad === "alta"
-                            ? "bg-red-500/10 text-red-500"
-                            : orden.prioridad === "media"
-                              ? "bg-yellow-500/10 text-yellow-500"
-                              : "bg-green-500/10 text-green-500"
-                        }
-                      >
-                        {orden.prioridad}
-                      </Badge>
+                      <div className="text-sm">{formatDateTime(order.fechaProgramada)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatMinutes(order.duracionReal)}
+                      </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={estadoColors[orden.estado]}>
-                        {estadoLabels[orden.estado]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {orden.calificacion ? (
-                        <div className="flex items-center gap-1">
-                          <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />
-                          {orden.calificacion}
+                      {ticket ? (
+                        <div>
+                          <div className="font-medium">{ticket.numero}</div>
+                          <div className="text-xs text-muted-foreground">{ticket.asunto}</div>
                         </div>
                       ) : (
-                        "-"
+                        <span className="text-muted-foreground">Sin ticket</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        <Badge className={getStatusTone(order.estado)}>
+                          {statusLabels[order.estado]}
+                        </Badge>
+                        <Badge className={getPriorityTone(order.prioridad)}>
+                          {priorityLabels[order.prioridad]}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {typeof order.calificacion === "number" ? (
+                        <div className="flex items-center gap-1 text-sm">
+                          <Star className="h-3.5 w-3.5 fill-yellow-500 text-yellow-500" />
+                          {order.calificacion}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">Sin nota</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="opacity-0 group-hover:opacity-100"
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openDetail(orden)}>
+                          <DropdownMenuItem onClick={() => openDetail(order)}>
                             <Eye className="mr-2 h-4 w-4" />
                             Ver detalle
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openForm(orden)}>
-                            <Edit className="mr-2 h-4 w-4" />
+                          <DropdownMenuItem onClick={() => openForm(order)}>
+                            <PenSquare className="mr-2 h-4 w-4" />
                             Editar
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            className="text-rose-700"
                             onClick={() => {
-                              setSelectedOrden(orden)
-                              setIsDeleteOpen(true)
+                              setSelectedOrder(order)
+                              setDeleteOpen(true)
                             }}
-                            className="text-red-600"
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Eliminar
@@ -412,321 +717,485 @@ function OrdenesContent() {
                   </TableRow>
                 )
               })}
-              {filteredOrdenes.length === 0 && (
+              {filteredOrders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    No se encontraron ordenes de servicio
+                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                    No se encontraron ordenes con los filtros actuales.
                   </TableCell>
                 </TableRow>
-              )}
+              ) : null}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      {/* Dialog Formulario */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-lg">
+      <Dialog
+        open={formOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeForm()
+            return
+          }
+          setFormOpen(true)
+        }}
+      >
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{selectedOrden ? "Editar Orden" : "Nueva Orden de Servicio"}</DialogTitle>
+            <DialogTitle>{selectedOrder ? "Editar orden" : "Nueva orden de servicio"}</DialogTitle>
             <DialogDescription>
-              {selectedOrden
-                ? "Modifica los datos de la orden"
-                : "Complete los datos de la nueva orden"}
+              Completa los datos visibles hoy en backend para agenda, ejecucion y cierre con
+              cliente.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="clienteId">Cliente *</Label>
-                <Select
-                  value={formData.clienteId}
-                  onValueChange={(v) => setFormData({ ...formData, clienteId: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clientesHD.map((cliente) => (
-                      <SelectItem key={cliente.id} value={cliente.id}>
-                        {cliente.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="servicioId">Servicio *</Label>
-                <Select
-                  value={formData.servicioId}
-                  onValueChange={(v) => setFormData({ ...formData, servicioId: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {servicios.filter(s => s.estado === "activo").map((servicio) => (
-                      <SelectItem key={servicio.id} value={servicio.id}>
-                        {servicio.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="tecnicoAsignadoId">Tecnico Asignado</Label>
-                <Select
-                  value={formData.tecnicoAsignadoId}
-                  onValueChange={(v) => setFormData({ ...formData, tecnicoAsignadoId: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sin asignar" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agentes.filter(a => a.rol === "tecnico" || a.rol === "agente").map((agente) => (
-                      <SelectItem key={agente.id} value={agente.id}>
-                        {agente.nombre} {agente.apellido}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="prioridad">Prioridad</Label>
-                <Select
-                  value={formData.prioridad}
-                  onValueChange={(v) => setFormData({ ...formData, prioridad: v as HDOrdenServicio["prioridad"] })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="alta">Alta</SelectItem>
-                    <SelectItem value="media">Media</SelectItem>
-                    <SelectItem value="baja">Baja</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="fechaProgramada">Fecha Programada</Label>
-                <Input
-                  id="fechaProgramada"
-                  type="datetime-local"
-                  value={formData.fechaProgramada}
-                  onChange={(e) => setFormData({ ...formData, fechaProgramada: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="estado">Estado</Label>
-                <Select
-                  value={formData.estado}
-                  onValueChange={(v) => setFormData({ ...formData, estado: v as HDOrdenServicio["estado"] })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pendiente">Pendiente</SelectItem>
-                    <SelectItem value="programada">Programada</SelectItem>
-                    <SelectItem value="en_proceso">En Proceso</SelectItem>
-                    <SelectItem value="pausada">Pausada</SelectItem>
-                    <SelectItem value="completada">Completada</SelectItem>
-                    <SelectItem value="cancelada">Cancelada</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+
+          <div className="grid gap-4 py-4 md:grid-cols-2">
+            <div className="grid gap-2">
+              <Label>Ticket vinculado</Label>
+              <Select
+                value={formData.ticketId || "none"}
+                onValueChange={(value) =>
+                  setFormData((current) => ({
+                    ...current,
+                    ticketId: value === "none" ? "" : value,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Sin ticket" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin ticket</SelectItem>
+                  {tickets.map((ticket) => (
+                    <SelectItem key={ticket.id} value={ticket.id}>
+                      {ticket.numero} · {ticket.asunto}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="direccionServicio">Direccion del Servicio</Label>
+              <Label>Cliente *</Label>
+              <Select
+                value={formData.clienteId}
+                onValueChange={(value) =>
+                  setFormData((current) => ({ ...current, clienteId: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientes.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Servicio *</Label>
+              <Select
+                value={formData.servicioId}
+                onValueChange={(value) =>
+                  setFormData((current) => ({ ...current, servicioId: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar servicio" />
+                </SelectTrigger>
+                <SelectContent>
+                  {servicios
+                    .filter((service) => service.estado === "activo")
+                    .map((service) => (
+                      <SelectItem key={service.id} value={service.id}>
+                        {service.nombre}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Tecnico asignado</Label>
+              <Select
+                value={formData.tecnicoAsignadoId || "none"}
+                onValueChange={(value) =>
+                  setFormData((current) => ({
+                    ...current,
+                    tecnicoAsignadoId: value === "none" ? "" : value,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Sin asignar" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin asignar</SelectItem>
+                  {agentes
+                    .filter((agent) => agent.rol === "tecnico" || agent.rol === "agente")
+                    .map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.nombre} {agent.apellido}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Prioridad</Label>
+              <Select
+                value={formData.prioridad}
+                onValueChange={(value) =>
+                  setFormData((current) => ({
+                    ...current,
+                    prioridad: value as HDOrdenServicio["prioridad"],
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(priorityLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Estado</Label>
+              <Select
+                value={formData.estado}
+                onValueChange={(value) =>
+                  setFormData((current) => ({
+                    ...current,
+                    estado: value as HDOrdenServicio["estado"],
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(statusLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Fecha programada</Label>
               <Input
-                id="direccionServicio"
+                type="datetime-local"
+                value={formData.fechaProgramada}
+                onChange={(event) =>
+                  setFormData((current) => ({ ...current, fechaProgramada: event.target.value }))
+                }
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Duracion real (min)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={formData.duracionReal}
+                onChange={(event) =>
+                  setFormData((current) => ({ ...current, duracionReal: event.target.value }))
+                }
+                placeholder="Ej: 90"
+              />
+            </div>
+
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Direccion del servicio</Label>
+              <Input
                 value={formData.direccionServicio}
-                onChange={(e) => setFormData({ ...formData, direccionServicio: e.target.value })}
+                onChange={(event) =>
+                  setFormData((current) => ({ ...current, direccionServicio: event.target.value }))
+                }
                 placeholder="Direccion donde se realizara el servicio"
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="descripcionTrabajo">Descripcion del Trabajo</Label>
+
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Descripcion del trabajo</Label>
               <Textarea
-                id="descripcionTrabajo"
                 value={formData.descripcionTrabajo}
-                onChange={(e) => setFormData({ ...formData, descripcionTrabajo: e.target.value })}
+                onChange={(event) =>
+                  setFormData((current) => ({ ...current, descripcionTrabajo: event.target.value }))
+                }
+                rows={3}
+                placeholder="Trabajo a realizar, alcance o pedido heredado"
+              />
+            </div>
+
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Observaciones operativas</Label>
+              <Textarea
+                value={formData.observaciones}
+                onChange={(event) =>
+                  setFormData((current) => ({ ...current, observaciones: event.target.value }))
+                }
+                rows={3}
+                placeholder="Accesos, repuestos, coordinacion con cliente, notas de cierre..."
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Firma cliente</Label>
+              <Input
+                value={formData.firmaCliente}
+                onChange={(event) =>
+                  setFormData((current) => ({ ...current, firmaCliente: event.target.value }))
+                }
+                placeholder="Referencia o hash de firma"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Calificacion</Label>
+              <Input
+                type="number"
+                min={1}
+                max={5}
+                value={formData.calificacion}
+                onChange={(event) =>
+                  setFormData((current) => ({ ...current, calificacion: event.target.value }))
+                }
+                placeholder="1 a 5"
+              />
+            </div>
+
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Comentario del cliente</Label>
+              <Textarea
+                value={formData.comentarioCliente}
+                onChange={(event) =>
+                  setFormData((current) => ({ ...current, comentarioCliente: event.target.value }))
+                }
                 rows={2}
+                placeholder="Feedback visible del cierre"
               />
             </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={closeForm}>
               Cancelar
             </Button>
             <Button onClick={handleSave} disabled={!formData.clienteId || !formData.servicioId}>
-              {selectedOrden ? "Guardar cambios" : "Crear orden"}
+              {selectedOrder ? "Guardar cambios" : "Crear orden"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Detalle */}
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-w-2xl">
-          {selectedOrden && (
-            <>
-              <DialogHeader>
-                <div className="flex items-center gap-4">
-                  <DialogTitle className="font-mono">{selectedOrden.numero}</DialogTitle>
-                  <Badge variant="outline" className={estadoColors[selectedOrden.estado]}>
-                    {estadoLabels[selectedOrden.estado]}
-                  </Badge>
-                </div>
-                <DialogDescription>
-                  {getServicioById(selectedOrden.servicioId)?.nombre}
-                </DialogDescription>
-              </DialogHeader>
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-w-4xl">
+          {selectedOrder
+            ? (() => {
+                const client = clientMap.get(selectedOrder.clienteId)
+                const service = serviceMap.get(selectedOrder.servicioId)
+                const agent = selectedOrder.tecnicoAsignadoId
+                  ? agentMap.get(selectedOrder.tecnicoAsignadoId)
+                  : null
+                const ticket = selectedOrder.ticketId ? ticketMap.get(selectedOrder.ticketId) : null
+                const sla = client?.slaId ? slaMap.get(client.slaId) : null
+                const principalFields = [
+                  { label: "Cliente", value: client?.nombre ?? "Sin cliente" },
+                  { label: "Servicio", value: service?.nombre ?? "Sin servicio" },
+                  {
+                    label: "Tecnico",
+                    value: agent ? `${agent.nombre} ${agent.apellido}` : "Sin asignar",
+                  },
+                  {
+                    label: "Ticket vinculado",
+                    value: ticket ? `${ticket.numero} · ${ticket.asunto}` : "Sin ticket",
+                  },
+                  { label: "Agenda", value: formatDateTime(selectedOrder.fechaProgramada) },
+                  { label: "Duracion real", value: formatMinutes(selectedOrder.duracionReal) },
+                ]
+                const circuitFields = [
+                  { label: "Estado", value: statusLabels[selectedOrder.estado] },
+                  { label: "Circuito", value: getOrderCircuit(selectedOrder) },
+                  { label: "Inicio", value: formatDateTime(selectedOrder.fechaInicio) },
+                  { label: "Fin", value: formatDateTime(selectedOrder.fechaFin) },
+                  {
+                    label: "SLA del cliente",
+                    value: sla
+                      ? `${sla.nombre} · Resp ${formatMinutes(sla.tiempoRespuesta)} · Resol ${formatMinutes(sla.tiempoResolucion)}`
+                      : "Sin SLA visible",
+                  },
+                  { label: "Cobertura legado", value: getLegacyCoverage() },
+                ]
 
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">Cliente</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="font-medium">{getClienteById(selectedOrden.clienteId)?.nombre}</p>
-                      {selectedOrden.direccionServicio && (
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                          <MapPin className="h-3 w-3" />
-                          {selectedOrden.direccionServicio}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">Tecnico Asignado</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {selectedOrden.tecnicoAsignadoId ? (
-                        <p className="font-medium">
-                          {getAgenteById(selectedOrden.tecnicoAsignadoId)?.nombre}{" "}
-                          {getAgenteById(selectedOrden.tecnicoAsignadoId)?.apellido}
-                        </p>
-                      ) : (
-                        <p className="text-muted-foreground">Sin asignar</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
+                return (
+                  <>
+                    <DialogHeader>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <DialogTitle className="font-mono">{selectedOrder.numero}</DialogTitle>
+                        <Badge className={getStatusTone(selectedOrder.estado)}>
+                          {statusLabels[selectedOrder.estado]}
+                        </Badge>
+                        <Badge className={getPriorityTone(selectedOrder.prioridad)}>
+                          {priorityLabels[selectedOrder.prioridad]}
+                        </Badge>
+                      </div>
+                      <DialogDescription>
+                        {service?.nombre ?? "Servicio sin referencia"} ·{" "}
+                        {client?.nombre ?? "Cliente sin referencia"}
+                      </DialogDescription>
+                    </DialogHeader>
 
-                {selectedOrden.descripcionTrabajo && (
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">Descripcion del Trabajo</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm">{selectedOrden.descripcionTrabajo}</p>
-                    </CardContent>
-                  </Card>
-                )}
+                    <div className="space-y-4 py-4">
+                      <DetailFieldGrid fields={principalFields} />
 
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Tiempos</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Programada</p>
-                        <p>{formatDate(selectedOrden.fechaProgramada)}</p>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Cliente y agenda</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-2 text-sm text-muted-foreground">
+                            <div className="flex items-start gap-2">
+                              <MapPin className="mt-0.5 h-4 w-4 text-sky-600" />
+                              <span>
+                                {selectedOrder.direccionServicio ||
+                                  client?.direccion ||
+                                  "Sin direccion visible"}
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <CalendarClock className="mt-0.5 h-4 w-4 text-indigo-600" />
+                              <span>{formatDateTime(selectedOrder.fechaProgramada)}</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <ShieldAlert className="mt-0.5 h-4 w-4 text-rose-600" />
+                              <span>
+                                {sla
+                                  ? `${sla.nombre} (${client?.tipoCliente ?? "cliente"})`
+                                  : "Sin SLA asociado"}
+                              </span>
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Servicio y recursos</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-2 text-sm text-muted-foreground">
+                            <div className="flex items-start gap-2">
+                              <Wrench className="mt-0.5 h-4 w-4 text-amber-600" />
+                              <span>
+                                {service
+                                  ? `${service.nombre} · ${formatMinutes(service.duracionEstimada)} · ${formatCurrency(service.precioBase)}`
+                                  : "Sin servicio vinculado"}
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <Package className="mt-0.5 h-4 w-4 text-emerald-600" />
+                              <span>
+                                {selectedOrder.recursosUtilizados?.length
+                                  ? `${selectedOrder.recursosUtilizados.length} recurso(s) cargados`
+                                  : "Sin recursos visibles en backend"}
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <ClipboardList className="mt-0.5 h-4 w-4 text-slate-600" />
+                              <span>
+                                {selectedOrder.descripcionTrabajo ||
+                                  "Sin descripcion operativa cargada"}
+                              </span>
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Cierre y conformidad</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-2 text-sm text-muted-foreground">
+                            <div className="flex items-start gap-2">
+                              <Signature className="mt-0.5 h-4 w-4 text-emerald-600" />
+                              <span>{selectedOrder.firmaCliente || "Sin firma registrada"}</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <Star className="mt-0.5 h-4 w-4 text-yellow-500" />
+                              <span>
+                                {typeof selectedOrder.calificacion === "number"
+                                  ? `${selectedOrder.calificacion}/5`
+                                  : "Sin calificacion visible"}
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <PenSquare className="mt-0.5 h-4 w-4 text-sky-600" />
+                              <span>
+                                {selectedOrder.comentarioCliente ||
+                                  selectedOrder.observaciones ||
+                                  "Sin comentario registrado"}
+                              </span>
+                            </div>
+                          </CardContent>
+                        </Card>
                       </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Inicio</p>
-                        <p>{formatDate(selectedOrden.fechaInicio)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Fin</p>
-                        <p>{formatDate(selectedOrden.fechaFin)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Duracion Real</p>
-                        <p>{selectedOrden.duracionReal ? `${selectedOrden.duracionReal} min` : "-"}</p>
+
+                      <DetailFieldGrid fields={circuitFields} />
+
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <Select
+                          value={selectedOrder.estado}
+                          onValueChange={(value) =>
+                            handleStatusChange(selectedOrder, value as HDOrdenServicio["estado"])
+                          }
+                        >
+                          <SelectTrigger className="w-full md:w-52">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Object.entries(statusLabels).map(([value, label]) => (
+                              <SelectItem key={value} value={value}>
+                                {label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setDetailOpen(false)
+                            openForm(selectedOrder)
+                          }}
+                        >
+                          <PenSquare className="mr-2 h-4 w-4" />
+                          Editar
+                        </Button>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-
-                {selectedOrden.estado === "completada" && selectedOrden.calificacion && (
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">Evaluacion del Cliente</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center gap-2">
-                        <div className="flex">
-                          {Array.from({ length: 5 }).map((_, i) => (
-                            <Star
-                              key={i}
-                              className={`h-5 w-5 ${i < selectedOrden.calificacion! ? "fill-yellow-500 text-yellow-500" : "text-muted"}`}
-                            />
-                          ))}
-                        </div>
-                        <span className="font-medium">{selectedOrden.calificacion}/5</span>
-                      </div>
-                      {selectedOrden.comentarioCliente && (
-                        <p className="text-sm text-muted-foreground mt-2">
-                          "{selectedOrden.comentarioCliente}"
-                        </p>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                <div className="flex gap-2">
-                  <Select
-                    value={selectedOrden.estado}
-                    onValueChange={(v) => handleStatusChange(selectedOrden.id, v as HDOrdenServicio["estado"])}
-                  >
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pendiente">Pendiente</SelectItem>
-                      <SelectItem value="programada">Programada</SelectItem>
-                      <SelectItem value="en_proceso">En Proceso</SelectItem>
-                      <SelectItem value="pausada">Pausada</SelectItem>
-                      <SelectItem value="completada">Completada</SelectItem>
-                      <SelectItem value="cancelada">Cancelada</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button variant="outline" onClick={() => {
-                    setIsDetailOpen(false)
-                    openForm(selectedOrden)
-                  }}>
-                    <Edit className="mr-2 h-4 w-4" />
-                    Editar
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
+                  </>
+                )
+              })()
+            : null}
         </DialogContent>
       </Dialog>
 
-      {/* Alert Dialog Eliminar */}
-      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar orden de servicio</AlertDialogTitle>
             <AlertDialogDescription>
               Esta accion no se puede deshacer. Se eliminara permanentemente la orden{" "}
-              <strong>{selectedOrden?.numero}</strong>.
+              <strong>{selectedOrder?.numero}</strong>.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction className="bg-rose-600 hover:bg-rose-700" onClick={handleDelete}>
               Eliminar
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -736,13 +1205,13 @@ function OrdenesContent() {
   )
 }
 
-function Loading() {
+function LoadingFallback() {
   return null
 }
 
 export default function OrdenesServicioPage() {
   return (
-    <Suspense fallback={<Loading />}>
+    <Suspense fallback={<LoadingFallback />}>
       <OrdenesContent />
     </Suspense>
   )

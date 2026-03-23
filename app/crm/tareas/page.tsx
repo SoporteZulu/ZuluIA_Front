@@ -1,40 +1,74 @@
 "use client"
 
-import React from "react"
-
-import { useState, Suspense } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { Card, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Checkbox } from "@/components/ui/checkbox"
+import React, { Suspense, useMemo, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  AlertCircle,
+  Briefcase,
+  CalendarClock,
+  CheckCircle2,
+  Clock3,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  UserCircle2,
+} from "lucide-react"
+
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select"
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  Plus, Search, MoreHorizontal, Pencil, Trash2, CheckCircle2, Clock, AlertTriangle, Building2,
-} from "lucide-react"
-import { useCrmTareas, useCrmClientes, useCrmUsuarios } from "@/lib/hooks/useCrm"
+  useCrmClientes,
+  useCrmOportunidades,
+  useCrmTareas,
+  useCrmUsuarios,
+} from "@/lib/hooks/useCrm"
 import type { CRMTask } from "@/lib/types"
 
 const tipoLabels: Record<CRMTask["tipoTarea"], string> = {
-  llamada: "Llamada",
-  email: "Email",
-  reunion: "Reunión",
+  llamar: "Llamar",
+  enviar_email: "Enviar email",
+  preparar_propuesta: "Preparar propuesta",
+  visitar: "Visitar",
   seguimiento: "Seguimiento",
   otro: "Otro",
 }
@@ -43,14 +77,71 @@ const prioridadLabels: Record<CRMTask["prioridad"], string> = {
   baja: "Baja",
   media: "Media",
   alta: "Alta",
-  urgente: "Urgente",
 }
 
 const estadoLabels: Record<CRMTask["estado"], string> = {
   pendiente: "Pendiente",
-  en_progreso: "En Progreso",
+  en_curso: "En curso",
   completada: "Completada",
-  cancelada: "Cancelada",
+  vencida: "Vencida",
+}
+
+type TaskFormState = {
+  clienteId: string
+  oportunidadId: string
+  asignadoAId: string
+  titulo: string
+  descripcion: string
+  tipoTarea: CRMTask["tipoTarea"]
+  fechaVencimiento: string
+  prioridad: CRMTask["prioridad"]
+  estado: CRMTask["estado"]
+}
+
+function formatDate(value?: Date) {
+  if (!value) {
+    return "-"
+  }
+
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(value))
+}
+
+function toDateInputValue(value?: Date) {
+  if (!value) {
+    return ""
+  }
+
+  return new Date(value).toISOString().split("T")[0]
+}
+
+function getEstadoBadgeVariant(estado: CRMTask["estado"]) {
+  if (estado === "completada") return "secondary"
+  if (estado === "vencida") return "destructive"
+  return "outline"
+}
+
+function getPrioridadBadgeVariant(prioridad: CRMTask["prioridad"]) {
+  if (prioridad === "alta") return "destructive"
+  if (prioridad === "media") return "default"
+  return "secondary"
+}
+
+function createEmptyForm(clienteIdParam?: string | null): TaskFormState {
+  return {
+    clienteId: clienteIdParam ?? "none",
+    oportunidadId: "none",
+    asignadoAId: "none",
+    titulo: "",
+    descripcion: "",
+    tipoTarea: "seguimiento",
+    fechaVencimiento: "",
+    prioridad: "media",
+    estado: "pendiente",
+  }
 }
 
 function TareasContent() {
@@ -62,89 +153,191 @@ function TareasContent() {
   const [search, setSearch] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("all")
   const [filterPrioridad, setFilterPrioridad] = useState<string>("all")
+  const [filterResponsable, setFilterResponsable] = useState<string>("all")
   const [isFormOpen, setIsFormOpen] = useState(action === "new")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<CRMTask | null>(null)
-  const { tareas, loading, error, createTarea, updateTarea, deleteTarea } = useCrmTareas(clienteIdParam || undefined)
-  const { clientes: crmClients } = useCrmClientes()
-  const { usuarios: crmUsers } = useCrmUsuarios()
+  const [formData, setFormData] = useState<TaskFormState>(createEmptyForm(clienteIdParam))
+  const [formError, setFormError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
-  const getClientById = (id?: string) => crmClients.find(c => c.id === id)
-  const getUserById = (id?: string) => crmUsers.find(u => u.id === id)
+  const { tareas, loading, error, createTarea, updateTarea, deleteTarea } = useCrmTareas(
+    clienteIdParam || undefined
+  )
+  const { clientes } = useCrmClientes()
+  const { usuarios } = useCrmUsuarios()
+  const { oportunidades } = useCrmOportunidades()
 
-  const [tasks, setTasks] = useState(tareas)
+  const today = useMemo(() => new Date(), [])
 
-  React.useEffect(() => { setTasks(tareas) }, [tareas])
+  const clientsMap = useMemo(
+    () => new Map(clientes.map((cliente) => [cliente.id, cliente])),
+    [clientes]
+  )
+  const usersMap = useMemo(
+    () => new Map(usuarios.map((usuario) => [usuario.id, usuario])),
+    [usuarios]
+  )
+  const opportunitiesMap = useMemo(
+    () => new Map(oportunidades.map((oportunidad) => [oportunidad.id, oportunidad])),
+    [oportunidades]
+  )
 
-  const emptyForm: Partial<CRMTask> = {
-    clienteId: clienteIdParam || "",
-    titulo: "",
-    descripcion: "",
-    tipoTarea: "seguimiento",
-    prioridad: "media",
-    estado: "pendiente",
-    asignadoAId: "",
-    creadoPorId: "usr-001",
-  }
+  const tasksWithContext = useMemo(() => {
+    return tareas
+      .map((task) => {
+        const fechaVencimiento = new Date(task.fechaVencimiento)
+        const isOverdue =
+          task.estado !== "completada" && fechaVencimiento.getTime() < today.getTime()
+        const normalizedEstado = isOverdue && task.estado !== "vencida" ? "vencida" : task.estado
+        const cliente = task.clienteId ? clientsMap.get(task.clienteId) : undefined
+        const responsable = usersMap.get(task.asignadoAId)
+        const oportunidad = task.oportunidadId
+          ? opportunitiesMap.get(task.oportunidadId)
+          : undefined
+        const daysToDue = Math.ceil((fechaVencimiento.getTime() - today.getTime()) / 86400000)
 
-  const [formData, setFormData] = useState<Partial<CRMTask>>(emptyForm)
+        return {
+          ...task,
+          normalizedEstado,
+          isOverdue,
+          cliente,
+          responsable,
+          oportunidad,
+          daysToDue,
+        }
+      })
+      .sort((left, right) => {
+        const estadoOrder = { vencida: 0, pendiente: 1, en_curso: 2, completada: 3 }
+        const prioridadOrder = { alta: 0, media: 1, baja: 2 }
 
-  const stats = {
-    total: tasks.length,
-    pendientes: tasks.filter(t => t.estado === "pendiente").length,
-    enProgreso: tasks.filter(t => t.estado === "en_progreso").length,
-    completadas: tasks.filter(t => t.estado === "completada").length,
-  }
+        if (estadoOrder[left.normalizedEstado] !== estadoOrder[right.normalizedEstado]) {
+          return estadoOrder[left.normalizedEstado] - estadoOrder[right.normalizedEstado]
+        }
 
-  const filteredTasks = tasks.filter(task => {
-    const matchesSearch = task.titulo.toLowerCase().includes(search.toLowerCase())
-    const matchesEstado = filterEstado === "all" || task.estado === filterEstado
-    const matchesPrioridad = filterPrioridad === "all" || task.prioridad === filterPrioridad
-    return matchesSearch && matchesEstado && matchesPrioridad
-  }).sort((a, b) => {
-    const prioridadOrder = { urgente: 0, alta: 1, media: 2, baja: 3 }
-    return prioridadOrder[a.prioridad] - prioridadOrder[b.prioridad]
-  })
+        if (prioridadOrder[left.prioridad] !== prioridadOrder[right.prioridad]) {
+          return prioridadOrder[left.prioridad] - prioridadOrder[right.prioridad]
+        }
 
-  const getPrioridadColor = (prioridad: CRMTask["prioridad"]) => {
-    const colors = {
-      baja: "bg-slate-500/20 text-slate-400",
-      media: "bg-blue-500/20 text-blue-400",
-      alta: "bg-amber-500/20 text-amber-400",
-      urgente: "bg-red-500/20 text-red-400",
+        return (
+          new Date(left.fechaVencimiento).getTime() - new Date(right.fechaVencimiento).getTime()
+        )
+      })
+  }, [clientsMap, opportunitiesMap, tareas, today, usersMap])
+
+  const filteredTasks = useMemo(() => {
+    const term = search.trim().toLowerCase()
+
+    return tasksWithContext.filter((task) => {
+      const matchesSearch =
+        term === "" ||
+        task.titulo.toLowerCase().includes(term) ||
+        task.descripcion?.toLowerCase().includes(term) ||
+        task.cliente?.nombre.toLowerCase().includes(term) ||
+        task.responsable?.nombre.toLowerCase().includes(term) ||
+        task.responsable?.apellido.toLowerCase().includes(term)
+
+      const matchesEstado = filterEstado === "all" || task.normalizedEstado === filterEstado
+      const matchesPrioridad = filterPrioridad === "all" || task.prioridad === filterPrioridad
+      const matchesResponsable =
+        filterResponsable === "all" || task.asignadoAId === filterResponsable
+
+      return matchesSearch && matchesEstado && matchesPrioridad && matchesResponsable
+    })
+  }, [filterEstado, filterPrioridad, filterResponsable, search, tasksWithContext])
+
+  const stats = useMemo(() => {
+    const abiertas = tasksWithContext.filter((task) => task.normalizedEstado !== "completada")
+    const vencidas = tasksWithContext.filter((task) => task.normalizedEstado === "vencida")
+    const enCurso = tasksWithContext.filter((task) => task.normalizedEstado === "en_curso")
+    const prioridadAlta = tasksWithContext.filter(
+      (task) => task.prioridad === "alta" && task.normalizedEstado !== "completada"
+    )
+
+    return {
+      total: tasksWithContext.length,
+      abiertas: abiertas.length,
+      vencidas: vencidas.length,
+      enCurso: enCurso.length,
+      prioridadAlta: prioridadAlta.length,
     }
-    return colors[prioridad]
-  }
+  }, [tasksWithContext])
 
-  const getEstadoColor = (estado: CRMTask["estado"]) => {
-    const colors = {
-      pendiente: "bg-slate-500/20 text-slate-400",
-      en_progreso: "bg-blue-500/20 text-blue-400",
-      completada: "bg-emerald-500/20 text-emerald-400",
-      cancelada: "bg-red-500/20 text-red-400",
-    }
-    return colors[estado]
-  }
+  const responsablesCarga = useMemo(() => {
+    const openTasks = tasksWithContext.filter((task) => task.normalizedEstado !== "completada")
+    const grouped = openTasks.reduce<
+      Record<string, { total: number; vencidas: number; alta: number }>
+    >((accumulator, task) => {
+      const key = task.asignadoAId
+      if (!accumulator[key]) {
+        accumulator[key] = { total: 0, vencidas: 0, alta: 0 }
+      }
+      accumulator[key].total += 1
+      if (task.normalizedEstado === "vencida") accumulator[key].vencidas += 1
+      if (task.prioridad === "alta") accumulator[key].alta += 1
+      return accumulator
+    }, {})
 
-  const formatDate = (date?: Date) => {
-    if (!date) return "-"
-    return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short" }).format(date)
-  }
+    return Object.entries(grouped)
+      .map(([userId, summary]) => ({
+        userId,
+        usuario: usersMap.get(userId),
+        ...summary,
+      }))
+      .sort((left, right) => right.total - left.total || right.vencidas - left.vencidas)
+  }, [tasksWithContext, usersMap])
 
-  const toggleComplete = async (task: CRMTask) => {
-    const newEstado = task.estado === "completada" ? "pendiente" : "completada"
-    await updateTarea(task.id, { estado: newEstado, fechaCompletada: newEstado === "completada" ? new Date() : undefined })
-  }
+  const clientesConBacklog = useMemo(() => {
+    const openTasks = tasksWithContext.filter(
+      (task) => task.normalizedEstado !== "completada" && task.clienteId
+    )
+    const grouped = openTasks.reduce<Record<string, { total: number; vencidas: number }>>(
+      (accumulator, task) => {
+        const key = task.clienteId as string
+        if (!accumulator[key]) {
+          accumulator[key] = { total: 0, vencidas: 0 }
+        }
+        accumulator[key].total += 1
+        if (task.normalizedEstado === "vencida") accumulator[key].vencidas += 1
+        return accumulator
+      },
+      {}
+    )
+
+    return Object.entries(grouped)
+      .map(([clientId, summary]) => ({
+        clientId,
+        cliente: clientsMap.get(clientId),
+        ...summary,
+      }))
+      .sort((left, right) => right.total - left.total || right.vencidas - left.vencidas)
+      .slice(0, 4)
+  }, [clientsMap, tasksWithContext])
+
+  const highlightedTask = tasksWithContext[0] ?? null
 
   const openNewForm = () => {
     setSelectedTask(null)
-    setFormData(emptyForm)
+    setFormError(null)
+    setFormData(createEmptyForm(clienteIdParam))
     setIsFormOpen(true)
   }
 
   const handleEdit = (task: CRMTask) => {
     setSelectedTask(task)
-    setFormData({ ...task })
+    setFormError(null)
+    setFormData({
+      clienteId: task.clienteId ?? "none",
+      oportunidadId: task.oportunidadId ?? "none",
+      asignadoAId: task.asignadoAId,
+      titulo: task.titulo,
+      descripcion: task.descripcion ?? "",
+      tipoTarea: task.tipoTarea,
+      fechaVencimiento: toDateInputValue(task.fechaVencimiento),
+      prioridad: task.prioridad,
+      estado: task.estado,
+    })
     setIsFormOpen(true)
   }
 
@@ -153,182 +346,392 @@ function TareasContent() {
     setIsDeleteOpen(true)
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (selectedTask) {
-      await updateTarea(selectedTask.id, formData)
-    } else {
-      await createTarea(formData as Omit<CRMTask, 'id' | 'createdAt' | 'updatedAt'>)
-    }
-    closeForm()
-  }
-
-  const confirmDelete = async () => {
-    if (selectedTask) {
-      await deleteTarea(selectedTask.id)
-    }
-    setIsDeleteOpen(false)
-    setSelectedTask(null)
-  }
-
   const closeForm = () => {
     setIsFormOpen(false)
     setSelectedTask(null)
-    setFormData(emptyForm)
+    setFormError(null)
+    setFormData(createEmptyForm(clienteIdParam))
     router.push("/crm/tareas")
   }
 
+  const toggleComplete = async (task: CRMTask) => {
+    setFormError(null)
+    await updateTarea(task.id, {
+      estado: task.estado === "completada" ? "pendiente" : "completada",
+      fechaCompletado: task.estado === "completada" ? undefined : new Date(),
+    })
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+
+    if (!formData.titulo.trim()) {
+      setFormError("El título de la tarea es obligatorio.")
+      return
+    }
+
+    if (!formData.asignadoAId || formData.asignadoAId === "none") {
+      setFormError("Asigná un responsable para registrar la tarea.")
+      return
+    }
+
+    if (!formData.fechaVencimiento) {
+      setFormError("La fecha de vencimiento es obligatoria.")
+      return
+    }
+
+    setSaving(true)
+    setFormError(null)
+
+    const payload = {
+      clienteId: formData.clienteId === "none" ? undefined : formData.clienteId,
+      oportunidadId: formData.oportunidadId === "none" ? undefined : formData.oportunidadId,
+      asignadoAId: formData.asignadoAId,
+      titulo: formData.titulo.trim(),
+      descripcion: formData.descripcion.trim() || undefined,
+      tipoTarea: formData.tipoTarea,
+      fechaVencimiento: new Date(formData.fechaVencimiento),
+      prioridad: formData.prioridad,
+      estado: formData.estado,
+      fechaCompletado:
+        formData.estado === "completada" ? new Date(formData.fechaVencimiento) : undefined,
+    }
+
+    try {
+      if (selectedTask) {
+        await updateTarea(selectedTask.id, payload)
+      } else {
+        await createTarea(payload)
+      }
+      closeForm()
+    } catch (submissionError) {
+      setFormError(
+        submissionError instanceof Error ? submissionError.message : "No se pudo guardar la tarea."
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!selectedTask) {
+      return
+    }
+
+    setDeleting(true)
+    try {
+      await deleteTarea(selectedTask.id)
+      setIsDeleteOpen(false)
+      setSelectedTask(null)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Tareas</h1>
-          <p className="text-muted-foreground">Gestión de actividades y seguimientos</p>
+          <h1 className="text-3xl font-bold tracking-tight">Tareas CRM</h1>
+          <p className="text-muted-foreground">
+            Consola operativa de seguimientos, vencimientos y carga comercial usando el contrato
+            real de tareas.
+          </p>
         </div>
         <Button onClick={openNewForm}>
           <Plus className="mr-2 h-4 w-4" />
-          Nueva Tarea
+          Nueva tarea
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      {(error || formError) && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Tareas CRM</AlertTitle>
+          <AlertDescription>{formError ?? error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total</p>
-                <p className="text-2xl font-bold">{stats.total}</p>
-              </div>
-              <CheckCircle2 className="h-8 w-8 text-primary/50" />
-            </div>
+            <p className="text-sm text-muted-foreground">Tareas visibles</p>
+            <p className="mt-2 text-2xl font-bold">{stats.total}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Pendientes</p>
-                <p className="text-2xl font-bold text-amber-500">{stats.pendientes}</p>
-              </div>
-              <Clock className="h-8 w-8 text-amber-500/50" />
-            </div>
+            <p className="text-sm text-muted-foreground">Abiertas</p>
+            <p className="mt-2 text-2xl font-bold">{stats.abiertas}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">En Progreso</p>
-                <p className="text-2xl font-bold text-blue-500">{stats.enProgreso}</p>
-              </div>
-              <AlertTriangle className="h-8 w-8 text-blue-500/50" />
-            </div>
+            <p className="text-sm text-muted-foreground">En curso</p>
+            <p className="mt-2 text-2xl font-bold text-blue-600">{stats.enCurso}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Completadas</p>
-                <p className="text-2xl font-bold text-emerald-500">{stats.completadas}</p>
-              </div>
-              <CheckCircle2 className="h-8 w-8 text-emerald-500/50" />
-            </div>
+            <p className="text-sm text-muted-foreground">Vencidas</p>
+            <p className="mt-2 text-2xl font-bold text-red-600">{stats.vencidas}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Prioridad alta</p>
+            <p className="mt-2 text-2xl font-bold text-amber-600">{stats.prioridadAlta}</p>
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar tareas..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10"
-              />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-sm font-medium">Radar de vencimiento</CardTitle>
+              <CalendarClock className="h-4 w-4 text-red-600" />
             </div>
-            <Select value={filterEstado} onValueChange={setFilterEstado}>
-              <SelectTrigger className="w-full md:w-[160px]">
-                <SelectValue placeholder="Estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                {Object.entries(estadoLabels).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterPrioridad} onValueChange={setFilterPrioridad}>
-              <SelectTrigger className="w-full md:w-[160px]">
-                <SelectValue placeholder="Prioridad" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                {Object.entries(prioridadLabels).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg font-semibold">{stats.vencidas}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Tareas fuera de término con la fecha visible hoy.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-sm font-medium">Responsables exigidos</CardTitle>
+              <UserCircle2 className="h-4 w-4 text-sky-700" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg font-semibold">
+              {responsablesCarga.filter((item) => item.total >= 3).length}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Responsables con tres o más tareas abiertas.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-sm font-medium">Clientes con backlog</CardTitle>
+              <Briefcase className="h-4 w-4 text-amber-600" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg font-semibold">{clientesConBacklog.length}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Clientes con más carga pendiente visible en seguimiento.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-sm font-medium">Cobertura comercial</CardTitle>
+              <Clock3 className="h-4 w-4 text-emerald-700" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg font-semibold">
+              {tasksWithContext.filter((task) => task.oportunidadId).length}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Tareas ya vinculadas a oportunidades publicadas por backend.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
-      <div className="space-y-2">
-        {filteredTasks.map((task) => {
-          const cliente = task.clienteId ? getClientById(task.clienteId) : null
-          const asignado = task.asignadoAId ? getUserById(task.asignadoAId) : null
-          const isCompleted = task.estado === "completada"
-          return (
-            <Card key={task.id} className="group">
-              <CardContent className="py-4">
-                <div className="flex items-start gap-4">
-                  <Checkbox
-                    checked={isCompleted}
-                    onCheckedChange={() => toggleComplete(task)}
-                    className="mt-1"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-1">
-                        <p className={`font-medium ${isCompleted ? "line-through text-muted-foreground" : ""}`}>
-                          {task.titulo}
-                        </p>
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <Badge className={getPrioridadColor(task.prioridad)}>
-                            {prioridadLabels[task.prioridad]}
-                          </Badge>
-                          <Badge variant="outline" className={getEstadoColor(task.estado)}>
-                            {estadoLabels[task.estado]}
-                          </Badge>
-                          <span className="text-sm text-muted-foreground">{tipoLabels[task.tipoTarea]}</span>
-                          {cliente && (
-                            <Link href={`/crm/clientes/${cliente.id}`} className="text-sm hover:underline flex items-center gap-1 text-muted-foreground">
-                              <Building2 className="h-3 w-3" />
-                              {cliente.nombre}
-                            </Link>
-                          )}
-                          {task.fechaVencimiento && (
-                            <span className="text-sm text-muted-foreground flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              Vence: {formatDate(task.fechaVencimiento)}
-                            </span>
-                          )}
-                        </div>
-                        {task.descripcion && (
-                          <p className="text-sm text-muted-foreground mt-1">{task.descripcion}</p>
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Filtros de seguimiento</CardTitle>
+            <CardDescription>
+              Busca por tarea, cliente o responsable y recorta el backlog visible.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_180px_180px_220px]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar tareas, clientes o responsables..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={filterEstado} onValueChange={setFilterEstado}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {Object.entries(estadoLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={filterPrioridad} onValueChange={setFilterPrioridad}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Prioridad" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  {Object.entries(prioridadLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={filterResponsable} onValueChange={setFilterResponsable}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Responsable" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {usuarios.map((usuario) => (
+                    <SelectItem key={usuario.id} value={usuario.id}>
+                      {usuario.nombre} {usuario.apellido}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Tarea destacada</CardTitle>
+            <CardDescription>
+              Prioriza la tarea con mayor tensión entre estado, prioridad y vencimiento.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {highlightedTask ? (
+              <div className="space-y-4 rounded-xl border border-red-200 bg-red-50/70 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-red-900">Seguimiento prioritario</p>
+                    <h3 className="mt-1 text-lg font-semibold text-red-950">
+                      {highlightedTask.titulo}
+                    </h3>
+                    <p className="text-sm text-red-900/80">
+                      {highlightedTask.cliente?.nombre ?? "Sin cliente asociado"}
+                    </p>
+                  </div>
+                  <Badge variant={getEstadoBadgeVariant(highlightedTask.normalizedEstado)}>
+                    {estadoLabels[highlightedTask.normalizedEstado]}
+                  </Badge>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border border-red-200 bg-white/70 p-3">
+                    <p className="text-xs uppercase tracking-wide text-red-900/70">Responsable</p>
+                    <p className="mt-1 text-sm font-medium text-red-950">
+                      {highlightedTask.responsable
+                        ? `${highlightedTask.responsable.nombre} ${highlightedTask.responsable.apellido}`
+                        : "No asignado"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-red-200 bg-white/70 p-3">
+                    <p className="text-xs uppercase tracking-wide text-red-900/70">Vencimiento</p>
+                    <p className="mt-1 text-sm font-medium text-red-950">
+                      {formatDate(highlightedTask.fechaVencimiento)}
+                    </p>
+                  </div>
+                </div>
+                {highlightedTask.descripcion ? (
+                  <p className="text-sm leading-6 text-red-950/80">{highlightedTask.descripcion}</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No hay tareas cargadas para destacar.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Backlog operativo</CardTitle>
+            <CardDescription>
+              Seguimiento de tareas abiertas, responsables y relación con cliente u oportunidad.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loading ? (
+              <p className="text-sm text-muted-foreground">Cargando tareas...</p>
+            ) : filteredTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No hay tareas para los filtros actuales.
+              </p>
+            ) : (
+              filteredTasks.map((task) => (
+                <div key={task.id} className="rounded-lg border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-semibold">{task.titulo}</h3>
+                        <Badge variant={getPrioridadBadgeVariant(task.prioridad)}>
+                          {prioridadLabels[task.prioridad]}
+                        </Badge>
+                        <Badge variant={getEstadoBadgeVariant(task.normalizedEstado)}>
+                          {estadoLabels[task.normalizedEstado]}
+                        </Badge>
+                        <Badge variant="outline">{tipoLabels[task.tipoTarea]}</Badge>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                        <span>
+                          Responsable:{" "}
+                          {task.responsable
+                            ? `${task.responsable.nombre} ${task.responsable.apellido}`
+                            : "No asignado"}
+                        </span>
+                        <span>Vence: {formatDate(task.fechaVencimiento)}</span>
+                        {task.daysToDue >= 0 && task.normalizedEstado !== "completada" ? (
+                          <span>{task.daysToDue} días restantes</span>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                        {task.cliente ? (
+                          <Link
+                            href={`/crm/clientes/${task.cliente.id}`}
+                            className="hover:underline"
+                          >
+                            {task.cliente.nombre}
+                          </Link>
+                        ) : (
+                          <span>Sin cliente asociado</span>
                         )}
-                        {asignado && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Asignado a: {asignado.nombre} {asignado.apellido}
-                          </p>
+                        {task.oportunidad ? (
+                          <span>Oportunidad: {task.oportunidad.titulo}</span>
+                        ) : (
+                          <span>Sin oportunidad vinculada</span>
                         )}
                       </div>
+                      {task.descripcion ? (
+                        <p className="text-sm text-muted-foreground">{task.descripcion}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => void toggleComplete(task)}>
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        {task.estado === "completada" ? "Reabrir" : "Completar"}
+                      </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100 flex-shrink-0">
+                          <Button variant="ghost" size="icon" className="shrink-0">
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -338,7 +741,10 @@ function TareasContent() {
                             Editar
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleDelete(task)} className="text-red-500">
+                          <DropdownMenuItem
+                            onClick={() => handleDelete(task)}
+                            className="text-red-600"
+                          >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Eliminar
                           </DropdownMenuItem>
@@ -347,58 +753,139 @@ function TareasContent() {
                     </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          )
-        })}
-        {filteredTasks.length === 0 && (
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6">
           <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
-              No se encontraron tareas
+            <CardHeader>
+              <CardTitle>Carga por responsable</CardTitle>
+              <CardDescription>
+                Mide el backlog pendiente por usuario con tareas vencidas visibles.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {responsablesCarga.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No hay responsables con tareas abiertas.
+                </p>
+              ) : (
+                responsablesCarga.slice(0, 5).map((item) => (
+                  <div key={item.userId} className="rounded-lg border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {item.usuario
+                            ? `${item.usuario.nombre} ${item.usuario.apellido}`
+                            : item.userId}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.usuario?.rol ?? "Responsable sin detalle"}
+                        </p>
+                      </div>
+                      <Badge variant="outline">{item.total} abiertas</Badge>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {item.vencidas} vencidas · {item.alta} de prioridad alta
+                    </p>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
-        )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Clientes con seguimiento pendiente</CardTitle>
+              <CardDescription>
+                Clientes con mayor volumen de tareas abiertas visibles en CRM.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {clientesConBacklog.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No hay clientes con backlog visible en este momento.
+                </p>
+              ) : (
+                clientesConBacklog.map((item) => (
+                  <div key={item.clientId} className="rounded-lg border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {item.cliente?.nombre ?? "Cliente sin referencia"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.cliente?.estadoRelacion ?? "Sin estado de relación"}
+                        </p>
+                      </div>
+                      <Badge variant="outline">{item.total} tareas</Badge>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {item.vencidas} vencidas dentro del backlog actual.
+                    </p>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Dialog open={isFormOpen} onOpenChange={(open) => !open && closeForm()}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{selectedTask ? "Editar Tarea" : "Nueva Tarea"}</DialogTitle>
+            <DialogTitle>{selectedTask ? "Editar tarea" : "Nueva tarea"}</DialogTitle>
             <DialogDescription>
-              {selectedTask ? "Modifica los datos" : "Crea una nueva tarea"}
+              Alta y edición sobre el contrato actual de tareas CRM, sin flujos adicionales no
+              publicados.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit}>
-            <div className="grid gap-4 py-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid gap-4 py-2">
               <div className="space-y-2">
-                <Label>Título *</Label>
+                <Label htmlFor="titulo">Título</Label>
                 <Input
+                  id="titulo"
                   value={formData.titulo}
-                  onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
+                  onChange={(event) =>
+                    setFormData((current) => ({ ...current, titulo: event.target.value }))
+                  }
                   required
                 />
               </div>
               <div className="space-y-2">
-                <Label>Descripción</Label>
+                <Label htmlFor="descripcion">Descripción</Label>
                 <Textarea
+                  id="descripcion"
+                  rows={3}
                   value={formData.descripcion}
-                  onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
-                  rows={2}
+                  onChange={(event) =>
+                    setFormData((current) => ({ ...current, descripcion: event.target.value }))
+                  }
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Tipo</Label>
                   <Select
                     value={formData.tipoTarea}
-                    onValueChange={(value) => setFormData({ ...formData, tipoTarea: value as CRMTask["tipoTarea"] })}
+                    onValueChange={(value) =>
+                      setFormData((current) => ({
+                        ...current,
+                        tipoTarea: value as CRMTask["tipoTarea"],
+                      }))
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {Object.entries(tipoLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>{label}</SelectItem>
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -407,74 +894,132 @@ function TareasContent() {
                   <Label>Prioridad</Label>
                   <Select
                     value={formData.prioridad}
-                    onValueChange={(value) => setFormData({ ...formData, prioridad: value as CRMTask["prioridad"] })}
+                    onValueChange={(value) =>
+                      setFormData((current) => ({
+                        ...current,
+                        prioridad: value as CRMTask["prioridad"],
+                      }))
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {Object.entries(prioridadLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>{label}</SelectItem>
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Estado</Label>
                   <Select
                     value={formData.estado}
-                    onValueChange={(value) => setFormData({ ...formData, estado: value as CRMTask["estado"] })}
+                    onValueChange={(value) =>
+                      setFormData((current) => ({
+                        ...current,
+                        estado: value as CRMTask["estado"],
+                      }))
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {Object.entries(estadoLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>{label}</SelectItem>
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Fecha Vencimiento</Label>
+                  <Label htmlFor="fecha-vencimiento">Vencimiento</Label>
                   <Input
+                    id="fecha-vencimiento"
                     type="date"
-                    value={formData.fechaVencimiento ? new Date(formData.fechaVencimiento).toISOString().split('T')[0] : ""}
-                    onChange={(e) => setFormData({ ...formData, fechaVencimiento: e.target.value ? new Date(e.target.value) : undefined })}
+                    value={formData.fechaVencimiento}
+                    onChange={(event) =>
+                      setFormData((current) => ({
+                        ...current,
+                        fechaVencimiento: event.target.value,
+                      }))
+                    }
+                    required
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <Label>Cliente</Label>
                   <Select
-                    value={formData.clienteId || ""}
-                    onValueChange={(value) => setFormData({ ...formData, clienteId: value })}
+                    value={formData.clienteId}
+                    onValueChange={(value) =>
+                      setFormData((current) => ({ ...current, clienteId: value }))
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
-                      {crmClients.map(client => (
-                        <SelectItem key={client.id} value={client.id}>{client.nombre}</SelectItem>
+                      <SelectItem value="none">Sin cliente</SelectItem>
+                      {clientes.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.nombre}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Asignar a</Label>
+                  <Label>Oportunidad</Label>
                   <Select
-                    value={formData.asignadoAId || ""}
-                    onValueChange={(value) => setFormData({ ...formData, asignadoAId: value })}
+                    value={formData.oportunidadId}
+                    onValueChange={(value) =>
+                      setFormData((current) => ({ ...current, oportunidadId: value }))
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
-                      {crmUsers.map(user => (
-                        <SelectItem key={user.id} value={user.id}>{user.nombre} {user.apellido}</SelectItem>
+                      <SelectItem value="none">Sin oportunidad</SelectItem>
+                      {oportunidades
+                        .filter(
+                          (oportunidad) =>
+                            formData.clienteId === "none" ||
+                            oportunidad.clienteId === formData.clienteId
+                        )
+                        .map((oportunidad) => (
+                          <SelectItem key={oportunidad.id} value={oportunidad.id}>
+                            {oportunidad.titulo}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Responsable</Label>
+                  <Select
+                    value={formData.asignadoAId}
+                    onValueChange={(value) =>
+                      setFormData((current) => ({ ...current, asignadoAId: value }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Seleccionar</SelectItem>
+                      {usuarios.map((user) => (
+                        <SelectItem key={user.id} value={user.id}>
+                          {user.nombre} {user.apellido}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -482,8 +1027,12 @@ function TareasContent() {
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={closeForm}>Cancelar</Button>
-              <Button type="submit">{selectedTask ? "Guardar" : "Crear"}</Button>
+              <Button type="button" variant="outline" onClick={closeForm}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Guardando..." : selectedTask ? "Guardar cambios" : "Crear tarea"}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -494,13 +1043,18 @@ function TareasContent() {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar tarea?</AlertDialogTitle>
             <AlertDialogDescription>
-              Estás a punto de eliminar "{selectedTask?.titulo}".
+              Se eliminará {selectedTask ? `"${selectedTask.titulo}"` : "la tarea seleccionada"} del
+              backlog CRM.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-red-500 hover:bg-red-600">
-              Eliminar
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleting}
+            >
+              {deleting ? "Eliminando..." : "Eliminar"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -511,7 +1065,7 @@ function TareasContent() {
 
 export default function TareasPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-64 text-muted-foreground">Cargando...</div>}>
+    <Suspense fallback={<div className="h-64 text-center text-muted-foreground">Cargando...</div>}>
       <TareasContent />
     </Suspense>
   )

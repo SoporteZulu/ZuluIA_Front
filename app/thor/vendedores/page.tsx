@@ -1,143 +1,423 @@
-'use client'
+"use client"
 
-import React, { useState } from 'react'
-import { Medal, TrendingUp, Users, DollarSign, ShoppingCart, Percent } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
-import { useThorVendedores } from '@/lib/hooks/useThor'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import React from "react"
+import {
+  AlertCircle,
+  DollarSign,
+  Medal,
+  Percent,
+  ShoppingCart,
+  TrendingUp,
+  Users,
+} from "lucide-react"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useThorVendedores } from "@/lib/hooks/useThor"
 
-const VendedoresModule = () => {
-  const { metricas: vendedoresMetricas } = useThorVendedores()
-  const [selectedVendedor, setSelectedVendedor] = useState<typeof vendedoresMetricas[0] | undefined>(undefined)
-  const [periodFilter, setPeriodFilter] = useState('mes')
+function formatCurrency(value: number) {
+  return value.toLocaleString("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  })
+}
+
+function formatDate(value?: Date | string) {
+  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+}
+
+function formatPeriod(value?: Date | string) {
+  if (!value) return "Sin período"
+  return new Date(value).toLocaleDateString("es-AR", { month: "long", year: "numeric" })
+}
+
+const podiumLabels = ["1° puesto", "2° puesto", "3° puesto"]
+
+export default function VendedoresModule() {
+  const { metricas: vendedoresMetricas, loading, error } = useThorVendedores()
+  const [selectedVendedorId, setSelectedVendedorId] = React.useState<string>("")
+  const [selectedPeriod, setSelectedPeriod] = React.useState<string>("")
+
+  const periodOptions = React.useMemo(() => {
+    const uniquePeriods = Array.from(
+      new Set(vendedoresMetricas.map((metrica) => new Date(metrica.periodo).toISOString()))
+    ).sort((left, right) => new Date(right).getTime() - new Date(left).getTime())
+
+    return uniquePeriods.map((period) => ({ value: period, label: formatPeriod(period) }))
+  }, [vendedoresMetricas])
 
   React.useEffect(() => {
-    if (vendedoresMetricas.length > 0 && !selectedVendedor) {
-      setSelectedVendedor(vendedoresMetricas[0])
+    if (!selectedPeriod && periodOptions.length > 0) {
+      setSelectedPeriod(periodOptions[0].value)
     }
-  }, [vendedoresMetricas, selectedVendedor])
+  }, [periodOptions, selectedPeriod])
 
-  const sorted = [...vendedoresMetricas].sort((a, b) => b.totalVendido - a.totalVendido)
+  const metricsForPeriod = React.useMemo(() => {
+    if (!selectedPeriod) return vendedoresMetricas
+    return vendedoresMetricas.filter(
+      (metrica) => new Date(metrica.periodo).toISOString() === selectedPeriod
+    )
+  }, [vendedoresMetricas, selectedPeriod])
+
+  const sorted = React.useMemo(
+    () =>
+      [...metricsForPeriod].sort(
+        (left, right) => Number(right.totalVendido) - Number(left.totalVendido)
+      ),
+    [metricsForPeriod]
+  )
+
+  React.useEffect(() => {
+    if (sorted.length === 0) {
+      setSelectedVendedorId("")
+      return
+    }
+
+    if (!selectedVendedorId || !sorted.some((item) => item.vendedorId === selectedVendedorId)) {
+      setSelectedVendedorId(sorted[0].vendedorId)
+    }
+  }, [sorted, selectedVendedorId])
+
+  const selectedVendedor = React.useMemo(
+    () => sorted.find((item) => item.vendedorId === selectedVendedorId) ?? sorted[0],
+    [sorted, selectedVendedorId]
+  )
+
+  const teamTotals = React.useMemo(() => {
+    const totalVentas = sorted.reduce((sum, item) => sum + Number(item.totalVendido ?? 0), 0)
+    const totalTransacciones = sorted.reduce(
+      (sum, item) => sum + Number(item.numeroTransacciones ?? 0),
+      0
+    )
+    const avgConversion = sorted.length
+      ? sorted.reduce((sum, item) => sum + Number(item.tasaConversion ?? 0), 0) / sorted.length
+      : 0
+    const avgTicket = sorted.length
+      ? sorted.reduce((sum, item) => sum + Number(item.ticketPromedio ?? 0), 0) / sorted.length
+      : 0
+
+    return { totalVentas, totalTransacciones, avgConversion, avgTicket }
+  }, [sorted])
+
+  const radarData = React.useMemo(() => {
+    if (!selectedVendedor || sorted.length === 0) return []
+
+    const maxSales = Math.max(...sorted.map((item) => Number(item.totalVendido ?? 0)), 1)
+    const maxTransactions = Math.max(
+      ...sorted.map((item) => Number(item.numeroTransacciones ?? 0)),
+      1
+    )
+    const maxTicket = Math.max(...sorted.map((item) => Number(item.ticketPromedio ?? 0)), 1)
+    const maxConversion = Math.max(...sorted.map((item) => Number(item.tasaConversion ?? 0)), 1)
+
+    return [
+      {
+        metric: "Ventas",
+        vendedor: (Number(selectedVendedor.totalVendido ?? 0) / maxSales) * 100,
+        promedio: (teamTotals.totalVentas / Math.max(sorted.length, 1) / maxSales) * 100,
+      },
+      {
+        metric: "Transacciones",
+        vendedor: (Number(selectedVendedor.numeroTransacciones ?? 0) / maxTransactions) * 100,
+        promedio:
+          (teamTotals.totalTransacciones / Math.max(sorted.length, 1) / maxTransactions) * 100,
+      },
+      {
+        metric: "Ticket",
+        vendedor: (Number(selectedVendedor.ticketPromedio ?? 0) / maxTicket) * 100,
+        promedio: (teamTotals.avgTicket / maxTicket) * 100,
+      },
+      {
+        metric: "Conversión",
+        vendedor: (Number(selectedVendedor.tasaConversion ?? 0) / maxConversion) * 100,
+        promedio: (teamTotals.avgConversion / maxConversion) * 100,
+      },
+    ]
+  }, [selectedVendedor, sorted, teamTotals])
+
+  const productsData = React.useMemo(
+    () =>
+      (selectedVendedor?.productosTopVendidos ?? []).map((product) => ({
+        nombre: product.sku,
+        monto: Number(product.monto ?? 0),
+        unidades: Number(product.unidades ?? 0),
+      })),
+    [selectedVendedor]
+  )
+
+  const performanceAlerts = React.useMemo(() => {
+    return sorted
+      .map((item) => ({
+        vendedor: `${item.vendedor.nombre} ${item.vendedor.apellido}`,
+        estado:
+          Number(item.tasaConversion ?? 0) < teamTotals.avgConversion
+            ? "Conversión baja"
+            : Number(item.cambioVsPeriodoAnterior ?? 0) < 0
+              ? "Caída vs período anterior"
+              : "Ritmo sostenido",
+        detalle:
+          Number(item.tasaConversion ?? 0) < teamTotals.avgConversion
+            ? `${Number(item.tasaConversion ?? 0).toFixed(1)}% vs ${teamTotals.avgConversion.toFixed(1)}% del equipo.`
+            : Number(item.cambioVsPeriodoAnterior ?? 0) < 0
+              ? `${Math.abs(Number(item.cambioVsPeriodoAnterior ?? 0)).toFixed(1)}% de retroceso respecto del período anterior.`
+              : `${Number(item.numeroTransacciones ?? 0)} transacciones con variación positiva o estable.`,
+      }))
+      .slice(0, 4)
+  }, [sorted, teamTotals.avgConversion])
+
   const top3 = sorted.slice(0, 3)
-  const medalColors = ['gold', 'silver', '#CD7F32']
-
-  const radarData = [
-    {
-      metric: 'Ventas',
-      vendedor: selectedVendedor ? (selectedVendedor.totalVendido / 189000) * 100 : 0,
-      promedio: 66,
-    },
-    {
-      metric: 'Transacciones',
-      vendedor: selectedVendedor ? (selectedVendedor.numeroTransacciones / 562) * 100 : 0,
-      promedio: 64,
-    },
-    {
-      metric: 'Ticket Promedio',
-      vendedor: selectedVendedor ? (selectedVendedor.ticketPromedio / 337) * 100 : 0,
-      promedio: 63,
-    },
-    {
-      metric: 'Conversión',
-      vendedor: selectedVendedor?.tasaConversion ?? 0,
-      promedio: 42,
-    },
-  ]
-
-  const productosData = (selectedVendedor?.productosTopVendidos ?? []).map(p => ({
-    nombre: p.sku,
-    monto: p.monto,
-  }))
 
   return (
     <div className="space-y-6 pb-6">
-      {/* Header */}
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">Ranking de Vendedores</h1>
-        <p className="text-muted-foreground">Performance y métricas del equipo de ventas</p>
+        <p className="text-muted-foreground">
+          Consola comercial con ranking, benchmark del equipo y lectura operativa del período
+          visible.
+        </p>
       </div>
 
-      {/* Podio Visual */}
+      {error && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Parte de las métricas de vendedores no pudo cargarse por completo. El ranking visible se
+            limita a los datos que respondió el backend.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="Seleccionar período" />
+          </SelectTrigger>
+          <SelectContent>
+            {periodOptions.map((period) => (
+              <SelectItem key={period.value} value={period.value}>
+                {period.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={selectedVendedorId} onValueChange={setSelectedVendedorId}>
+          <SelectTrigger className="w-64">
+            <SelectValue placeholder="Seleccionar vendedor" />
+          </SelectTrigger>
+          <SelectContent>
+            {sorted.map((item) => (
+              <SelectItem key={item.vendedorId} value={item.vendedorId}>
+                {item.vendedor.nombre} {item.vendedor.apellido}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Ventas Totales
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(teamTotals.totalVentas)}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Equipo visible en{" "}
+              {periodOptions.find((period) => period.value === selectedPeriod)?.label ??
+                "el período actual"}
+              .
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Promedio por Vendedor
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {formatCurrency(sorted.length ? teamTotals.totalVentas / sorted.length : 0)}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Base calculada sobre {sorted.length} vendedores con métrica visible.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Conversión Promedio
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{teamTotals.avgConversion.toFixed(1)}%</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Sirve como benchmark real para comparar al vendedor seleccionado.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Ticket Promedio Equipo
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(teamTotals.avgTicket)}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Con {teamTotals.totalTransacciones} transacciones visibles.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-3">
-        {top3.map((vm, idx) => (
-          <Card 
-            key={vm.vendedorId}
-            className={idx === 0 ? 'border-yellow-300 shadow-lg' : idx === 1 ? 'border-gray-400 shadow-md' : 'border-orange-300'}
+        {top3.map((metric, index) => (
+          <Card
+            key={metric.vendedorId}
+            className={
+              index === 0
+                ? "border-primary/50 shadow-md"
+                : index === 1
+                  ? "border-muted-foreground/40"
+                  : "border-orange-300/50"
+            }
           >
             <CardContent className="pt-6 text-center">
-              <div className="mb-4">
-                <span className="text-6xl">
-                  {idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'}
+              <div className="mb-3 flex items-center justify-center gap-2">
+                <Medal
+                  className={`h-6 w-6 ${index === 0 ? "text-yellow-500" : index === 1 ? "text-slate-400" : "text-orange-500"}`}
+                />
+                <span className="text-sm font-medium text-muted-foreground">
+                  {podiumLabels[index]}
                 </span>
               </div>
-              <h3 className="text-lg font-bold">{vm.vendedor.nombre} {vm.vendedor.apellido}</h3>
-              <p className="text-2xl font-bold text-green-600 my-2">
-                ${vm.totalVendido.toLocaleString('es-AR')}
+              <h3 className="text-lg font-bold">
+                {metric.vendedor.nombre} {metric.vendedor.apellido}
+              </h3>
+              <p className="my-2 text-2xl font-bold text-green-600">
+                {formatCurrency(Number(metric.totalVendido ?? 0))}
               </p>
               <div className="space-y-1 text-xs text-muted-foreground">
-                <p>{vm.numeroTransacciones} transacciones</p>
-                <p>Ticket: ${vm.ticketPromedio.toFixed(0)}</p>
+                <p>{metric.numeroTransacciones} transacciones</p>
+                <p>Ticket: {formatCurrency(Number(metric.ticketPromedio ?? 0))}</p>
+                <p>Conversión: {Number(metric.tasaConversion ?? 0).toFixed(1)}%</p>
               </div>
-              <Badge className="mt-3" variant={vm.cambioVsPeriodoAnterior > 0 ? 'default' : 'secondary'}>
-                {vm.cambioVsPeriodoAnterior > 0 ? '↑' : '↓'} {Math.abs(vm.cambioVsPeriodoAnterior).toFixed(1)}%
+              <Badge
+                className="mt-3"
+                variant={Number(metric.cambioVsPeriodoAnterior ?? 0) >= 0 ? "secondary" : "outline"}
+              >
+                {Number(metric.cambioVsPeriodoAnterior ?? 0) >= 0 ? "Sube" : "Baja"}{" "}
+                {Math.abs(Number(metric.cambioVsPeriodoAnterior ?? 0)).toFixed(1)}%
               </Badge>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* KPIs Equipo */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Ventas Totales</CardTitle>
+          <CardHeader>
+            <CardTitle>Radar del Vendedor</CardTitle>
+            <CardDescription>
+              {selectedVendedor
+                ? `${selectedVendedor.vendedor.nombre} ${selectedVendedor.vendedor.apellido} vs promedio del equipo`
+                : "Seleccioná un vendedor para comparar."}
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              ${vendedoresMetricas.reduce((sum, vm) => sum + vm.totalVendido, 0).toLocaleString('es-AR')}
-            </div>
+            <ResponsiveContainer width="100%" height={320}>
+              <RadarChart data={radarData}>
+                <PolarGrid />
+                <PolarAngleAxis dataKey="metric" />
+                <PolarRadiusAxis tick={false} axisLine={false} />
+                <Radar
+                  name={selectedVendedor?.vendedor.nombre ?? "Vendedor"}
+                  dataKey="vendedor"
+                  stroke="#2563eb"
+                  fill="#2563eb"
+                  fillOpacity={0.35}
+                />
+                <Radar
+                  name="Promedio equipo"
+                  dataKey="promedio"
+                  stroke="#f97316"
+                  fill="#f97316"
+                  fillOpacity={0.2}
+                />
+                <Legend />
+              </RadarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Promedio por Vendedor</CardTitle>
+          <CardHeader>
+            <CardTitle>Señales del Equipo</CardTitle>
+            <CardDescription>
+              Lectura rápida de vendedores que exigen seguimiento comercial
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              ${(vendedoresMetricas.reduce((sum, vm) => sum + vm.totalVendido, 0) / vendedoresMetricas.length).toLocaleString('es-AR')}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Conversión Promedio</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {(vendedoresMetricas.reduce((sum, vm) => sum + vm.tasaConversion, 0) / vendedoresMetricas.length).toFixed(1)}%
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Ticket Promedio Equipo</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              ${(vendedoresMetricas.reduce((sum, vm) => sum + vm.ticketPromedio, 0) / vendedoresMetricas.length).toFixed(0)}
-            </div>
+          <CardContent className="space-y-3">
+            {performanceAlerts.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                {loading ? "Cargando señales..." : "No hay alertas visibles para el equipo."}
+              </p>
+            )}
+            {performanceAlerts.map((alert) => (
+              <div key={alert.vendedor} className="rounded-lg border p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium">{alert.vendedor}</p>
+                  <Badge variant={alert.estado === "Ritmo sostenido" ? "secondary" : "outline"}>
+                    {alert.estado}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">{alert.detalle}</p>
+              </div>
+            ))}
           </CardContent>
         </Card>
       </div>
 
-      {/* Tabs */}
       <Tabs defaultValue="tabla" className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="tabla">Tabla Completa</TabsTrigger>
@@ -145,69 +425,107 @@ const VendedoresModule = () => {
           <TabsTrigger value="comparacion">Comparación</TabsTrigger>
         </TabsList>
 
-        {/* Tab 1: Tabla */}
         <TabsContent value="tabla" className="space-y-4">
           <Card>
             <CardContent className="pt-6">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-12">#</TableHead>
+                    <TableHead>Vendedor</TableHead>
+                    <TableHead className="text-right">Total Vendido</TableHead>
+                    <TableHead className="text-right">Transacciones</TableHead>
+                    <TableHead className="text-right">Ticket Promedio</TableHead>
+                    <TableHead className="text-right">Conversión</TableHead>
+                    <TableHead className="text-right">Cambio</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.length === 0 && (
                     <TableRow>
-                      <TableHead className="w-12">#</TableHead>
-                      <TableHead>Vendedor</TableHead>
-                      <TableHead className="text-right">Total Vendido</TableHead>
-                      <TableHead className="text-right">Transacciones</TableHead>
-                      <TableHead className="text-right">Ticket Promedio</TableHead>
-                      <TableHead className="text-right">Conversión</TableHead>
-                      <TableHead className="text-right">Cambio</TableHead>
+                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                        {loading
+                          ? "Cargando ranking de vendedores..."
+                          : "No hay métricas visibles para el período seleccionado."}
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sorted.map((vm, idx) => (
-                      <TableRow 
-                        key={vm.vendedorId}
-                        onClick={() => setSelectedVendedor(vm)}
-                        className="cursor-pointer hover:bg-muted/50"
-                      >
-                        <TableCell>
-                          <Badge variant="outline">#{idx + 1}</Badge>
-                        </TableCell>
-                        <TableCell className="font-medium">{vm.vendedor.nombre} {vm.vendedor.apellido}</TableCell>
-                        <TableCell className="text-right font-bold text-green-600">
-                          ${vm.totalVendido.toLocaleString('es-AR')}
-                        </TableCell>
-                        <TableCell className="text-right">{vm.numeroTransacciones}</TableCell>
-                        <TableCell className="text-right">${vm.ticketPromedio.toFixed(0)}</TableCell>
-                        <TableCell className="text-right">{vm.tasaConversion.toFixed(1)}%</TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant={vm.cambioVsPeriodoAnterior > 0 ? 'default' : 'secondary'} className="text-xs">
-                            {vm.cambioVsPeriodoAnterior > 0 ? '↑' : '↓'} {Math.abs(vm.cambioVsPeriodoAnterior).toFixed(1)}%
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                  )}
+                  {sorted.map((metric, index) => (
+                    <TableRow
+                      key={`${metric.vendedorId}-${new Date(metric.periodo).toISOString()}`}
+                      onClick={() => setSelectedVendedorId(metric.vendedorId)}
+                      className="cursor-pointer hover:bg-muted/50"
+                    >
+                      <TableCell>
+                        <Badge variant="outline">#{index + 1}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">
+                          {metric.vendedor.nombre} {metric.vendedor.apellido}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Alta {formatDate(metric.vendedor.fechaAlta)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-green-600">
+                        {formatCurrency(Number(metric.totalVendido ?? 0))}
+                      </TableCell>
+                      <TableCell className="text-right">{metric.numeroTransacciones}</TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(Number(metric.ticketPromedio ?? 0))}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={
+                            Number(metric.tasaConversion ?? 0) >= teamTotals.avgConversion
+                              ? "secondary"
+                              : "outline"
+                          }
+                        >
+                          {Number(metric.tasaConversion ?? 0).toFixed(1)}%
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={
+                            Number(metric.cambioVsPeriodoAnterior ?? 0) >= 0
+                              ? "secondary"
+                              : "outline"
+                          }
+                        >
+                          {Number(metric.cambioVsPeriodoAnterior ?? 0) >= 0 ? "↑" : "↓"}{" "}
+                          {Math.abs(Number(metric.cambioVsPeriodoAnterior ?? 0)).toFixed(1)}%
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Tab 2: Análisis Detallado */}
         <TabsContent value="analisis" className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="md:col-span-2">
               <CardHeader>
-                <CardTitle className="text-base">Top 3 Productos - {selectedVendedor?.vendedor.nombre}</CardTitle>
+                <CardTitle className="text-base">Top Productos del Vendedor</CardTitle>
+                <CardDescription>
+                  {selectedVendedor
+                    ? `${selectedVendedor.vendedor.nombre} ${selectedVendedor.vendedor.apellido} • ${formatPeriod(selectedVendedor.periodo)}`
+                    : "Sin vendedor seleccionado"}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={productosData}>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={productsData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="nombre" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="monto" fill="#3b82f6" />
+                    <YAxis tickFormatter={(value) => Number(value).toLocaleString("es-AR")} />
+                    <Tooltip formatter={(value: number) => formatCurrency(Number(value))} />
+                    <Legend />
+                    <Bar dataKey="monto" name="Monto" fill="#2563eb" />
+                    <Bar dataKey="unidades" name="Unidades" fill="#22c55e" />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -215,94 +533,178 @@ const VendedoresModule = () => {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Detalle del Período</CardTitle>
+                <CardTitle className="text-base">Ficha Comercial</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {(selectedVendedor?.productosTopVendidos ?? []).map((prod, idx) => (
-                  <div key={idx} className="p-2 rounded-lg bg-muted">
-                    <p className="text-xs font-semibold">{prod.nombre}</p>
-                    <div className="flex justify-between mt-1">
-                      <span className="text-xs text-muted-foreground">{prod.unidades} unid</span>
-                      <span className="text-xs font-bold">${prod.monto.toLocaleString('es-AR')}</span>
-                    </div>
+              <CardContent className="space-y-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Email</span>
+                  <p className="font-mono">{selectedVendedor?.vendedor.email ?? "-"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Teléfono</span>
+                  <p className="font-mono">{selectedVendedor?.vendedor.telefono ?? "-"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Estado</span>
+                  <div className="mt-1">
+                    <Badge
+                      variant={
+                        selectedVendedor?.vendedor.estado === "activo" ? "secondary" : "outline"
+                      }
+                    >
+                      {selectedVendedor?.vendedor.estado ?? "Sin dato"}
+                    </Badge>
                   </div>
-                ))}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Cambio período anterior</span>
+                  <p className="font-medium">
+                    {selectedVendedor
+                      ? `${Number(selectedVendedor.cambioVsPeriodoAnterior ?? 0).toFixed(1)}%`
+                      : "-"}
+                  </p>
+                </div>
               </CardContent>
             </Card>
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Información de Contacto</CardTitle>
+              <CardTitle className="text-base">Detalle de Productos Top</CardTitle>
+              <CardDescription>Mix comercial del vendedor seleccionado</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div>
-                <span className="text-muted-foreground">Email:</span>
-                <p className="font-mono">{selectedVendedor?.vendedor.email}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Teléfono:</span>
-                <p className="font-mono">{selectedVendedor?.vendedor.telefono}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Estado:</span>
-                <Badge className="mt-1" variant={selectedVendedor?.vendedor.estado === 'activo' ? 'default' : 'secondary'}>
-                  {selectedVendedor?.vendedor.estado}
-                </Badge>
-              </div>
+            <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {(selectedVendedor?.productosTopVendidos ?? []).map((product) => (
+                <div
+                  key={`${selectedVendedor?.vendedorId}-${product.sku}`}
+                  className="rounded-lg border p-3"
+                >
+                  <p className="font-medium">{product.nombre}</p>
+                  <p className="text-xs text-muted-foreground">SKU {product.sku}</p>
+                  <div className="mt-2 flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Unidades</span>
+                    <span>{product.unidades}</span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Monto</span>
+                    <span className="font-medium">
+                      {formatCurrency(Number(product.monto ?? 0))}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {(selectedVendedor?.productosTopVendidos ?? []).length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No hay productos top visibles para este vendedor en el período seleccionado.
+                </p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Tab 3: Comparación */}
         <TabsContent value="comparacion" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">
-                {selectedVendedor?.vendedor.nombre} vs Promedio del Equipo
-              </CardTitle>
-              <CardDescription>Comparación de métricas clave</CardDescription>
+              <CardTitle className="text-base">Benchmark Comercial</CardTitle>
+              <CardDescription>
+                Comparación de desempeño individual contra el promedio real del equipo
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={350}>
-                <RadarChart data={radarData}>
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="metric" />
-                  <PolarRadiusAxis />
-                  <Radar name={selectedVendedor?.vendedor.nombre} dataKey="vendedor" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.6} />
-                  <Radar name="Promedio Equipo" dataKey="promedio" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} />
-                  <Legend />
-                </RadarChart>
-              </ResponsiveContainer>
+            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <DollarSign className="h-4 w-4" /> Ventas
+                </div>
+                <p className="mt-2 text-2xl font-bold">
+                  {formatCurrency(Number(selectedVendedor?.totalVendido ?? 0))}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Promedio equipo:{" "}
+                  {formatCurrency(sorted.length ? teamTotals.totalVentas / sorted.length : 0)}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <ShoppingCart className="h-4 w-4" /> Transacciones
+                </div>
+                <p className="mt-2 text-2xl font-bold">
+                  {selectedVendedor?.numeroTransacciones ?? 0}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Promedio equipo:{" "}
+                  {(sorted.length ? teamTotals.totalTransacciones / sorted.length : 0).toFixed(1)}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Percent className="h-4 w-4" /> Conversión
+                </div>
+                <p className="mt-2 text-2xl font-bold">
+                  {Number(selectedVendedor?.tasaConversion ?? 0).toFixed(1)}%
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Promedio equipo: {teamTotals.avgConversion.toFixed(1)}%
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <TrendingUp className="h-4 w-4" /> Cambio
+                </div>
+                <p className="mt-2 text-2xl font-bold">
+                  {Number(selectedVendedor?.cambioVsPeriodoAnterior ?? 0).toFixed(1)}%
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Variación visible vs período anterior informado.
+                </p>
+              </div>
             </CardContent>
           </Card>
 
           <div className="grid gap-4 md:grid-cols-2">
-            {sorted.map((vm, idx) => (
-              <Card key={vm.vendedorId} onClick={() => setSelectedVendedor(vm)} className="cursor-pointer hover:shadow-lg transition-shadow">
+            {sorted.map((metric, index) => (
+              <Card
+                key={metric.vendedorId}
+                onClick={() => setSelectedVendedorId(metric.vendedorId)}
+                className="cursor-pointer transition-shadow hover:shadow-lg"
+              >
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Badge variant="outline">#{idx + 1}</Badge>
-                    {vm.vendedor.nombre} {vm.vendedor.apellido}
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Badge variant="outline">#{index + 1}</Badge>
+                    {metric.vendedor.nombre} {metric.vendedor.apellido}
                   </CardTitle>
+                  <CardDescription>{formatPeriod(metric.periodo)}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span>Total Vendido</span>
-                    <span className="font-bold">${vm.totalVendido.toLocaleString('es-AR')}</span>
+                    <span>Total vendido</span>
+                    <span className="font-bold">
+                      {formatCurrency(Number(metric.totalVendido ?? 0))}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Conversión</span>
-                    <span className="font-bold">{vm.tasaConversion.toFixed(1)}%</span>
+                    <span className="font-bold">
+                      {Number(metric.tasaConversion ?? 0).toFixed(1)}%
+                    </span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Ticket Promedio</span>
-                    <span className="font-bold">${vm.ticketPromedio.toFixed(0)}</span>
+                    <span>Ticket promedio</span>
+                    <span className="font-bold">
+                      {formatCurrency(Number(metric.ticketPromedio ?? 0))}
+                    </span>
                   </div>
-                  <div className="flex justify-between pt-2 border-t">
-                    <span>Cambio vs Anterior</span>
-                    <Badge variant={vm.cambioVsPeriodoAnterior > 0 ? 'default' : 'secondary'} className="text-xs">
-                      {vm.cambioVsPeriodoAnterior > 0 ? '↑' : '↓'} {Math.abs(vm.cambioVsPeriodoAnterior).toFixed(1)}%
+                  <div className="flex justify-between border-t pt-2">
+                    <span>Estado comercial</span>
+                    <Badge
+                      variant={
+                        Number(metric.tasaConversion ?? 0) >= teamTotals.avgConversion
+                          ? "secondary"
+                          : "outline"
+                      }
+                    >
+                      {Number(metric.tasaConversion ?? 0) >= teamTotals.avgConversion
+                        ? "Sobre promedio"
+                        : "Bajo promedio"}
                     </Badge>
                   </div>
                 </CardContent>
@@ -311,8 +713,51 @@ const VendedoresModule = () => {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Resumen Operativo del Equipo</CardTitle>
+          <CardDescription>Prioridades detectadas en la tanda comercial visible</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Users className="h-4 w-4" /> Equipo activo
+            </div>
+            <p className="mt-2 text-2xl font-bold">
+              {sorted.filter((item) => item.vendedor.estado === "activo").length}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Vendedores con métrica visible y estado activo.
+            </p>
+          </div>
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <TrendingUp className="h-4 w-4" /> En crecimiento
+            </div>
+            <p className="mt-2 text-2xl font-bold">
+              {sorted.filter((item) => Number(item.cambioVsPeriodoAnterior ?? 0) > 0).length}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Responsables con mejora respecto al período anterior informado.
+            </p>
+          </div>
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Percent className="h-4 w-4" /> Bajo benchmark
+            </div>
+            <p className="mt-2 text-2xl font-bold">
+              {
+                sorted.filter((item) => Number(item.tasaConversion ?? 0) < teamTotals.avgConversion)
+                  .length
+              }
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Exigen revisión comercial o coaching sobre conversión visible.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
-
-export default VendedoresModule

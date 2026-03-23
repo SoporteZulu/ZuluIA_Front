@@ -1,113 +1,689 @@
 "use client"
 
-import { useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
+import { useMemo, useState } from "react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search, FlaskConical, AlertCircle } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { useFormulasProduccion } from "@/lib/hooks/useFormulasProduccion"
+import type { FormulaProduccion } from "@/lib/types/formulas-produccion"
+import { AlertCircle, Eye, FlaskConical, Plus, RefreshCcw, Search } from "lucide-react"
+
+type ComponentDraft = {
+  itemId: string
+  cantidad: string
+}
+
+function emptyComponent(): ComponentDraft {
+  return { itemId: "", cantidad: "" }
+}
+
+function SummaryCard({
+  title,
+  value,
+  description,
+}: {
+  title: string
+  value: string
+  description: string
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardDescription>{title}</CardDescription>
+        <CardTitle className="text-2xl">{value}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function getFormulaStatus(formula: FormulaProduccion) {
+  if (!formula.activa) return "Fuera de circuito"
+  if ((formula.componentes?.length ?? 0) >= 3 && formula.codigo) return "Ficha tecnica completa"
+  if ((formula.componentes?.length ?? 0) > 0) return "Ficha operativa"
+  return "Ficha base"
+}
+
+function getComponentCoverage(formula: FormulaProduccion) {
+  const count = formula.componentes?.length ?? 0
+
+  if (count === 0) return "Sin insumos visibles"
+  if (count === 1) return "Formula simple"
+  if (count <= 3) return "Formula compuesta"
+  return "Formula extendida"
+}
 
 export default function FormulasProduccionPage() {
-  const { formulas, loading, error } = useFormulasProduccion()
+  const [soloActivas, setSoloActivas] = useState(false)
+  const { formulas, loading, error, getById, crear, refetch } = useFormulasProduccion(soloActivas)
   const [searchTerm, setSearchTerm] = useState("")
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detail, setDetail] = useState<FormulaProduccion | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [draft, setDraft] = useState({
+    codigo: "",
+    descripcion: "",
+    itemProductoId: "",
+    cantidadProducida: "",
+    activa: true,
+  })
+  const [componentes, setComponentes] = useState<ComponentDraft[]>([emptyComponent()])
 
-  const filtered = formulas.filter((f) =>
-    (f.codigo ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-    f.descripcion.toLowerCase().includes(searchTerm.toLowerCase())
+  const filtered = useMemo(
+    () =>
+      formulas.filter((formula) => {
+        const term = searchTerm.trim().toLowerCase()
+        return (
+          !term ||
+          (formula.codigo ?? "").toLowerCase().includes(term) ||
+          formula.descripcion.toLowerCase().includes(term) ||
+          String(formula.itemProductoId).includes(term)
+        )
+      }),
+    [formulas, searchTerm]
   )
+
+  const activas = formulas.filter((formula) => formula.activa).length
+  const totalComponentes = formulas.reduce(
+    (sum, formula) => sum + (formula.componentes?.length ?? 0),
+    0
+  )
+  const promedioComponentes =
+    formulas.length > 0 ? (totalComponentes / formulas.length).toFixed(1) : "0.0"
+  const conCodigo = formulas.filter((formula) => Boolean(formula.codigo)).length
+  const extendidas = formulas.filter((formula) => (formula.componentes?.length ?? 0) >= 3).length
+  const selectedCircuit = selected ? getFormulaStatus(selected) : "-"
+
+  const selected = useMemo(
+    () => filtered.find((formula) => formula.id === selectedId) ?? null,
+    [filtered, selectedId]
+  )
+
+  const handleOpenDetail = async (id: number) => {
+    setDetailOpen(true)
+    setDetailLoading(true)
+    const data = await getById(id)
+    setDetail(data)
+    setDetailLoading(false)
+  }
+
+  const addComponent = () => {
+    setComponentes((prev) => [...prev, emptyComponent()])
+  }
+
+  const updateComponent = (index: number, field: keyof ComponentDraft, value: string) => {
+    setComponentes((prev) =>
+      prev.map((component, componentIndex) =>
+        componentIndex === index ? { ...component, [field]: value } : component
+      )
+    )
+  }
+
+  const removeComponent = (index: number) => {
+    setComponentes((prev) =>
+      prev.length === 1 ? prev : prev.filter((_, componentIndex) => componentIndex !== index)
+    )
+  }
+
+  const resetCreate = () => {
+    setDraft({
+      codigo: "",
+      descripcion: "",
+      itemProductoId: "",
+      cantidadProducida: "",
+      activa: true,
+    })
+    setComponentes([emptyComponent()])
+  }
+
+  const handleCreate = async () => {
+    setActionError(null)
+
+    if (!draft.descripcion.trim() || !draft.itemProductoId || !draft.cantidadProducida) {
+      setActionError(
+        "Completá descripción, producto y cantidad producida para registrar la fórmula."
+      )
+      return
+    }
+
+    const componentesValidos = componentes
+      .filter((component) => component.itemId && component.cantidad)
+      .map((component) => ({
+        itemId: Number(component.itemId),
+        cantidad: Number(component.cantidad),
+      }))
+
+    if (componentesValidos.length === 0) {
+      setActionError("Agregá al menos un componente válido para la fórmula de producción.")
+      return
+    }
+
+    setSaving(true)
+    const ok = await crear({
+      codigo: draft.codigo || undefined,
+      descripcion: draft.descripcion.trim(),
+      itemProductoId: Number(draft.itemProductoId),
+      cantidadProducida: Number(draft.cantidadProducida),
+      activa: draft.activa,
+      componentes: componentesValidos,
+    })
+    setSaving(false)
+
+    if (!ok) {
+      setActionError("No se pudo crear la fórmula de producción.")
+      return
+    }
+
+    setCreateOpen(false)
+    resetCreate()
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Fórmulas de Producción</h1>
-          <p className="text-muted-foreground">Definición de fórmulas y componentes para producción</p>
+          <h1 className="text-2xl font-bold tracking-tight">Fórmulas de producción</h1>
+          <p className="text-muted-foreground">
+            Consola técnica para definir recetas productivas, revisar su composición y crear nuevas
+            fórmulas con los endpoints reales disponibles.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={refetch} disabled={loading}>
+            <RefreshCcw className="h-4 w-4" />
+            Actualizar
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Nueva fórmula
+          </Button>
         </div>
       </div>
 
-      {error && (
+      {(error || actionError) && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{actionError || error}</AlertDescription>
         </Alert>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Fórmulas</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold">{formulas.length}</div></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Activas</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-green-500">{formulas.filter((f) => f.activa).length}</div></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Inactivas</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-gray-500">{formulas.filter((f) => !f.activa).length}</div></CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          title="Total fórmulas"
+          value={String(formulas.length)}
+          description={
+            soloActivas ? "Vista sólo de fórmulas activas." : "Incluye activas e inactivas."
+          }
+        />
+        <SummaryCard
+          title="Activas"
+          value={String(activas)}
+          description="Disponibles para planificar órdenes de trabajo."
+        />
+        <SummaryCard
+          title="Componentes totales"
+          value={String(totalComponentes)}
+          description="Relaciones componente-producto cargadas en la vista actual."
+        />
+        <SummaryCard
+          title="Promedio de componentes"
+          value={promedioComponentes}
+          description="Cantidad media de insumos por fórmula visible."
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          title="Con codigo"
+          value={String(conCodigo)}
+          description="Formulas con identificacion visible del legado tecnico."
+        />
+        <SummaryCard
+          title="Extendidas"
+          value={String(extendidas)}
+          description="Formulas con tres o mas componentes visibles."
+        />
+        <SummaryCard
+          title="Circuito seleccionado"
+          value={selectedCircuit}
+          description="Lectura tecnica de la formula actualmente seleccionada."
+        />
+        <SummaryCard
+          title="Cobertura seleccionada"
+          value={selected ? getComponentCoverage(selected) : "-"}
+          description="Complejidad visible de la receta activa."
+        />
       </div>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardHeader>
+          <CardTitle className="text-base">Filtros y visibilidad</CardTitle>
+          <CardDescription>
+            Buscá por código, descripción o producto y controlá si querés limitar la consulta a
+            fórmulas activas.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Buscar por código o descripción..."
+              placeholder="Buscar por código, descripción o producto ID..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
+              className="pl-8"
             />
+          </div>
+          <div className="flex items-center gap-3 rounded-lg border p-3">
+            <Switch id="solo-activas" checked={soloActivas} onCheckedChange={setSoloActivas} />
+            <Label htmlFor="solo-activas">Consultar sólo fórmulas activas</Label>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Código</TableHead>
-                <TableHead>Descripción</TableHead>
-                <TableHead>Producto ID</TableHead>
-                <TableHead>Cantidad Producida</TableHead>
-                <TableHead>Componentes</TableHead>
-                <TableHead>Estado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading && (
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.95fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Recetas productivas</CardTitle>
+            <CardDescription>
+              {filtered.length} fórmulas en la vista actual. Seleccioná una para revisar su
+              composición.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Cargando...</TableCell>
+                  <TableHead>Código</TableHead>
+                  <TableHead>Descripción</TableHead>
+                  <TableHead>Producto ID</TableHead>
+                  <TableHead>Cant. producida</TableHead>
+                  <TableHead>Componentes</TableHead>
+                  <TableHead>Circuito</TableHead>
+                  <TableHead>Estado</TableHead>
                 </TableRow>
-              )}
-              {!loading && filtered.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    <FlaskConical className="mx-auto mb-2 h-8 w-8 opacity-50" />
-                    No hay fórmulas de producción
-                  </TableCell>
-                </TableRow>
-              )}
-              {filtered.map((formula) => (
-                <TableRow key={formula.id}>
-                  <TableCell className="font-mono text-sm">{formula.codigo ?? "-"}</TableCell>
-                  <TableCell className="font-medium">{formula.descripcion}</TableCell>
-                  <TableCell>#{formula.itemProductoId}</TableCell>
-                  <TableCell>{formula.cantidadProducida}</TableCell>
-                  <TableCell>{formula.componentes?.length ?? 0} componentes</TableCell>
-                  <TableCell>
-                    <Badge variant={formula.activa ? "default" : "secondary"}>
-                      {formula.activa ? "Activa" : "Inactiva"}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                      Cargando fórmulas...
+                    </TableCell>
+                  </TableRow>
+                )}
+                {!loading && filtered.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                      No hay fórmulas para los filtros actuales.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {!loading &&
+                  filtered.map((formula) => (
+                    <TableRow
+                      key={formula.id}
+                      className={formula.id === selectedId ? "bg-accent/40" : undefined}
+                      onClick={() => setSelectedId(formula.id)}
+                    >
+                      <TableCell className="font-mono text-sm">{formula.codigo ?? "-"}</TableCell>
+                      <TableCell className="font-medium">{formula.descripcion}</TableCell>
+                      <TableCell>#{formula.itemProductoId}</TableCell>
+                      <TableCell>{formula.cantidadProducida}</TableCell>
+                      <TableCell>{formula.componentes?.length ?? 0}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <Badge variant="outline" className="text-xs">
+                            {getFormulaStatus(formula)}
+                          </Badge>
+                          <p className="text-xs text-muted-foreground">
+                            {getComponentCoverage(formula)}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={formula.activa ? "default" : "secondary"}>
+                          {formula.activa ? "Activa" : "Inactiva"}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {selected ? selected.descripcion : "Detalle de fórmula"}
+            </CardTitle>
+            <CardDescription>
+              {selected
+                ? `${selected.codigo ?? "Sin código"} · producto #${selected.itemProductoId}`
+                : "Seleccioná una fórmula para revisar su composición."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {selected ? (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Cantidad producida</p>
+                    <p className="mt-2 text-lg font-semibold">{selected.cantidadProducida}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Estado</p>
+                    <div className="mt-2">
+                      <Badge variant={selected.activa ? "default" : "secondary"}>
+                        {selected.activa ? "Activa" : "Inactiva"}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Estado tecnico</p>
+                    <p className="mt-2 font-medium">{getFormulaStatus(selected)}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Cobertura de insumos</p>
+                    <p className="mt-2 font-medium">{getComponentCoverage(selected)}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Resumen de componentes</p>
+                  {(selected.componentes ?? []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      La vista actual no trae componentes expandidos para esta fórmula.
+                    </p>
+                  ) : (
+                    (selected.componentes ?? []).map((componente) => (
+                      <div
+                        key={componente.id}
+                        className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2"
+                      >
+                        <div>
+                          <p className="text-sm font-medium">
+                            {componente.itemDescripcion ?? `Item #${componente.itemId}`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">ID {componente.itemId}</p>
+                        </div>
+                        <span className="font-mono text-sm">{componente.cantidad}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => handleOpenDetail(selected.id)}
+                >
+                  <Eye className="h-4 w-4" />
+                  Ver detalle completo
+                </Button>
+              </>
+            ) : (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                No hay fórmula seleccionada.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Detalle de fórmula de producción</DialogTitle>
+            <DialogDescription>
+              Consulta puntual del backend para revisar componentes y producto final.
+            </DialogDescription>
+          </DialogHeader>
+          {detailLoading ? (
+            <p className="text-sm text-muted-foreground">Cargando detalle...</p>
+          ) : detail ? (
+            <Tabs defaultValue="general">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="general">General</TabsTrigger>
+                <TabsTrigger value="componentes">Componentes</TabsTrigger>
+                <TabsTrigger value="circuito">Circuito</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="general" className="mt-4 space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <span className="mb-1 block text-xs text-muted-foreground">Código</span>
+                    <p className="text-sm font-medium">{detail.codigo ?? "-"}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <span className="mb-1 block text-xs text-muted-foreground">Producto</span>
+                    <p className="text-sm font-medium">#{detail.itemProductoId}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <span className="mb-1 block text-xs text-muted-foreground">
+                      Cantidad producida
+                    </span>
+                    <p className="text-sm font-medium">{detail.cantidadProducida}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <span className="mb-1 block text-xs text-muted-foreground">Estado</span>
+                    <p className="text-sm font-medium">{detail.activa ? "Activa" : "Inactiva"}</p>
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="componentes" className="mt-4 space-y-2">
+                <p className="text-sm text-muted-foreground">Componentes detallados</p>
+                {(detail.componentes ?? []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay componentes detallados cargados.
+                  </p>
+                ) : (
+                  (detail.componentes ?? []).map((componente) => (
+                    <div key={componente.id} className="rounded-lg bg-muted/40 p-3">
+                      <p className="text-sm font-medium">
+                        {componente.itemDescripcion ?? `Item #${componente.itemId}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Cantidad: {componente.cantidad}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </TabsContent>
+
+              <TabsContent value="circuito" className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg bg-muted/40 p-3">
+                  <span className="mb-1 block text-xs text-muted-foreground">Estado tecnico</span>
+                  <p className="text-sm font-medium">{getFormulaStatus(detail)}</p>
+                </div>
+                <div className="rounded-lg bg-muted/40 p-3">
+                  <span className="mb-1 block text-xs text-muted-foreground">
+                    Cobertura de insumos
+                  </span>
+                  <p className="text-sm font-medium">{getComponentCoverage(detail)}</p>
+                </div>
+                <div className="rounded-lg bg-muted/40 p-3 sm:col-span-2">
+                  <span className="mb-1 block text-xs text-muted-foreground">
+                    Lectura operativa
+                  </span>
+                  <p className="text-sm font-medium">
+                    {detail.activa
+                      ? "Formula disponible para planificacion y ordenes de trabajo visibles."
+                      : "Formula fuera del circuito activo, mantenida solo para consulta tecnica."}
+                  </p>
+                </div>
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No se pudo recuperar el detalle solicitado.
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailOpen(false)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Nueva fórmula de producción</DialogTitle>
+            <DialogDescription>
+              Registrá la receta técnica indicando producto final, cantidad producida y sus
+              componentes.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="codigo">Código</Label>
+                <Input
+                  id="codigo"
+                  value={draft.codigo}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, codigo: e.target.value }))}
+                  placeholder="F-001"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Si existe, conviene conservar el codigo tecnico visible para facilitar la
+                  migracion del legado.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="item-producto">Producto ID</Label>
+                <Input
+                  id="item-producto"
+                  type="number"
+                  min={1}
+                  value={draft.itemProductoId}
+                  onChange={(e) =>
+                    setDraft((prev) => ({ ...prev, itemProductoId: e.target.value }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Este ID vincula la receta con el producto final actualmente expuesto por backend.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_180px]">
+              <div className="space-y-2">
+                <Label htmlFor="descripcion">Descripción</Label>
+                <Input
+                  id="descripcion"
+                  value={draft.descripcion}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, descripcion: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  La descripcion deberia reflejar la receta o formulacion que el usuario reconocia
+                  en el sistema anterior.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cantidad-producida">Cantidad producida</Label>
+                <Input
+                  id="cantidad-producida"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={draft.cantidadProducida}
+                  onChange={(e) =>
+                    setDraft((prev) => ({ ...prev, cantidadProducida: e.target.value }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Representa el rendimiento base visible de la formula en el frontend actual.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-lg border p-3">
+              <Switch
+                id="formula-activa"
+                checked={draft.activa}
+                onCheckedChange={(checked) => setDraft((prev) => ({ ...prev, activa: checked }))}
+              />
+              <Label htmlFor="formula-activa">Fórmula activa</Label>
+            </div>
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="font-medium">Componentes</p>
+                  <p className="text-sm text-muted-foreground">
+                    Cargá IDs y cantidades de los insumos que forman la receta.
+                  </p>
+                </div>
+                <Button type="button" variant="outline" onClick={addComponent}>
+                  <Plus className="h-4 w-4" />
+                  Agregar
+                </Button>
+              </div>
+              {componentes.map((component, index) => (
+                <div key={index} className="grid gap-3 sm:grid-cols-[180px_180px_auto]">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={component.itemId}
+                    onChange={(e) => updateComponent(index, "itemId", e.target.value)}
+                    placeholder="Item ID"
+                  />
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={component.cantidad}
+                    onChange={(e) => updateComponent(index, "cantidad", e.target.value)}
+                    placeholder="Cantidad"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => removeComponent(index)}
+                    disabled={componentes.length === 1}
+                  >
+                    Quitar
+                  </Button>
+                </div>
               ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleCreate} disabled={saving}>
+              {saving ? "Guardando..." : "Crear fórmula"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

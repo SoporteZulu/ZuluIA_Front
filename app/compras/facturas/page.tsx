@@ -1,20 +1,26 @@
 "use client"
 
-import { useState } from "react"
-import { useSearchParams } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useEffect, useMemo, useState } from "react"
+import {
+  Plus,
+  Search,
+  Eye,
+  Ban,
+  FileText,
+  AlertCircle,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  ReceiptText,
+  CalendarClock,
+  Landmark,
+  Building2,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -23,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
   SelectContent,
@@ -30,819 +37,1281 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { 
-  Plus, 
-  Search, 
-  Eye, 
-  Edit, 
-  Trash2, 
-  FileText, 
-  CheckCircle, 
-  XCircle, 
-  Clock,
-  Upload,
-  Download,
-  Printer,
-  AlertCircle
-} from "lucide-react"
-import type { PurchaseDocument, PurchaseDocumentItem } from "@/lib/compras-types"
-import { useComprobantes } from "@/lib/hooks/useComprobantes"
-import { useProveedores } from "@/lib/hooks/useTerceros"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
-import type { Comprobante } from "@/lib/types/comprobantes"
+import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
+import { useItems } from "@/lib/hooks/useItems"
+import { useProveedores } from "@/lib/hooks/useTerceros"
+import type {
+  Comprobante,
+  ComprobanteDetalle,
+  EmitirComprobanteDto,
+} from "@/lib/types/comprobantes"
+import type { OrdenCompra } from "@/lib/types/configuracion"
+import type { Tercero } from "@/lib/types/terceros"
 
-export default function FacturasPage() {
-  const searchParams = useSearchParams()
-  const { comprobantes, loading, error, anular } = useComprobantes({ esCompra: true })
+function formatMoney(value: number) {
+  return value.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
+}
+
+function formatDate(value?: string | null) {
+  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+}
+
+function formatSupplierAddress(supplier?: Tercero | null) {
+  if (!supplier) return "Sin domicilio visible"
+
+  const parts = [
+    [supplier.calle, supplier.nro].filter(Boolean).join(" "),
+    supplier.piso ? `Piso ${supplier.piso}` : null,
+    supplier.dpto ? `Dto ${supplier.dpto}` : null,
+    supplier.localidadDescripcion,
+    supplier.codigoPostal,
+  ].filter(Boolean)
+
+  return parts.length > 0 ? parts.join(" · ") : "Sin domicilio visible"
+}
+
+function getDaysPastDue(value?: string | null) {
+  if (!value) return null
+  const dueDate = new Date(value)
+  const today = new Date()
+  dueDate.setHours(0, 0, 0, 0)
+  today.setHours(0, 0, 0, 0)
+  return Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function getPurchasePaymentStatus(invoice: ComprobanteDetalle) {
+  if (invoice.estado === "ANULADO") return "Comprobante anulado"
+  if (invoice.saldo <= 0 || invoice.estado === "PAGADO") return "Sin saldo pendiente"
+  if (invoice.estado === "PAGADO_PARCIAL") return "Pago parcial en curso"
+
+  const daysPastDue = getDaysPastDue(invoice.fechaVto)
+  if (daysPastDue !== null && daysPastDue > 0) {
+    return `Pendiente con ${daysPastDue} días de mora`
+  }
+
+  if (invoice.fechaVto) {
+    return `Pendiente con vencimiento ${formatDate(invoice.fechaVto)}`
+  }
+
+  return "Pendiente de pago"
+}
+
+function getPurchaseDocumentStatus(invoice: ComprobanteDetalle) {
+  if (invoice.estado === "ANULADO") return "Documento sin vigencia operativa"
+  const daysPastDue = getDaysPastDue(invoice.fechaVto)
+  if (daysPastDue !== null && daysPastDue > 0 && invoice.saldo > 0) {
+    return `Documento vencido hace ${daysPastDue} días`
+  }
+  if (invoice.fechaVto) return `Documento vigente hasta ${formatDate(invoice.fechaVto)}`
+  return "Documento registrado sin vencimiento informado"
+}
+
+const STATUS_CONFIG: Record<
+  string,
+  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
+> = {
+  BORRADOR: { label: "Borrador", variant: "secondary" },
+  EMITIDO: { label: "Registrada", variant: "default" },
+  PAGADO: { label: "Pagada", variant: "default" },
+  PAGADO_PARCIAL: { label: "Pago parcial", variant: "outline" },
+  ANULADO: { label: "Anulada", variant: "destructive" },
+}
+
+function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {fields.map((field) => (
+        <div key={field.label} className="rounded-lg bg-muted/40 p-3">
+          <span className="mb-1 block text-xs text-muted-foreground">{field.label}</span>
+          <p className="text-sm font-medium wrap-break-word">{field.value}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+type PurchaseFormItem = {
+  id: string
+  itemId: number
+  descripcion: string
+  cantidad: number
+  precioUnitario: number
+  descuento: number
+  alicuotaIvaId: number
+  alicuotaIvaPct: number
+}
+
+interface PurchaseInvoiceFormProps {
+  onClose: () => void
+  onSaved: () => void
+  emitir: (dto: EmitirComprobanteDto) => Promise<boolean>
+}
+
+function createPurchaseInvoiceFormState(defaultSucursalId: number | undefined) {
+  return {
+    sucursalId: defaultSucursalId ?? 0,
+    terceroId: 0,
+    tipoComprobanteId: 0,
+    fecha: new Date().toISOString().slice(0, 10),
+    fechaVto: null,
+    observacion: null,
+    items: [],
+  } satisfies EmitirComprobanteDto
+}
+
+function PurchaseInvoiceForm({ onClose, onSaved, emitir }: PurchaseInvoiceFormProps) {
+  const defaultSucursalId = useDefaultSucursalId()
+  const { tipos } = useComprobantesConfig()
+  const { sucursales } = useSucursales()
   const { terceros: proveedores } = useProveedores()
-  const { ordenes: ordenesCompra } = useOrdenesCompra()
-  const [facturas, setFacturas] = useState<PurchaseDocument[]>([])
-  const [searchTerm, setSearchTerm] = useState("")
-  const [filterEstado, setFilterEstado] = useState<string>("todos")
-  const [isFormOpen, setIsFormOpen] = useState(false)
-  const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [editingFactura, setEditingFactura] = useState<PurchaseDocument | null>(null)
-  const [detailFactura, setDetailFactura] = useState<Comprobante | null>(null)
+  const { items } = useItems()
+  const [tab, setTab] = useState("principal")
+  const [form, setForm] = useState<EmitirComprobanteDto>(() =>
+    createPurchaseInvoiceFormState(defaultSucursalId)
+  )
+  const [lineItems, setLineItems] = useState<PurchaseFormItem[]>([])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Form state
-  const [formData, setFormData] = useState({
-    tipo: "factura" as const,
-    numero: "",
-    puntoVenta: "",
-    letra: "A" as "A" | "B" | "C",
-    fecha: new Date().toISOString().split('T')[0],
-    fechaVencimiento: "",
-    proveedorId: "",
-    ordenCompraId: "",
-    estado: "borrador" as const,
-    divisa: "ARS" as "ARS" | "USD" | "EUR",
-    tipoCambio: 1,
-    observaciones: "",
-  })
+  const compraTypes = tipos.filter((tipo) => tipo.esCompra)
+  const effectiveSucursalId = form.sucursalId || defaultSucursalId || 0
+  const effectiveTipoComprobanteId = form.tipoComprobanteId || compraTypes[0]?.id || 0
 
-  const [formItems, setFormItems] = useState<PurchaseDocumentItem[]>([])
+  const addItem = (itemId: string) => {
+    const item = items.find((current) => current.id === Number(itemId))
+    if (!item) return
 
-  const estadoBadgeVariant: Record<string, string> = {
-    borrador: "secondary",
-    pendiente: "default",
-    aprobada: "outline",
-    pagada: "default",
-    anulada: "destructive",
-  }
-
-  const getSupplierName = (id: string | number) => {
-    const numId = Number(id)
-    return proveedores.find(p => p.id === numId)?.razonSocial || `Proveedor #${id}`
-  }
-
-  const getOCNumber = (id?: string) => {
-    if (!id) return "N/A"
-    return ordenesCompra.find(o => String(o.id) === id)?.id ? `OC #${id}` : `OC #${id}`
-  }
-
-  const filteredFacturas = comprobantes.filter(c => {
-    const matchesSearch =
-      String(c.nroComprobante ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      String(c.terceroId).includes(searchTerm)
-    const matchesEstado = filterEstado === "todos" || c.estado.toLowerCase() === filterEstado.toLowerCase()
-    return matchesSearch && matchesEstado
-  })
-
-  const handleOpenForm = (factura?: PurchaseDocument) => {
-    if (factura) {
-      setEditingFactura(factura)
-      setFormData({
-        tipo: factura.tipo,
-        numero: factura.numero,
-        puntoVenta: factura.puntoVenta,
-        letra: factura.letra,
-        fecha: new Date(factura.fecha).toISOString().split('T')[0],
-        fechaVencimiento: factura.fechaVencimiento ? new Date(factura.fechaVencimiento).toISOString().split('T')[0] : "",
-        proveedorId: factura.proveedorId,
-        ordenCompraId: factura.ordenCompraId || "",
-        estado: factura.estado,
-        divisa: factura.divisa,
-        tipoCambio: factura.tipoCambio,
-        observaciones: factura.observaciones || "",
-      })
-      setFormItems(factura.items)
-    } else {
-      setEditingFactura(null)
-      setFormData({
-        tipo: "factura",
-        numero: "",
-        puntoVenta: "",
-        letra: "A",
-        fecha: new Date().toISOString().split('T')[0],
-        fechaVencimiento: "",
-        proveedorId: "",
-        ordenCompraId: "",
-        estado: "borrador",
-        divisa: "ARS",
-        tipoCambio: 1,
-        observaciones: "",
-      })
-      setFormItems([])
-    }
-    setIsFormOpen(true)
-  }
-
-  const handleViewDetail = (factura: Comprobante) => {
-    setDetailFactura(factura)
-    setIsDetailOpen(true)
-  }
-
-  const addFormItem = () => {
-    const newItem: PurchaseDocumentItem = {
-      id: `item-${Date.now()}`,
-      descripcion: "",
-      cantidad: 1,
-      uom: "unid",
-      precioUnitario: 0,
-      descuentoPorcentaje: 0,
-      alicuotaIva: 21,
-      subtotal: 0,
-      iva: 0,
-      total: 0,
-    }
-    setFormItems([...formItems, newItem])
-  }
-
-  const removeFormItem = (index: number) => {
-    setFormItems(formItems.filter((_, i) => i !== index))
-  }
-
-  const updateFormItem = (index: number, field: keyof PurchaseDocumentItem, value: any) => {
-    const updated = [...formItems]
-    updated[index] = { ...updated[index], [field]: value }
-
-    // Recalculate totals
-    const cantidad = updated[index].cantidad
-    const precioUnitario = updated[index].precioUnitario
-    const descuento = updated[index].descuentoPorcentaje
-    const alicuota = updated[index].alicuotaIva
-
-    const subtotalSinDesc = cantidad * precioUnitario
-    const montoDescuento = subtotalSinDesc * (descuento / 100)
-    const subtotal = subtotalSinDesc - montoDescuento
-    const iva = subtotal * (alicuota / 100)
-    const total = subtotal + iva
-
-    updated[index].subtotal = subtotal
-    updated[index].iva = iva
-    updated[index].total = total
-
-    setFormItems(updated)
-  }
-
-  const calculateTotals = () => {
-    const subtotal = formItems.reduce((sum, item) => sum + item.subtotal, 0)
-    const descuento = formItems.reduce((sum, item) => {
-      const montoDesc = (item.cantidad * item.precioUnitario) * (item.descuentoPorcentaje / 100)
-      return sum + montoDesc
-    }, 0)
-    const iva21 = formItems.filter(i => i.alicuotaIva === 21).reduce((sum, item) => sum + item.iva, 0)
-    const iva105 = formItems.filter(i => i.alicuotaIva === 10.5).reduce((sum, item) => sum + item.iva, 0)
-    const iva27 = formItems.filter(i => i.alicuotaIva === 27).reduce((sum, item) => sum + item.iva, 0)
-    const total = formItems.reduce((sum, item) => sum + item.total, 0)
-
-    return { subtotal, descuento, iva21, iva105, iva27, total }
-  }
-
-  const handleSaveFactura = () => {
-    const totals = calculateTotals()
-    const newFactura: PurchaseDocument = {
-      id: editingFactura?.id || `inv-${Date.now()}`,
-      tipo: formData.tipo,
-      numero: formData.numero,
-      puntoVenta: formData.puntoVenta,
-      letra: formData.letra,
-      fecha: new Date(formData.fecha),
-      fechaVencimiento: formData.fechaVencimiento ? new Date(formData.fechaVencimiento) : undefined,
-      proveedorId: formData.proveedorId,
-      ordenCompraId: formData.ordenCompraId || undefined,
-      estado: formData.estado,
-      divisa: formData.divisa,
-      tipoCambio: formData.tipoCambio,
-      items: formItems,
-      subtotal: totals.subtotal,
-      descuento: totals.descuento,
-      iva21: totals.iva21,
-      iva105: totals.iva105,
-      iva27: totals.iva27,
-      otrosImpuestos: 0,
-      total: totals.total,
-      observaciones: formData.observaciones,
-      createdAt: editingFactura?.createdAt || new Date(),
-      updatedAt: new Date(),
+    const existing = lineItems.find((current) => current.itemId === item.id)
+    if (existing) {
+      setLineItems((prev) =>
+        prev.map((current) =>
+          current.itemId === item.id ? { ...current, cantidad: current.cantidad + 1 } : current
+        )
+      )
+      return
     }
 
-    if (editingFactura) {
-      setFacturas(facturas.map(f => f.id === editingFactura.id ? newFactura : f))
-    } else {
-      setFacturas([newFactura, ...facturas])
+    setLineItems((prev) => [
+      ...prev,
+      {
+        id: `line-${item.id}-${Date.now()}`,
+        itemId: item.id,
+        descripcion: item.descripcion,
+        cantidad: 1,
+        precioUnitario: item.precioCosto,
+        descuento: 0,
+        alicuotaIvaId: item.alicuotaIvaId,
+        alicuotaIvaPct: item.alicuotaIvaPorcentaje ?? 21,
+      },
+    ])
+  }
+
+  const updateLineItem = (id: string, key: keyof PurchaseFormItem, value: string | number) => {
+    setLineItems((prev) => prev.map((item) => (item.id === id ? { ...item, [key]: value } : item)))
+  }
+
+  const removeLineItem = (id: string) => {
+    setLineItems((prev) => prev.filter((item) => item.id !== id))
+  }
+
+  const totals = useMemo(() => {
+    return lineItems.reduce(
+      (acc, item) => {
+        const subtotal = item.cantidad * item.precioUnitario * (1 - item.descuento / 100)
+        const iva = subtotal * (item.alicuotaIvaPct / 100)
+        return {
+          subtotal: acc.subtotal + subtotal,
+          iva: acc.iva + iva,
+          total: acc.total + subtotal + iva,
+        }
+      },
+      { subtotal: 0, iva: 0, total: 0 }
+    )
+  }, [lineItems])
+
+  const handleSave = async () => {
+    if (
+      !effectiveSucursalId ||
+      !form.terceroId ||
+      !effectiveTipoComprobanteId ||
+      lineItems.length === 0
+    ) {
+      setError("Sucursal, proveedor, tipo de comprobante e ítems son obligatorios")
+      return
     }
 
-    setIsFormOpen(false)
-    setEditingFactura(null)
-  }
+    const payload: EmitirComprobanteDto = {
+      ...form,
+      sucursalId: effectiveSucursalId,
+      tipoComprobanteId: effectiveTipoComprobanteId,
+      items: lineItems.map((item) => ({
+        itemId: item.itemId,
+        descripcion: item.descripcion,
+        cantidad: item.cantidad,
+        precioUnitario: item.precioUnitario,
+        descuento: item.descuento,
+        alicuotaIvaId: item.alicuotaIvaId,
+      })),
+      observacion: form.observacion || null,
+      fechaVto: form.fechaVto || null,
+    }
 
-  const handleAprobar = (factura: PurchaseDocument) => {
-    setFacturas(facturas.map(f => 
-      f.id === factura.id 
-        ? { ...f, estado: "aprobada" as const, updatedAt: new Date() }
-        : f
-    ))
-  }
+    setSaving(true)
+    setError(null)
+    const ok = await emitir(payload)
+    setSaving(false)
 
-  const handleRechazar = (factura: PurchaseDocument) => {
-    setFacturas(facturas.map(f => 
-      f.id === factura.id 
-        ? { ...f, estado: "anulada" as const, updatedAt: new Date() }
-        : f
-    ))
+    if (ok) onSaved()
+    else setError("No se pudo registrar la factura de compra")
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-4">
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="grid h-auto w-full grid-cols-4">
+          <TabsTrigger value="principal" className="py-2 text-xs">
+            Principal
+          </TabsTrigger>
+          <TabsTrigger value="items" className="py-2 text-xs">
+            Items
+          </TabsTrigger>
+          <TabsTrigger value="totales" className="py-2 text-xs">
+            Totales
+          </TabsTrigger>
+          <TabsTrigger value="legado" className="py-2 text-xs">
+            Legado
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="principal" className="mt-4 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Sucursal</Label>
+              <Select
+                value={effectiveSucursalId ? String(effectiveSucursalId) : ""}
+                onValueChange={(value) =>
+                  setForm((prev) => ({ ...prev, sucursalId: Number(value) }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar sucursal" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sucursales.map((sucursal) => (
+                    <SelectItem key={sucursal.id} value={String(sucursal.id)}>
+                      {sucursal.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipo de comprobante</Label>
+              <Select
+                value={effectiveTipoComprobanteId ? String(effectiveTipoComprobanteId) : ""}
+                onValueChange={(value) =>
+                  setForm((prev) => ({ ...prev, tipoComprobanteId: Number(value) }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {compraTypes.map((tipo) => (
+                    <SelectItem key={tipo.id} value={String(tipo.id)}>
+                      {tipo.codigo} · {tipo.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Proveedor</Label>
+              <Select
+                value={form.terceroId ? String(form.terceroId) : ""}
+                onValueChange={(value) =>
+                  setForm((prev) => ({ ...prev, terceroId: Number(value) }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar proveedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {proveedores.map((proveedor) => (
+                    <SelectItem key={proveedor.id} value={String(proveedor.id)}>
+                      {proveedor.razonSocial}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fecha</Label>
+              <Input
+                type="date"
+                value={form.fecha}
+                onChange={(event) => setForm((prev) => ({ ...prev, fecha: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fecha Vencimiento</Label>
+              <Input
+                type="date"
+                value={form.fechaVto ?? ""}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, fechaVto: event.target.value || null }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Observación</Label>
+              <Textarea
+                value={form.observacion ?? ""}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, observacion: event.target.value || null }))
+                }
+                rows={4}
+              />
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="items" className="mt-4 space-y-4">
+          <div className="space-y-1.5">
+            <Label>Agregar ítem</Label>
+            <Select value="__none__" onValueChange={addItem}>
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar producto o servicio" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Seleccionar producto o servicio</SelectItem>
+                {items.map((item) => (
+                  <SelectItem key={item.id} value={String(item.id)}>
+                    {item.codigo} · {item.descripcion}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Descripción</TableHead>
+                <TableHead className="text-right">Cantidad</TableHead>
+                <TableHead className="text-right">Costo Unitario</TableHead>
+                <TableHead className="text-right">Desc. %</TableHead>
+                <TableHead className="text-right">IVA %</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lineItems.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    Agregue ítems para registrar la factura.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                lineItems.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>{item.descripcion}</TableCell>
+                    <TableCell className="text-right">
+                      <Input
+                        className="ml-auto w-20 text-right"
+                        type="number"
+                        min={1}
+                        value={item.cantidad}
+                        onChange={(event) =>
+                          updateLineItem(
+                            item.id,
+                            "cantidad",
+                            Math.max(1, Number(event.target.value) || 1)
+                          )
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Input
+                        className="ml-auto w-28 text-right"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={item.precioUnitario}
+                        onChange={(event) =>
+                          updateLineItem(
+                            item.id,
+                            "precioUnitario",
+                            parseFloat(event.target.value) || 0
+                          )
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Input
+                        className="ml-auto w-24 text-right"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.01}
+                        value={item.descuento}
+                        onChange={(event) =>
+                          updateLineItem(item.id, "descuento", parseFloat(event.target.value) || 0)
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">{item.alicuotaIvaPct.toFixed(2)}%</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}>
+                        <Ban className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TabsContent>
+
+        <TabsContent value="totales" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Resumen de compra</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span>{formatMoney(totals.subtotal)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">IVA</span>
+                <span>{formatMoney(totals.iva)}</span>
+              </div>
+              <div className="flex justify-between border-t pt-3 text-base font-semibold">
+                <span>Total</span>
+                <span>{formatMoney(totals.total)}</span>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="legado" className="mt-4 space-y-4">
+          <Card>
+            <CardContent className="pt-6 text-sm text-muted-foreground">
+              El circuito legado de compras incluía imputaciones, asociación a órdenes, validación
+              fiscal extendida y control documental por recepción. Esta etapa deja estable el alta
+              real del comprobante y reserva esos bloques para profundización posterior.
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {error && (
+        <p className="flex items-center gap-1 text-sm text-red-500">
+          <AlertCircle className="h-4 w-4" />
+          {error}
+        </p>
+      )}
+
+      <div className="flex justify-end gap-2 border-t pt-3">
+        <Button variant="outline" className="bg-transparent" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Registrando..." : "Registrar factura"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function PurchaseInvoiceDetail({
+  invoice,
+  supplierName,
+  supplier,
+  typeName,
+  sucursalName,
+  relatedOrder,
+}: {
+  invoice: ComprobanteDetalle
+  supplierName: string
+  supplier?: Tercero | null
+  typeName: string
+  sucursalName: string
+  relatedOrder: OrdenCompra | null
+}) {
+  const principalFields = [
+    { label: "Comprobante", value: invoice.nroComprobante ?? `#${invoice.id}` },
+    { label: "Tipo", value: typeName },
+    { label: "Proveedor", value: supplierName },
+    { label: "Sucursal", value: sucursalName },
+    { label: "Fecha", value: formatDate(invoice.fecha) },
+    { label: "Fecha Vencimiento", value: formatDate(invoice.fechaVto) },
+    { label: "Estado", value: STATUS_CONFIG[invoice.estado]?.label ?? invoice.estado },
+    { label: "Observación", value: invoice.observacion ?? "-" },
+  ]
+
+  const fiscalFields = [
+    { label: "Neto Gravado", value: formatMoney(invoice.netoGravado) },
+    { label: "Neto No Gravado", value: formatMoney(invoice.netoNoGravado) },
+    { label: "IVA RI", value: formatMoney(invoice.ivaRi) },
+    { label: "IVA RNI", value: formatMoney(invoice.ivaRni) },
+    { label: "Saldo", value: formatMoney(invoice.saldo) },
+    { label: "Total", value: formatMoney(invoice.total) },
+    { label: "CAE", value: invoice.cae ?? "-" },
+    { label: "Vto. CAE", value: formatDate(invoice.caeFechaVto) },
+  ]
+
+  const operationalFields = [
+    { label: "Estado documental", value: getPurchaseDocumentStatus(invoice) },
+    { label: "Estado de pago", value: getPurchasePaymentStatus(invoice) },
+    { label: "Total registrado", value: formatMoney(invoice.total) },
+    { label: "Saldo actual", value: formatMoney(invoice.saldo) },
+    {
+      label: "CAE / autorización",
+      value: invoice.cae ? `CAE ${invoice.cae}` : "Sin CAE informado",
+    },
+    {
+      label: "Relación con orden",
+      value: relatedOrder ? `OC-${relatedOrder.id} vinculada` : "Sin OC vinculada",
+    },
+  ]
+
+  const supplierFields = [
+    { label: "Razón social", value: supplierName },
+    { label: "Nombre fantasía", value: supplier?.nombreFantasia ?? "-" },
+    { label: "CUIT / Documento", value: supplier?.nroDocumento ?? "-" },
+    { label: "Condición IVA", value: supplier?.condicionIvaDescripcion ?? "-" },
+    { label: "Domicilio", value: formatSupplierAddress(supplier) },
+    {
+      label: "Canales",
+      value:
+        [supplier?.telefono, supplier?.celular, supplier?.email].filter(Boolean).join(" · ") ||
+        "Sin canales visibles",
+    },
+  ]
+
+  return (
+    <Tabs defaultValue="principal" className="w-full">
+      <TabsList className="grid w-full grid-cols-5">
+        <TabsTrigger value="principal">Principal</TabsTrigger>
+        <TabsTrigger value="items">Items</TabsTrigger>
+        <TabsTrigger value="fiscal">Fiscal</TabsTrigger>
+        <TabsTrigger value="trazabilidad">Trazabilidad</TabsTrigger>
+        <TabsTrigger value="legado">Legado</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="principal" className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Building2 className="h-4 w-4" /> Cabecera de compra
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DetailFieldGrid fields={principalFields} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Landmark className="h-4 w-4" /> Proveedor vinculado
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DetailFieldGrid fields={supplierFields} />
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="items" className="space-y-4">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Descripción</TableHead>
+              <TableHead className="text-right">Cantidad</TableHead>
+              <TableHead className="text-right">Precio Unitario</TableHead>
+              <TableHead className="text-right">Descuento</TableHead>
+              <TableHead className="text-right">Alic. IVA</TableHead>
+              <TableHead className="text-right">Subtotal</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {invoice.items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                  Este comprobante no devolvió detalle de ítems.
+                </TableCell>
+              </TableRow>
+            ) : (
+              invoice.items.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell>{item.descripcion}</TableCell>
+                  <TableCell className="text-right">{item.cantidad}</TableCell>
+                  <TableCell className="text-right">{formatMoney(item.precioUnitario)}</TableCell>
+                  <TableCell className="text-right">
+                    {item.descuento ? `${item.descuento}%` : "-"}
+                  </TableCell>
+                  <TableCell className="text-right">{item.alicuotaIvaPct}%</TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {formatMoney(item.subtotal)}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TabsContent>
+
+      <TabsContent value="fiscal" className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ReceiptText className="h-4 w-4" /> Datos fiscales
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DetailFieldGrid fields={fiscalFields} />
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="trazabilidad" className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarClock className="h-4 w-4" /> Estado operativo actual
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DetailFieldGrid fields={operationalFields} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileText className="h-4 w-4" /> Relación con órdenes
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {relatedOrder ? (
+              <DetailFieldGrid
+                fields={[
+                  { label: "Orden vinculada", value: `OC-${relatedOrder.id}` },
+                  { label: "Estado de la orden", value: relatedOrder.estadoOc },
+                  {
+                    label: "Entrega requerida",
+                    value: formatDate(relatedOrder.fechaEntregaReq),
+                  },
+                  {
+                    label: "Habilitada para recepción",
+                    value: relatedOrder.habilitada ? "Sí" : "No",
+                  },
+                  {
+                    label: "Condiciones de entrega",
+                    value: relatedOrder.condicionesEntrega ?? "-",
+                  },
+                  {
+                    label: "Comprobante relacionado",
+                    value: `#${relatedOrder.comprobanteId}`,
+                  },
+                ]}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Esta factura no tiene una orden de compra vinculada por `comprobanteId` en el
+                backend actual.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="legado" className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Landmark className="h-4 w-4" /> Bloques reservados
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2 text-sm text-muted-foreground">
+            <div className="rounded-lg border p-4">
+              Esta etapa ya deja visible el estado documental, fiscal y de saldo; siguen pendientes
+              imputaciones contables, centros de costo y validación de recepción avanzada.
+            </div>
+            <div className="rounded-lg border p-4">
+              Retenciones, prorrateos y circuito documental ampliado del legacy de compras quedan
+              reservados para la siguiente fase.
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+    </Tabs>
+  )
+}
+
+export default function FacturasComprasPage() {
+  const {
+    comprobantes,
+    loading,
+    error,
+    totalPages,
+    page,
+    setPage,
+    emitir,
+    anular,
+    getById,
+    refetch,
+  } = useComprobantes({ esCompra: true })
+  const { tipos } = useComprobantesConfig()
+  const { ordenes } = useOrdenesCompra()
+  const { sucursales } = useSucursales()
+  const { terceros: proveedores } = useProveedores()
+  const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState("todos")
+  const [typeFilter, setTypeFilter] = useState("todos")
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [selectedInvoice, setSelectedInvoice] = useState<Comprobante | null>(null)
+  const [detailInvoice, setDetailInvoice] = useState<ComprobanteDetalle | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  const [isDetailOpen, setIsDetailOpen] = useState(false)
+
+  const compraTypes = useMemo(() => tipos.filter((tipo) => tipo.esCompra), [tipos])
+  const ordenesByComprobanteId = useMemo(
+    () => new Map(ordenes.map((order) => [order.comprobanteId, order])),
+    [ordenes]
+  )
+
+  const getSupplierName = (terceroId: number) =>
+    proveedores.find((proveedor) => proveedor.id === terceroId)?.razonSocial ?? `#${terceroId}`
+  const getTypeName = (tipoId: number, fallback?: string) =>
+    tipos.find((tipo) => tipo.id === tipoId)?.descripcion ?? fallback ?? `#${tipoId}`
+  const getSucursalName = (sucursalId: number) =>
+    sucursales.find((sucursal) => sucursal.id === sucursalId)?.descripcion ?? `#${sucursalId}`
+
+  const filtered = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim()
+    return comprobantes.filter((invoice) => {
+      const typeName = getTypeName(
+        invoice.tipoComprobanteId,
+        invoice.tipoComprobanteDescripcion
+      ).toLowerCase()
+      const supplierName = getSupplierName(invoice.terceroId).toLowerCase()
+      const matchesSearch =
+        term === "" ||
+        (invoice.nroComprobante ?? String(invoice.id)).toLowerCase().includes(term) ||
+        supplierName.includes(term) ||
+        typeName.includes(term)
+
+      const matchesStatus = statusFilter === "todos" || invoice.estado === statusFilter
+      const matchesType = typeFilter === "todos" || String(invoice.tipoComprobanteId) === typeFilter
+
+      return matchesSearch && matchesStatus && matchesType
+    })
+  }, [comprobantes, proveedores, searchTerm, statusFilter, typeFilter, tipos])
+
+  const kpis = {
+    total: comprobantes.length,
+    registradas: comprobantes.filter((invoice) => invoice.estado === "EMITIDO").length,
+    pagadas: comprobantes.filter((invoice) => invoice.estado === "PAGADO").length,
+    anuladas: comprobantes.filter((invoice) => invoice.estado === "ANULADO").length,
+    vinculadasOc: comprobantes.filter((invoice) => ordenesByComprobanteId.has(invoice.id)).length,
+    saldoPendiente: comprobantes
+      .filter((invoice) => invoice.estado !== "PAGADO" && invoice.estado !== "ANULADO")
+      .reduce((sum, invoice) => sum + invoice.saldo, 0),
+  }
+
+  useEffect(() => {
+    if (!selectedInvoice) return
+
+    const nextSelected = comprobantes.find((invoice) => invoice.id === selectedInvoice.id) ?? null
+
+    if (!nextSelected) {
+      setSelectedInvoice(null)
+      setIsDetailOpen(false)
+      setDetailInvoice(null)
+      return
+    }
+
+    if (nextSelected !== selectedInvoice) {
+      setSelectedInvoice(nextSelected)
+    }
+  }, [comprobantes, selectedInvoice])
+
+  const highlightedInvoice =
+    selectedInvoice && filtered.some((invoice) => invoice.id === selectedInvoice.id)
+      ? selectedInvoice
+      : (filtered[0] ?? null)
+  const highlightedSupplier = highlightedInvoice
+    ? (proveedores.find((proveedor) => proveedor.id === highlightedInvoice.terceroId) ?? null)
+    : null
+  const highlightedOrder = highlightedInvoice
+    ? (ordenesByComprobanteId.get(highlightedInvoice.id) ?? null)
+    : null
+  const vencidas = filtered.filter((invoice) => {
+    const daysPastDue = getDaysPastDue(invoice.fechaVto)
+    return (
+      daysPastDue !== null && daysPastDue > 0 && invoice.estado !== "ANULADO" && invoice.saldo > 0
+    )
+  }).length
+  const highlightedFields = highlightedInvoice
+    ? [
+        {
+          label: "Proveedor",
+          value: highlightedSupplier?.razonSocial ?? `#${highlightedInvoice.terceroId}`,
+        },
+        {
+          label: "Tipo",
+          value: getTypeName(
+            highlightedInvoice.tipoComprobanteId,
+            highlightedInvoice.tipoComprobanteDescripcion
+          ),
+        },
+        { label: "Vencimiento", value: formatDate(highlightedInvoice.fechaVto) },
+        { label: "Saldo", value: formatMoney(highlightedInvoice.saldo) },
+        {
+          label: "Estado documental",
+          value: getPurchaseDocumentStatus(highlightedInvoice as ComprobanteDetalle),
+        },
+        { label: "Domicilio proveedor", value: formatSupplierAddress(highlightedSupplier) },
+      ]
+    : []
+
+  const loadDetail = async (invoice: Comprobante) => {
+    setSelectedInvoice(invoice)
+    setIsDetailOpen(true)
+    setLoadingDetail(true)
+    const detail = await getById(invoice.id)
+    setDetailInvoice(detail)
+    setLoadingDetail(false)
+  }
+
+  const handleSaved = async () => {
+    setIsFormOpen(false)
+    await refetch()
+  }
+
+  const handleAnnul = async (invoice: Comprobante) => {
+    if (!window.confirm(`¿Anular la factura ${invoice.nroComprobante ?? invoice.id}?`)) return
+    await anular(invoice.id, false)
+    await refetch()
+    if (selectedInvoice?.id === invoice.id) {
+      const detail = await getById(invoice.id)
+      setDetailInvoice(detail)
+    }
+  }
+
+  return (
+    <div className="space-y-6 pb-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Facturas de Compra</h1>
-          <p className="text-muted-foreground">Gestión de facturas recibidas de proveedores</p>
+          <h1 className="text-3xl font-bold tracking-tight">Facturas de Compra</h1>
+          <p className="text-muted-foreground">
+            Registro real de comprobantes de proveedores, control de saldo y detalle fiscal sobre la
+            API actual.
+          </p>
         </div>
-        <Button onClick={() => handleOpenForm()}>
-          <Plus className="h-4 w-4 mr-2" />
+        <Button onClick={() => setIsFormOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
           Nueva Factura
         </Button>
       </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-5">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Facturas</CardDescription>
-            <CardTitle className="text-2xl">{comprobantes.length}</CardTitle>
+            <CardTitle className="text-sm font-medium">Total</CardTitle>
           </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{kpis.total}</div>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Emitidas</CardDescription>
-            <CardTitle className="text-2xl text-orange-600">
-              {comprobantes.filter(c => c.estado === 'EMITIDO').length}
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Registradas</CardTitle>
           </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{kpis.registradas}</div>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Pagadas</CardDescription>
-            <CardTitle className="text-2xl text-green-600">
-              {comprobantes.filter(c => c.estado === 'PAGADO').length}
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Pagadas</CardTitle>
           </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{kpis.pagadas}</div>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total a Pagar</CardDescription>
-            <CardTitle className="text-2xl">
-              ${comprobantes.filter(c => c.estado === 'EMITIDO').reduce((s, c) => s + c.saldo, 0).toLocaleString('es-AR')}
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Saldo pendiente</CardTitle>
           </CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold">{formatMoney(kpis.saldoPendiente)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Con OC vinculada</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-primary">{kpis.vinculadasOc}</div>
+          </CardContent>
         </Card>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por número o proveedor..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
+      {highlightedInvoice ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Factura destacada</CardTitle>
+            <CardDescription>
+              {highlightedInvoice.nroComprobante ?? `#${highlightedInvoice.id}`} ·{" "}
+              {highlightedSupplier?.razonSocial ?? `Proveedor #${highlightedInvoice.terceroId}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                variant={
+                  (STATUS_CONFIG[highlightedInvoice.estado]?.variant ?? "outline") as
+                    | "default"
+                    | "secondary"
+                    | "outline"
+                    | "destructive"
+                }
+              >
+                {STATUS_CONFIG[highlightedInvoice.estado]?.label ?? highlightedInvoice.estado}
+              </Badge>
+              {highlightedOrder ? <Badge variant="outline">OC-{highlightedOrder.id}</Badge> : null}
+              <Badge variant="outline">
+                {getPurchasePaymentStatus(highlightedInvoice as ComprobanteDetalle)}
+              </Badge>
+            </div>
+
+            <DetailFieldGrid fields={highlightedFields} />
+
+            <div className="grid gap-4 md:grid-cols-3 text-sm text-muted-foreground">
+              <div className="rounded-lg border p-4">
+                Facturas vencidas con saldo dentro del filtro actual: {vencidas}.
+              </div>
+              <div className="rounded-lg border p-4">
+                Saldo pendiente consolidado: {formatMoney(kpis.saldoPendiente)}.
+              </div>
+              <div className="rounded-lg border p-4">
+                Observación proveedor:{" "}
+                {highlightedSupplier?.observacion ?? "Sin observaciones visibles"}.
               </div>
             </div>
-            <Select value={filterEstado} onValueChange={setFilterEstado}>
-              <SelectTrigger className="w-[200px]">
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Filtros</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-[1fr_240px_220px_auto]">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por comprobante, proveedor o tipo..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los tipos</SelectItem>
+                {compraTypes.map((tipo) => (
+                  <SelectItem key={tipo.id} value={String(tipo.id)}>
+                    {tipo.codigo} · {tipo.descripcion}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger>
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Todos los estados</SelectItem>
-                <SelectItem value="borrador">Borrador</SelectItem>
-                <SelectItem value="pendiente">Pendiente</SelectItem>
-                <SelectItem value="aprobada">Aprobada</SelectItem>
-                <SelectItem value="pagada">Pagada</SelectItem>
-                <SelectItem value="anulada">Anulada</SelectItem>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="BORRADOR">Borrador</SelectItem>
+                <SelectItem value="EMITIDO">Registrada</SelectItem>
+                <SelectItem value="PAGADO">Pagada</SelectItem>
+                <SelectItem value="PAGADO_PARCIAL">Pago parcial</SelectItem>
+                <SelectItem value="ANULADO">Anulada</SelectItem>
               </SelectContent>
             </Select>
+            <Button variant="outline" className="bg-transparent" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Recargar
+            </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Comprobantes de compra ({filtered.length})</CardTitle>
+          <CardDescription>
+            La vista deja operativo el alta real y reserva los bloques heredados de imputación y
+            control documental ampliado.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex justify-center py-10">
-              <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
-            </div>
-          ) : error ? (
-            <p className="text-center py-8 text-red-600 text-sm">{error}</p>
-          ) : (
+        <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Número</TableHead>
-                <TableHead>Fecha</TableHead>
+                <TableHead>Comprobante</TableHead>
+                <TableHead>Tipo</TableHead>
                 <TableHead>Proveedor</TableHead>
+                <TableHead>Fecha</TableHead>
+                <TableHead>Vencimiento</TableHead>
+                <TableHead>OC</TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead>Circuito</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Saldo</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredFacturas.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Sin facturas de compra.</TableCell></TableRow>
-              ) : filteredFacturas.map((factura) => (
-                <TableRow
-                  key={factura.id}
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => { setDetailFactura(factura); setIsDetailOpen(true) }}
-                >
-                  <TableCell className="font-medium font-mono">
-                    {factura.nroComprobante ?? `#${factura.id}`}
-                  </TableCell>
-                  <TableCell>{new Date(factura.fecha).toLocaleDateString('es-AR')}</TableCell>
-                  <TableCell className="text-muted-foreground">Proveedor #{factura.terceroId}</TableCell>
-                  <TableCell>
-                    <Badge variant={factura.estado === 'ANULADO' ? 'destructive' : factura.estado === 'PAGADO' ? 'secondary' : 'default'}>
-                      {factura.estado}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right font-medium">
-                    ${factura.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    ${factura.saldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                  </TableCell>
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => { setDetailFactura(factura); setIsDetailOpen(true) }} title="Ver detalle">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      {factura.estado !== 'ANULADO' && (
-                        <Button variant="ghost" size="icon" title="Anular" onClick={() => anular(factura.id)}>
-                          <XCircle className="h-4 w-4 text-destructive" />
-                        </Button>
-                      )}
-                    </div>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">
+                    <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                    Cargando comprobantes...
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">
+                    <FileText className="mx-auto mb-2 h-8 w-8 opacity-50" />
+                    No se encontraron facturas de compra.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((invoice) => {
+                  const status = STATUS_CONFIG[invoice.estado] ?? {
+                    label: invoice.estado,
+                    variant: "outline" as const,
+                  }
+
+                  return (
+                    <TableRow
+                      key={invoice.id}
+                      className="cursor-pointer hover:bg-muted/40"
+                      onClick={() => loadDetail(invoice)}
+                    >
+                      <TableCell className="font-mono font-semibold">
+                        {invoice.nroComprobante ?? `#${invoice.id}`}
+                      </TableCell>
+                      <TableCell>
+                        {getTypeName(invoice.tipoComprobanteId, invoice.tipoComprobanteDescripcion)}
+                      </TableCell>
+                      <TableCell>{getSupplierName(invoice.terceroId)}</TableCell>
+                      <TableCell>{formatDate(invoice.fecha)}</TableCell>
+                      <TableCell>{formatDate(invoice.fechaVto)}</TableCell>
+                      <TableCell>
+                        {ordenesByComprobanteId.has(invoice.id)
+                          ? `OC-${ordenesByComprobanteId.get(invoice.id)?.id}`
+                          : "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={status.variant}>{status.label}</Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {getPurchasePaymentStatus(invoice as ComprobanteDetalle)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatMoney(invoice.total)}
+                      </TableCell>
+                      <TableCell className="text-right">{formatMoney(invoice.saldo)}</TableCell>
+                      <TableCell
+                        className="text-right"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => loadDetail(invoice)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {invoice.estado !== "ANULADO" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleAnnul(invoice)}
+                            >
+                              <Ban className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
             </TableBody>
           </Table>
-          )}
         </CardContent>
       </Card>
 
-      {/* Form Dialog */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Página {page} de {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= totalPages}
+            onClick={() => setPage(page + 1)}
+          >
+            Siguiente
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Building2 className="h-4 w-4" /> Registro proveedor
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {kpis.total} comprobantes registrados con proveedor, tipo y detalle real de ítems sobre
+            la API actual.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarClock className="h-4 w-4" /> Control de saldo
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {kpis.pagadas} pagadas, {kpis.registradas} registradas y{" "}
+            {
+              comprobantes.filter((invoice) => invoice.saldo > 0 && invoice.estado !== "ANULADO")
+                .length
+            }{" "}
+            con saldo pendiente dentro del contrato actual.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Landmark className="h-4 w-4" /> Segunda fase
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {kpis.vinculadasOc} facturas ya muestran vínculo con OC; quedan listos para integrar
+            imputaciones, recepción contra OC, retenciones y prorrateos.
+          </CardContent>
+        </Card>
+      </div>
+
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-[95vw] w-[1400px] max-h-[95vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingFactura ? 'Editar' : 'Nueva'} Factura de Compra</DialogTitle>
+            <DialogTitle>Nueva factura de compra</DialogTitle>
             <DialogDescription>
-              {editingFactura ? `Editando factura ${editingFactura.numero}` : 'Complete los datos para registrar una nueva factura'}
+              Registro real del comprobante de proveedor sobre la API unificada de comprobantes.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-6">
-            {/* Datos de la Factura */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Datos de la Factura</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-4 gap-4">
-                  <div>
-                    <Label>Letra</Label>
-                    <Select
-                      value={formData.letra}
-                      onValueChange={(value: "A" | "B" | "C") => setFormData({...formData, letra: value})}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="A">A</SelectItem>
-                        <SelectItem value="B">B</SelectItem>
-                        <SelectItem value="C">C</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Punto de Venta</Label>
-                    <Input
-                      value={formData.puntoVenta}
-                      onChange={(e) => setFormData({...formData, puntoVenta: e.target.value})}
-                      placeholder="00001"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Label>Número</Label>
-                    <Input
-                      value={formData.numero}
-                      onChange={(e) => setFormData({...formData, numero: e.target.value})}
-                      placeholder="00012345"
-                    />
-                  </div>
-                  <div>
-                    <Label>Fecha</Label>
-                    <Input
-                      type="date"
-                      value={formData.fecha}
-                      onChange={(e) => setFormData({...formData, fecha: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <Label>Fecha Vencimiento</Label>
-                    <Input
-                      type="date"
-                      value={formData.fechaVencimiento}
-                      onChange={(e) => setFormData({...formData, fechaVencimiento: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <Label>Divisa</Label>
-                    <Select
-                      value={formData.divisa}
-                      onValueChange={(value: "ARS" | "USD" | "EUR") => setFormData({...formData, divisa: value})}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccione un proveedor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ARS">ARS</SelectItem>
-                        <SelectItem value="USD">USD</SelectItem>
-                        <SelectItem value="EUR">EUR</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Tipo de Cambio</Label>
-                    <Input
-                      type="number"
-                      value={formData.tipoCambio}
-                      onChange={(e) => setFormData({...formData, tipoCambio: Number(e.target.value)})}
-                      step="0.01"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Label>Proveedor</Label>
-                    <Select
-                      value={formData.proveedorId}
-                      onValueChange={(value) => setFormData({...formData, proveedorId: value})}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccione un proveedor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {proveedores.map((p) => (
-                          <SelectItem key={p.id} value={String(p.id)}>
-                            {p.razonSocial}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-2">
-                    <Label>Orden de Compra (opcional)</Label>
-                    <Select
-                      value={formData.ordenCompraId || '__none__'}
-                      onValueChange={(value) => setFormData({...formData, ordenCompraId: value !== '__none__' ? value : ''})}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccione una OC" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Sin OC</SelectItem>
-                        {ordenesCompra.map((orden) => (
-                          <SelectItem key={orden.id} value={String(orden.id)}>
-                            OC #{orden.id} — Proveedor #{orden.proveedorId}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Items */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Items de la Factura</CardTitle>
-                  <Button type="button" variant="outline" size="sm" onClick={addFormItem}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Agregar Item
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="border rounded-lg overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="min-w-[300px]">Descripción</TableHead>
-                        <TableHead className="w-[120px]">Cantidad</TableHead>
-                        <TableHead className="w-[100px]">UOM</TableHead>
-                        <TableHead className="w-[140px]">Precio Unit.</TableHead>
-                        <TableHead className="w-[110px]">Desc. %</TableHead>
-                        <TableHead className="w-[110px]">IVA</TableHead>
-                        <TableHead className="w-[150px] text-right">Subtotal</TableHead>
-                        <TableHead className="w-[60px]"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {formItems.map((item, index) => (
-                        <TableRow key={item.id}>
-                          <TableCell>
-                            <Input
-                              value={item.descripcion}
-                              onChange={(e) => updateFormItem(index, 'descripcion', e.target.value)}
-                              placeholder="Descripción del producto/servicio"
-                              className="min-w-[280px]"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={item.cantidad}
-                              onChange={(e) => updateFormItem(index, 'cantidad', Number(e.target.value))}
-                              min="1"
-                              className="w-full"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={item.uom}
-                              onChange={(e) => updateFormItem(index, 'uom', e.target.value)}
-                              placeholder="unid"
-                              className="w-full"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={item.precioUnitario}
-                              onChange={(e) => updateFormItem(index, 'precioUnitario', Number(e.target.value))}
-                              min="0"
-                              step="0.01"
-                              placeholder="0.00"
-                              className="w-full text-right"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={item.descuentoPorcentaje}
-                              onChange={(e) => updateFormItem(index, 'descuentoPorcentaje', Number(e.target.value))}
-                              min="0"
-                              max="100"
-                              placeholder="0"
-                              className="w-full text-right"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Select
-                              value={item.alicuotaIva.toString()}
-                              onValueChange={(value) => updateFormItem(index, 'alicuotaIva', Number(value))}
-                            >
-                              <SelectTrigger className="w-full">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="0">0%</SelectItem>
-                                <SelectItem value="10.5">10.5%</SelectItem>
-                                <SelectItem value="21">21%</SelectItem>
-                                <SelectItem value="27">27%</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            ${item.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => removeFormItem(index)}
-                              className="h-8 w-8"
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {formItems.length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                            No hay items agregados. Haga clic en "Agregar Item" para comenzar.
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Observaciones */}
-            <div>
-              <Label>Observaciones</Label>
-              <Textarea
-                value={formData.observaciones}
-                onChange={(e) => setFormData({...formData, observaciones: e.target.value})}
-                placeholder="Observaciones adicionales sobre la factura..."
-                rows={3}
-              />
-            </div>
-
-            {/* Totales */}
-            <div className="border-t pt-6 bg-muted/30 -mx-6 px-6 py-4">
-              <div className="flex justify-end">
-                <div className="w-[400px] space-y-3 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Subtotal:</span>
-                    <span className="font-semibold text-base">
-                      ${calculateTotals().subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Descuento:</span>
-                    <span className="font-semibold text-base text-orange-600">
-                      -${calculateTotals().descuento.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  {calculateTotals().iva21 > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">IVA 21%:</span>
-                      <span className="font-semibold text-base">
-                        ${calculateTotals().iva21.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-                  {calculateTotals().iva105 > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">IVA 10.5%:</span>
-                      <span className="font-semibold text-base">
-                        ${calculateTotals().iva105.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-                  {calculateTotals().iva27 > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">IVA 27%:</span>
-                      <span className="font-semibold text-base">
-                        ${calculateTotals().iva27.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between items-center text-lg font-bold border-t pt-3 mt-2">
-                    <span>Total:</span>
-                    <span className="text-primary">
-                      ${calculateTotals().total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsFormOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSaveFactura} disabled={formItems.length === 0 || !formData.proveedorId || !formData.numero}>
-              {editingFactura ? 'Guardar Cambios' : 'Crear Factura'}
-            </Button>
-          </DialogFooter>
+          <PurchaseInvoiceForm
+            key={`purchase-invoice-${isFormOpen ? "open" : "closed"}-${compraTypes[0]?.id ?? 0}`}
+            onClose={() => setIsFormOpen(false)}
+            onSaved={handleSaved}
+            emitir={emitir}
+          />
         </DialogContent>
       </Dialog>
 
-      {/* Detail Dialog */}
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              Detalle de Factura
-              <Badge variant={detailFactura ? estadoBadgeVariant[detailFactura.estado] as any : "secondary"}>
-                {detailFactura?.estado}
-              </Badge>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              {selectedInvoice?.nroComprobante ?? "Detalle de factura"}
             </DialogTitle>
             <DialogDescription>
-              {detailFactura?.nroComprobante ?? `#${detailFactura?.id}`} — {detailFactura && getSupplierName(detailFactura.terceroId)}
+              {selectedInvoice ? getSupplierName(selectedInvoice.terceroId) : "Cargando..."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-6">
-            {/* Información General */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Información General</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Proveedor</span>
-                    <p className="font-medium">{detailFactura && getSupplierName(detailFactura.terceroId)}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Nro. Comprobante</span>
-                    <p className="font-medium font-mono">{detailFactura?.nroComprobante ?? `#${detailFactura?.id}`}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Tipo</span>
-                    <p className="font-medium">{detailFactura?.tipoComprobanteDescripcion ?? '-'}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Fecha Emisión</span>
-                    <p className="font-medium">
-                      {detailFactura ? new Date(detailFactura.fecha).toLocaleDateString('es-AR') : '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Fecha Vencimiento</span>
-                    <p className="font-medium">
-                      {detailFactura?.fechaVto 
-                        ? new Date(detailFactura.fechaVto).toLocaleDateString('es-AR') 
-                        : '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">CAE</span>
-                    <p className="font-medium font-mono text-xs">{detailFactura?.cae ?? '-'}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
 
-            {/* Importes */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Importes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  {[
-                    ['Neto Gravado',    detailFactura?.netoGravado],
-                    ['Neto No Gravado', detailFactura?.netoNoGravado],
-                    ['IVA RI',          detailFactura?.ivaRi],
-                    ['IVA RNI',         detailFactura?.ivaRni],
-                    ['Total',           detailFactura?.total],
-                    ['Saldo',           detailFactura?.saldo],
-                  ].map(([k, v]) => (
-                    <div key={k as string} className="p-3 rounded-lg bg-muted/50">
-                      <span className="text-xs text-muted-foreground block mb-0.5">{k}</span>
-                      <p className="font-medium">${(v as number ?? 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+          {loadingDetail ? (
+            <div className="py-12 text-center text-muted-foreground">
+              <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+              Cargando detalle...
+            </div>
+          ) : detailInvoice && selectedInvoice ? (
+            <PurchaseInvoiceDetail
+              invoice={detailInvoice}
+              supplierName={getSupplierName(selectedInvoice.terceroId)}
+              supplier={
+                proveedores.find((proveedor) => proveedor.id === selectedInvoice.terceroId) ?? null
+              }
+              typeName={getTypeName(
+                selectedInvoice.tipoComprobanteId,
+                selectedInvoice.tipoComprobanteDescripcion
+              )}
+              sucursalName={getSucursalName(selectedInvoice.sucursalId)}
+              relatedOrder={ordenesByComprobanteId.get(selectedInvoice.id) ?? null}
+            />
+          ) : (
+            <p className="py-8 text-center text-muted-foreground">
+              No se pudo cargar el detalle del comprobante.
+            </p>
+          )}
 
-            {/* Observaciones */}
-            {detailFactura?.observacion && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Observaciones</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm">{detailFactura.observacion}</p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="bg-transparent"
+              onClick={() => setIsDetailOpen(false)}
+            >
               Cerrar
             </Button>
-            <Button variant="outline">
-              <Printer className="h-4 w-4 mr-2" />
-              Imprimir
-            </Button>
-            <Button variant="outline">
-              <Download className="h-4 w-4 mr-2" />
-              Descargar PDF
-            </Button>
-            {detailFactura && detailFactura.estado !== 'ANULADO' && (
-              <Button
-                variant="destructive"
-                onClick={async () => {
-                  await anular(detailFactura.id)
-                  setIsDetailOpen(false)
-                }}
-              >
+            {selectedInvoice && selectedInvoice.estado !== "ANULADO" && (
+              <Button variant="destructive" onClick={() => handleAnnul(selectedInvoice)}>
+                <Ban className="mr-2 h-4 w-4" />
                 Anular
               </Button>
             )}

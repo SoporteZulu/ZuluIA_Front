@@ -1,95 +1,199 @@
-'use client'
+"use client"
 
-import React, { useState, useMemo } from 'react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts'
-import { useThorCompetencia, useThorProductos } from '@/lib/hooks/useThor'
-import { TrendingUp, TrendingDown, Plus, Upload, AlertCircle } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import React from "react"
+import { AlertCircle, TrendingDown, TrendingUp } from "lucide-react"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useThorCompetencia, useThorProductos } from "@/lib/hooks/useThor"
 
-const CompetenciaModule = () => {
-  const { competidores, precios: preciosCompetencia } = useThorCompetencia()
+function formatCurrency(value: number) {
+  return value.toLocaleString("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  })
+}
+
+function formatDate(value?: Date | string) {
+  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+}
+
+export default function CompetenciaModule() {
+  const {
+    analisis,
+    competidores,
+    precios: preciosCompetencia,
+    loading,
+    error,
+  } = useThorCompetencia()
   const { productos: thorProducts } = useThorProductos()
-  const [urlInput, setUrlInput] = useState('')
-  const [precioManual, setPrecioManual] = useState({ producto: '', competidor: '', precio: '' })
-  const [selectedProducto, setSelectedProducto] = useState<typeof thorProducts[0] | undefined>(undefined)
+  const [selectedSku, setSelectedSku] = React.useState<string>("")
 
-  React.useEffect(() => {
-    if (thorProducts.length > 0 && !selectedProducto) {
-      setSelectedProducto(thorProducts[0])
-    }
-  }, [thorProducts, selectedProducto])
+  const fallbackAnalisis = React.useMemo(() => {
+    const bySku = new Map<
+      string,
+      { producto: (typeof thorProducts)[number]; precios: typeof preciosCompetencia }
+    >()
 
-  // Análisis de posición de precios
-  const preciosAnalizados = useMemo(() => {
-    const analisis: Record<string, any> = {}
-    
-    thorProducts.forEach(prod => {
-      const competenciaDelProducto = preciosCompetencia.filter(pc => pc.productoSku === prod.sku)
-      
-      if (competenciaDelProducto.length > 0) {
-        const precios = competenciaDelProducto.map(pc => pc.precioCompetidor)
-        const precioPromedio = precios.reduce((a, b) => a + b) / precios.length
-        const diferenciaPromedio = ((prod.precioVenta - precioPromedio) / precioPromedio) * 100
-        
-        analisis[prod.sku] = {
-          producto: prod,
-          precioNuestro: prod.precioVenta,
-          precioPromedio: precioPromedio,
-          diferencia: diferenciaPromedio,
-          posicion: diferenciaPromedio < -5 ? 'mas_barato' : diferenciaPromedio > 5 ? 'mas_caro' : 'competitivo',
-          competencia: competenciaDelProducto,
-        }
+    thorProducts.forEach((producto) => {
+      const precios = preciosCompetencia.filter((price) => price.productoSku === producto.sku)
+      if (precios.length > 0) {
+        bySku.set(producto.sku, { producto, precios })
       }
     })
-    
-    return Object.values(analisis)
+
+    return Array.from(bySku.values()).map(({ producto, precios }) => {
+      const precioPromedio =
+        precios.reduce((sum, item) => sum + Number(item.precioCompetidor ?? 0), 0) /
+        Math.max(precios.length, 1)
+      const posicionMercado =
+        producto.precioVenta < precioPromedio * 0.95
+          ? "mas_barato"
+          : producto.precioVenta > precioPromedio * 1.05
+            ? "mas_caro"
+            : "competitivo"
+
+      return {
+        productId: producto.id,
+        producto,
+        preciosCompetencia: precios,
+        precioPromedio,
+        posicionMercado,
+        oportunidadDetectada:
+          posicionMercado === "mas_caro" && Number(producto.margenPorcentaje ?? 0) > 35,
+        sugerenciaPrecio: posicionMercado === "mas_caro" ? precioPromedio : undefined,
+        impactoEstimado:
+          posicionMercado === "mas_caro"
+            ? "Revisar posicionamiento para sostener competitividad."
+            : "Cobertura de precio dentro del rango del mercado visible.",
+      }
+    })
   }, [thorProducts, preciosCompetencia])
 
-  const productosOportunidad = preciosAnalizados.filter(a => 
-    a.posicion === 'mas_caro' && a.producto.margenPorcentaje > 35
+  const competitionData = analisis.length > 0 ? analisis : fallbackAnalisis
+
+  React.useEffect(() => {
+    if (!selectedSku && competitionData.length > 0) {
+      setSelectedSku(competitionData[0].producto.sku)
+    }
+  }, [competitionData, selectedSku])
+
+  const selectedAnalysis = React.useMemo(
+    () => competitionData.find((item) => item.producto.sku === selectedSku) ?? competitionData[0],
+    [competitionData, selectedSku]
   )
 
-  const scatterData = preciosAnalizados.map(a => ({
-    precioNuestro: a.precioNuestro,
-    precioPromedio: a.precioPromedio,
-    margen: a.producto.margenPorcentaje,
-    sku: a.producto.sku,
+  const competitorMap = React.useMemo(
+    () => new Map(competidores.map((competidor) => [competidor.id, competidor.nombre])),
+    [competidores]
+  )
+
+  const productsOpportunity = competitionData.filter((item) => item.oportunidadDetectada)
+  const scatterData = competitionData.map((item) => ({
+    precioNuestro: Number(item.producto.precioVenta ?? 0),
+    precioPromedio: Number(item.precioPromedio ?? 0),
+    margen: Number(item.producto.margenPorcentaje ?? 0),
+    sku: item.producto.sku,
   }))
 
-  const historicoPrecios = [
-    { mes: 'Ago 24', nuestro: 85, comp1: 88, comp2: 92, comp3: 90 },
-    { mes: 'Sep 24', nuestro: 85, comp1: 87, comp2: 94, comp3: 88 },
-    { mes: 'Oct 24', nuestro: 87, comp1: 89, comp2: 95, comp3: 92 },
-    { mes: 'Nov 24', nuestro: 89, comp1: 92, comp2: 96, comp3: 94 },
-    { mes: 'Dic 24', nuestro: 89, comp1: 91, comp2: 95, comp3: 95 },
-    { mes: 'Ene 25', nuestro: 91, comp1: 93, comp2: 97, comp3: 96 },
-  ]
+  const selectedPriceBars = React.useMemo(() => {
+    if (!selectedAnalysis) return []
+
+    return [
+      { nombre: "Nosotros", precio: Number(selectedAnalysis.producto.precioVenta ?? 0) },
+      ...selectedAnalysis.preciosCompetencia.map((price) => ({
+        nombre: competitorMap.get(price.competidorId) ?? "Competidor",
+        precio: Number(price.precioCompetidor ?? 0),
+      })),
+    ]
+  }, [selectedAnalysis, competitorMap])
+
+  const latestUpdates = React.useMemo(
+    () =>
+      [...preciosCompetencia]
+        .sort(
+          (left, right) =>
+            new Date(right.ultimaActualizacion).getTime() -
+            new Date(left.ultimaActualizacion).getTime()
+        )
+        .slice(0, 8),
+    [preciosCompetencia]
+  )
 
   return (
     <div className="space-y-6 pb-6">
-      {/* Header */}
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">Análisis de Competencia con IA</h1>
-        <p className="text-muted-foreground">Comparación de precios y posicionamiento estratégico</p>
+        <p className="text-muted-foreground">
+          Comparación de precios, posicionamiento y capturas visibles de competencia sin
+          simulaciones de carga.
+        </p>
       </div>
 
-      {/* Resumen */}
+      {error && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Parte del bloque de competencia no pudo cargarse por completo. La lectura usa sólo las
+            capturas y análisis visibles del backend actual.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={selectedSku} onValueChange={setSelectedSku}>
+          <SelectTrigger className="w-72">
+            <SelectValue placeholder="Seleccionar producto" />
+          </SelectTrigger>
+          <SelectContent>
+            {competitionData.map((item) => (
+              <SelectItem key={item.producto.sku} value={item.producto.sku}>
+                {item.producto.sku} · {item.producto.nombre}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Productos Analizados</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Productos Analizados
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{preciosAnalizados.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">En competencia</p>
+            <div className="text-2xl font-bold">{competitionData.length}</div>
+            <p className="mt-1 text-xs text-muted-foreground">Con captura de competencia visible</p>
           </CardContent>
         </Card>
 
@@ -99,9 +203,9 @@ const CompetenciaModule = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {preciosAnalizados.filter(a => a.posicion === 'mas_barato').length}
+              {competitionData.filter((item) => item.posicionMercado === "mas_barato").length}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Ventaja competitiva</p>
+            <p className="mt-1 text-xs text-muted-foreground">Por debajo del promedio visible</p>
           </CardContent>
         </Card>
 
@@ -111,101 +215,106 @@ const CompetenciaModule = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
-              {preciosAnalizados.filter(a => a.posicion === 'mas_caro').length}
+              {competitionData.filter((item) => item.posicionMercado === "mas_caro").length}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Requiere ajuste</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Quedan por encima del rango visible
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Oportunidades IA</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Oportunidades IA
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">{productosOportunidad.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">Detectadas</p>
+            <div className="text-2xl font-bold text-purple-600">{productsOpportunity.length}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Productos con margen y ajuste posible
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Tabs */}
       <Tabs defaultValue="tabla" className="w-full">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="tabla">Tabla Comparativa</TabsTrigger>
           <TabsTrigger value="grafico">Gráficos</TabsTrigger>
           <TabsTrigger value="oportunidades">Oportunidades</TabsTrigger>
-          <TabsTrigger value="carga">Cargar Datos</TabsTrigger>
+          <TabsTrigger value="capturas">Capturas</TabsTrigger>
         </TabsList>
 
-        {/* Tab 1: Tabla */}
         <TabsContent value="tabla" className="space-y-4">
           <Card>
             <CardContent className="pt-6">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Producto</TableHead>
+                    <TableHead className="text-right">Nuestro Precio</TableHead>
+                    <TableHead className="text-right">Promedio Mercado</TableHead>
+                    <TableHead>Posición</TableHead>
+                    <TableHead className="text-right">Margen</TableHead>
+                    <TableHead className="text-right">Competidores</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {competitionData.length === 0 && (
                     <TableRow>
-                      <TableHead>Producto</TableHead>
-                      <TableHead className="text-right">Nuestro Precio</TableHead>
-                      <TableHead className="text-right">Comp A</TableHead>
-                      <TableHead className="text-right">Comp B</TableHead>
-                      <TableHead className="text-right">Comp C</TableHead>
-                      <TableHead className="text-right">Promedio</TableHead>
-                      <TableHead>Posición</TableHead>
-                      <TableHead className="text-right">Diferencia %</TableHead>
+                      <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                        {loading
+                          ? "Cargando análisis de competencia..."
+                          : "No hay capturas visibles para comparar productos."}
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {preciosAnalizados.map((a) => {
-                      const competencia = a.competencia
-                      return (
-                        <TableRow 
-                          key={a.producto.sku}
-                          onClick={() => setSelectedProducto(a.producto)}
-                          className="cursor-pointer hover:bg-muted/50"
+                  )}
+                  {competitionData.map((item) => (
+                    <TableRow
+                      key={item.producto.sku}
+                      onClick={() => setSelectedSku(item.producto.sku)}
+                      className="cursor-pointer hover:bg-muted/50"
+                    >
+                      <TableCell>
+                        <div className="font-medium">{item.producto.nombre}</div>
+                        <div className="text-xs text-muted-foreground">{item.producto.sku}</div>
+                      </TableCell>
+                      <TableCell className="text-right font-bold">
+                        {formatCurrency(Number(item.producto.precioVenta ?? 0))}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(Number(item.precioPromedio ?? 0))}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            item.posicionMercado === "mas_barato"
+                              ? "secondary"
+                              : item.posicionMercado === "mas_caro"
+                                ? "outline"
+                                : "default"
+                          }
                         >
-                          <TableCell className="font-medium">{a.producto.nombre}</TableCell>
-                          <TableCell className="text-right font-bold">${a.precioNuestro}</TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            ${competencia[0]?.precioCompetidor || '-'}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            ${competencia[1]?.precioCompetidor || '-'}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            ${competencia[2]?.precioCompetidor || '-'}
-                          </TableCell>
-                          <TableCell className="text-right font-semibold">
-                            ${a.precioPromedio.toFixed(0)}
-                          </TableCell>
-                          <TableCell>
-                            <Badge 
-                              variant={
-                                a.posicion === 'mas_barato' ? 'default' :
-                                a.posicion === 'mas_caro' ? 'secondary' :
-                                'outline'
-                              }
-                            >
-                              {a.posicion === 'mas_barato' ? 'Más barato' : 
-                               a.posicion === 'mas_caro' ? 'Más caro' : 'Competitivo'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <span className={a.diferencia < 0 ? 'text-green-600' : 'text-red-600'}>
-                              {a.diferencia > 0 ? '+' : ''}{a.diferencia.toFixed(1)}%
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                          {item.posicionMercado === "mas_barato"
+                            ? "Más barato"
+                            : item.posicionMercado === "mas_caro"
+                              ? "Más caro"
+                              : "Competitivo"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {Number(item.producto.margenPorcentaje ?? 0).toFixed(1)}%
+                      </TableCell>
+                      <TableCell className="text-right">{item.preciosCompetencia.length}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Tab 2: Gráficos */}
         <TabsContent value="grafico" className="space-y-4">
           <Card>
             <CardHeader>
@@ -218,7 +327,7 @@ const CompetenciaModule = () => {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="precioNuestro" name="Precio Nuestro" />
                   <YAxis dataKey="precioPromedio" name="Precio Promedio" />
-                  <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                  <Tooltip cursor={{ strokeDasharray: "3 3" }} />
                   <Scatter name="Productos" data={scatterData} fill="#3b82f6" />
                 </ScatterChart>
               </ResponsiveContainer>
@@ -227,38 +336,39 @@ const CompetenciaModule = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Histórico de Precios - LACT-001</CardTitle>
-              <CardDescription>Últimos 6 meses vs competencia</CardDescription>
+              <CardTitle className="text-base">Comparativo del Producto Seleccionado</CardTitle>
+              <CardDescription>
+                Nosotros contra cada competidor capturado para{" "}
+                {selectedAnalysis?.producto.sku ?? "el SKU activo"}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={historicoPrecios}>
+                <BarChart data={selectedPriceBars}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="mes" />
+                  <XAxis dataKey="nombre" />
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Line type="monotone" dataKey="nuestro" stroke="#3b82f6" name="Nosotros" strokeWidth={2} />
-                  <Line type="monotone" dataKey="comp1" stroke="#ef4444" name="Competidor A" strokeDasharray="5 5" />
-                  <Line type="monotone" dataKey="comp2" stroke="#f59e0b" name="Competidor B" strokeDasharray="5 5" />
-                  <Line type="monotone" dataKey="comp3" stroke="#8b5cf6" name="Competidor C" strokeDasharray="5 5" />
-                </LineChart>
+                  <Bar dataKey="precio" name="Precio" fill="#3b82f6" />
+                </BarChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Tab 3: Oportunidades */}
         <TabsContent value="oportunidades" className="space-y-4">
-          {productosOportunidad.length > 0 ? (
+          {productsOpportunity.length > 0 ? (
             <div className="space-y-4">
-              {productosOportunidad.map((opp) => (
+              {productsOpportunity.map((opp) => (
                 <Card key={opp.producto.sku} className="border-purple-200 bg-purple-50/50">
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
                       <div>
                         <CardTitle className="text-base">{opp.producto.nombre}</CardTitle>
-                        <CardDescription className="font-mono text-xs">{opp.producto.sku}</CardDescription>
+                        <CardDescription className="font-mono text-xs">
+                          {opp.producto.sku}
+                        </CardDescription>
                       </div>
                       <Badge className="bg-purple-600">Oportunidad</Badge>
                     </div>
@@ -267,20 +377,34 @@ const CompetenciaModule = () => {
                     <div className="grid grid-cols-4 gap-3">
                       <div className="p-2 rounded bg-white border border-purple-200">
                         <p className="text-xs text-muted-foreground">Precio Actual</p>
-                        <p className="text-lg font-bold">${opp.precioNuestro}</p>
+                        <p className="text-lg font-bold">
+                          {formatCurrency(Number(opp.producto.precioVenta ?? 0))}
+                        </p>
                       </div>
                       <div className="p-2 rounded bg-white border border-purple-200">
                         <p className="text-xs text-muted-foreground">Promedio Competencia</p>
-                        <p className="text-lg font-bold">${opp.precioPromedio.toFixed(0)}</p>
+                        <p className="text-lg font-bold">
+                          {formatCurrency(Number(opp.precioPromedio ?? 0))}
+                        </p>
                       </div>
                       <div className="p-2 rounded bg-white border border-purple-200">
                         <p className="text-xs text-muted-foreground">Margen Actual</p>
-                        <p className="text-lg font-bold text-orange-600">{opp.producto.margenPorcentaje.toFixed(1)}%</p>
+                        <p className="text-lg font-bold text-orange-600">
+                          {Number(opp.producto.margenPorcentaje ?? 0).toFixed(1)}%
+                        </p>
                       </div>
                       <div className="p-2 rounded bg-white border border-purple-200">
                         <p className="text-xs text-muted-foreground">Diferencia</p>
-                        <p className={`text-lg font-bold ${opp.diferencia < 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {opp.diferencia.toFixed(1)}%
+                        <p
+                          className={`text-lg font-bold ${opp.posicionMercado === "mas_barato" ? "text-green-600" : "text-red-600"}`}
+                        >
+                          {(
+                            ((Number(opp.producto.precioVenta ?? 0) -
+                              Number(opp.precioPromedio ?? 0)) /
+                              Math.max(Number(opp.precioPromedio ?? 1), 1)) *
+                            100
+                          ).toFixed(1)}
+                          %
                         </p>
                       </div>
                     </div>
@@ -288,8 +412,10 @@ const CompetenciaModule = () => {
                     <div className="p-3 rounded-lg bg-white border border-purple-200">
                       <p className="text-sm font-semibold mb-2">Recomendación de IA:</p>
                       <p className="text-sm text-foreground">
-                        Reducir precio a ${(opp.precioPromedio * 0.95).toFixed(0)} para ganar competitividad sin sacrificar margen.
-                        Impacto estimado: +12-15% en volumen de ventas.
+                        {opp.sugerenciaPrecio
+                          ? `Revisar el precio objetivo hacia ${formatCurrency(Number(opp.sugerenciaPrecio))} para acercarse al mercado visible sin perder el margen actual.`
+                          : "Mantener seguimiento activo del posicionamiento visible."}{" "}
+                        Impacto estimado: {opp.impactoEstimado}
                       </p>
                     </div>
                   </CardContent>
@@ -305,113 +431,94 @@ const CompetenciaModule = () => {
           )}
         </TabsContent>
 
-        {/* Tab 4: Cargar Datos */}
-        <TabsContent value="carga" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            {/* URL Scraping */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Cargar por URL</CardTitle>
-                <CardDescription>Análisis automático de precios de competencia</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2">
-                  <Label className="text-sm">URL del sitio competidor</Label>
-                  <Input 
-                    placeholder="https://competidor.com"
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                  />
-                </div>
-                <Button className="w-full">
-                  <Upload className="h-4 w-4 mr-2" />
-                  Analizar URL (Simulado)
-                </Button>
-                <Alert className="border-blue-200 bg-blue-50">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription className="text-xs">
-                    En versión real, realizaría web scraping de precios automáticamente.
-                  </AlertDescription>
-                </Alert>
-              </CardContent>
-            </Card>
-
-            {/* Carga Manual */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Entrada Manual</CardTitle>
-                <CardDescription>Carga rápida de datos individuales</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2">
-                  <Label className="text-sm">Producto</Label>
-                  <Input placeholder="Nombre del producto" />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm">Competidor</Label>
-                  <Input placeholder="Nombre competidor" />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm">Precio</Label>
-                  <Input type="number" placeholder="$0.00" />
-                </div>
-                <Button className="w-full">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Agregar Precio
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Upload Imagen OCR */}
+        <TabsContent value="capturas" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Carga de Imágenes (OCR)</CardTitle>
-              <CardDescription>La IA extrae precios de fotos de productos</CardDescription>
+              <CardTitle className="text-base">Detalle del Producto Seleccionado</CardTitle>
+              <CardDescription>
+                Precios capturados, fuente y última actualización por competidor
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="border-2 border-dashed rounded-lg p-8 text-center hover:bg-muted/50 transition-colors cursor-pointer">
-                <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm font-semibold">Arrastra imágenes aquí</p>
-                <p className="text-xs text-muted-foreground">o haz clic para seleccionar</p>
-              </div>
-              <Alert className="border-blue-200 bg-blue-50">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription className="text-xs">
-                  El sistema utilizará OCR para extraer precios, nombres de productos y datos de las imágenes.
-                </AlertDescription>
-              </Alert>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Competidor</TableHead>
+                    <TableHead className="text-right">Precio</TableHead>
+                    <TableHead>Fuente</TableHead>
+                    <TableHead>Última actualización</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(selectedAnalysis?.preciosCompetencia ?? []).map((price) => (
+                    <TableRow key={price.id}>
+                      <TableCell>{competitorMap.get(price.competidorId) ?? "Competidor"}</TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(Number(price.precioCompetidor ?? 0))}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{price.fuente}</Badge>
+                      </TableCell>
+                      <TableCell>{formatDate(price.ultimaActualizacion)}</TableCell>
+                    </TableRow>
+                  ))}
+                  {(selectedAnalysis?.preciosCompetencia ?? []).length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                        No hay capturas visibles para el producto seleccionado.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
 
-          {/* Histórico de Cambios */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Histórico de Cambios Detectados</CardTitle>
-              <CardDescription>Últimos cambios de precios en competencia</CardDescription>
+              <CardTitle className="text-base">Últimas Capturas del Mercado</CardTitle>
+              <CardDescription>
+                Actividad reciente registrada en la capa de competencia
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <div className="flex items-center justify-between p-2 rounded-lg bg-red-50 border border-red-200">
-                  <div>
-                    <p className="text-sm font-semibold">Competidor A - BEBI-001</p>
-                    <p className="text-xs text-muted-foreground">Cambio hace 2 días</p>
+                {latestUpdates.map((price) => (
+                  <div
+                    key={price.id}
+                    className={`flex items-center justify-between rounded-lg border p-2 ${Number(price.diferenciaProcentaje ?? 0) > 0 ? "border-red-200 bg-red-50" : "border-green-200 bg-green-50"}`}
+                  >
+                    <div>
+                      <p className="text-sm font-semibold">
+                        {competitorMap.get(price.competidorId) ?? "Competidor"} -{" "}
+                        {price.productoSku}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Actualizado {formatDate(price.ultimaActualizacion)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold">
+                        {formatCurrency(Number(price.precioCompetidor ?? 0))}
+                      </p>
+                      <p
+                        className={`text-xs ${Number(price.diferenciaProcentaje ?? 0) > 0 ? "text-red-600" : "text-green-600"}`}
+                      >
+                        {Number(price.diferenciaProcentaje ?? 0) > 0 ? (
+                          <TrendingUp className="mr-1 inline h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="mr-1 inline h-3 w-3" />
+                        )}
+                        {Number(price.diferenciaProcentaje ?? 0).toFixed(1)}% vs nuestro precio
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold">$155 → $158</p>
-                    <p className="text-xs text-red-600">↑ +1.9%</p>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between p-2 rounded-lg bg-green-50 border border-green-200">
-                  <div>
-                    <p className="text-sm font-semibold">Competidor C - PAN-001</p>
-                    <p className="text-xs text-muted-foreground">Cambio hace 5 días</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold">$92 → $85</p>
-                    <p className="text-xs text-green-600">↓ -7.6%</p>
-                  </div>
-                </div>
+                ))}
+                {latestUpdates.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No hay capturas recientes visibles.
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>

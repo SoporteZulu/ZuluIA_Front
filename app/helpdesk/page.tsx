@@ -18,9 +18,19 @@ import {
   Timer,
   Target,
   Headset,
+  Wallet,
+  ShieldAlert,
 } from "lucide-react"
-import { useMemo } from "react"
-import { useHdTickets, useHdAgentes, useHdClientes, useHdOrdenesServicio } from "@/lib/hooks/useHelpdesk"
+import { useMemo, useState } from "react"
+import {
+  useHdTickets,
+  useHdAgentes,
+  useHdClientes,
+  useHdOrdenesServicio,
+  useHdContratos,
+  useHdFacturacion,
+  useHdSlas,
+} from "@/lib/hooks/useHelpdesk"
 
 const prioridadColors = {
   critica: "bg-red-500/10 text-red-500 border-red-500/20",
@@ -48,28 +58,99 @@ const estadoLabels: Record<string, string> = {
 }
 
 export default function HelpDeskDashboard() {
+  const [today] = useState(() => new Date())
   const { tickets } = useHdTickets()
   const { agentes } = useHdAgentes()
   const { clientes } = useHdClientes()
   const { ordenes } = useHdOrdenesServicio()
+  const { contratos } = useHdContratos()
+  const { facturas } = useHdFacturacion()
+  const { slas } = useHdSlas()
 
   const getClienteById = (id: string) => clientes.find((c) => c.id === id)
   const getAgenteById = (id: string) => agentes.find((a) => a.id === id)
 
   const ticketStats = useMemo(() => {
     const total = tickets.length
-    const resueltos = tickets.filter((t) => t.estado === "resuelto").length
+    const resueltos = tickets.filter((t) => ["resuelto", "cerrado"].includes(t.estado)).length
     const nuevos = tickets.filter((t) => t.estado === "nuevo").length
     const esperandoCliente = tickets.filter((t) => t.estado === "esperando_cliente").length
-    const cumpleSLA = total > 0 ? ((tickets.filter((t) => t.cumpleSLA).length / total) * 100).toFixed(1) : "0"
-    return { total, resueltos, nuevos, esperandoCliente, tasaCumplimientoSLA: cumpleSLA }
+    const cumpleSLA =
+      total > 0 ? ((tickets.filter((t) => t.cumpleSLA).length / total) * 100).toFixed(1) : "0"
+    const tiemposRespuesta = tickets
+      .map((ticket) => ticket.tiempoRespuesta)
+      .filter((value): value is number => typeof value === "number" && value > 0)
+    const avgResponse = tiemposRespuesta.length
+      ? Math.round(
+          tiemposRespuesta.reduce((sum, value) => sum + value, 0) / tiemposRespuesta.length
+        )
+      : null
+
+    return {
+      total,
+      resueltos,
+      nuevos,
+      esperandoCliente,
+      tasaCumplimientoSLA: cumpleSLA,
+      avgResponse,
+    }
   }, [tickets])
 
   const ordenStats = useMemo(() => {
     const enProceso = ordenes.filter((o) => o.estado === "en_proceso").length
-    const pendientes = ordenes.filter((o) => o.estado === "programada" || o.estado === "pendiente").length
-    return { enProceso, pendientes }
+    const pendientes = ordenes.filter(
+      (o) => o.estado === "programada" || o.estado === "pendiente"
+    ).length
+    const atrasadas = ordenes.filter((orden) => {
+      if (!orden.fechaProgramada) return false
+      return (
+        !["completada", "cancelada"].includes(orden.estado) &&
+        new Date(orden.fechaProgramada) < today
+      )
+    }).length
+    return { enProceso, pendientes, atrasadas }
+  }, [ordenes, today])
+
+  const contractStats = useMemo(() => {
+    const activos = contratos.filter((contrato) => contrato.estado === "activo")
+    const porVencer = activos.filter((contrato) => {
+      const endDate = new Date(contrato.fechaFin)
+      const base = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+      const target = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate())
+      const diff = Math.round((target.getTime() - base.getTime()) / 86400000)
+      return diff >= 0 && diff <= 15
+    }).length
+
+    return {
+      activos: activos.length,
+      porVencer,
+      conSla: activos.filter((contrato) => Boolean(contrato.slaId)).length,
+    }
   }, [ordenes])
+
+  const billingStats = useMemo(() => {
+    return facturas.reduce<Record<string, number>>((acc, factura) => {
+      acc[factura.moneda] = (acc[factura.moneda] ?? 0) + Number(factura.total ?? 0)
+      return acc
+    }, {})
+  }, [facturas])
+
+  const slaRisk = useMemo(() => {
+    return slas
+      .map((sla) => {
+        const ticketsSla = tickets.filter((ticket) => ticket.slaId === sla.id)
+        const incumplidos = ticketsSla.filter((ticket) => !ticket.cumpleSLA).length
+        const clientesCubiertos = clientes.filter((cliente) => cliente.slaId === sla.id).length
+        return {
+          sla,
+          incumplidos,
+          clientesCubiertos,
+          abiertos: ticketsSla.filter((ticket) => !["resuelto", "cerrado"].includes(ticket.estado))
+            .length,
+        }
+      })
+      .sort((a, b) => b.incumplidos - a.incumplidos || b.abiertos - a.abiertos)
+  }, [clientes, slas, tickets])
 
   // Tickets recientes (ultimos 5)
   const ticketsRecientes = [...tickets]
@@ -77,16 +158,70 @@ export default function HelpDeskDashboard() {
     .slice(0, 5)
 
   // Tickets pendientes por prioridad
-  const ticketsPendientes = tickets.filter(
-    (t) => t.estado !== "resuelto" && t.estado !== "cerrado"
-  )
+  const ticketsPendientes = tickets.filter((t) => t.estado !== "resuelto" && t.estado !== "cerrado")
   const ticketsCriticos = ticketsPendientes.filter((t) => t.prioridad === "critica").length
   const ticketsAlta = ticketsPendientes.filter((t) => t.prioridad === "alta").length
+
+  const nuevosHoy = tickets.filter((ticket) => {
+    const createdAt = new Date(ticket.fechaCreacion)
+    return createdAt.toDateString() === today.toDateString()
+  }).length
+
+  const resueltosHoy = tickets.filter((ticket) => {
+    const resolvedAt = ticket.fechaResolucion
+      ? new Date(ticket.fechaResolucion)
+      : ticket.fechaCierre
+        ? new Date(ticket.fechaCierre)
+        : null
+    return resolvedAt ? resolvedAt.toDateString() === today.toDateString() : false
+  }).length
 
   // Rendimiento de agentes
   const topAgentes = [...agentes]
     .sort((a, b) => b.ticketsResueltos - a.ticketsResueltos)
     .slice(0, 4)
+
+  const dashboardAlerts = useMemo(() => {
+    const alerts: Array<{ title: string; detail: string }> = []
+
+    if (ticketsCriticos > 0) {
+      alerts.push({
+        title: "Backlog crítico",
+        detail: `${ticketsCriticos} tickets críticos siguen abiertos en la cola actual.`,
+      })
+    }
+
+    if (ordenStats.atrasadas > 0) {
+      alerts.push({
+        title: "Órdenes atrasadas",
+        detail: `${ordenStats.atrasadas} órdenes programadas ya superaron su fecha comprometida.`,
+      })
+    }
+
+    if (contractStats.porVencer > 0) {
+      alerts.push({
+        title: "Contratos por vencer",
+        detail: `${contractStats.porVencer} contratos activos vencen en los próximos 15 días.`,
+      })
+    }
+
+    const breachedSla = slaRisk.reduce((sum, item) => sum + item.incumplidos, 0)
+    if (breachedSla > 0) {
+      alerts.push({
+        title: "Incumplimientos SLA",
+        detail: `${breachedSla} tickets visibles figuran fuera del SLA asociado.`,
+      })
+    }
+
+    if (!alerts.length) {
+      alerts.push({
+        title: "Sin alertas mayores",
+        detail: "La carga visible no muestra desvíos críticos en tickets, contratos u órdenes.",
+      })
+    }
+
+    return alerts.slice(0, 4)
+  }, [contractStats.porVencer, ordenStats.atrasadas, slaRisk, ticketsCriticos])
 
   return (
     <div className="space-y-6">
@@ -130,8 +265,12 @@ export default function HelpDeskDashboard() {
             <Timer className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">45 min</div>
-            <p className="text-xs text-green-500">Dentro del SLA</p>
+            <div className="text-2xl font-bold">
+              {ticketStats.avgResponse !== null ? `${ticketStats.avgResponse} min` : "-"}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Derivado de tickets con tiempo de respuesta visible
+            </p>
           </CardContent>
         </Card>
 
@@ -154,7 +293,7 @@ export default function HelpDeskDashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{ordenStats.enProceso}</div>
             <p className="text-xs text-muted-foreground">
-              {ordenStats.pendientes} programadas
+              {ordenStats.pendientes} programadas · {ordenStats.atrasadas} atrasadas
             </p>
           </CardContent>
         </Card>
@@ -168,7 +307,7 @@ export default function HelpDeskDashboard() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{ticketStats.nuevos}</div>
+            <div className="text-2xl font-bold">{nuevosHoy}</div>
             <p className="text-xs text-muted-foreground">Pendientes de asignar</p>
           </CardContent>
         </Card>
@@ -190,8 +329,10 @@ export default function HelpDeskDashboard() {
             <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{ticketStats.resueltos}</div>
-            <p className="text-xs text-green-500">+15% vs ayer</p>
+            <div className="text-2xl font-bold">{resueltosHoy}</div>
+            <p className="text-xs text-muted-foreground">
+              Cierres con fecha de resolución o cierre de hoy
+            </p>
           </CardContent>
         </Card>
 
@@ -205,6 +346,63 @@ export default function HelpDeskDashboard() {
               {agentes.filter((a) => a.estado === "activo").length}
             </div>
             <p className="text-xs text-muted-foreground">de {agentes.length} totales</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Radar operativo</CardTitle>
+            <CardDescription>
+              Alertas visibles de backlog, agenda, cobertura contractual y cumplimiento SLA.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {dashboardAlerts.map((alert) => (
+              <div key={alert.title} className="rounded-lg border p-4">
+                <p className="font-medium">{alert.title}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{alert.detail}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Contratos y facturación</CardTitle>
+            <CardDescription>
+              Lectura comercial del módulo sin mezclar importes entre monedas.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border p-4">
+              <p className="text-sm text-muted-foreground">Contratos activos</p>
+              <p className="mt-2 text-3xl font-semibold">{contractStats.activos}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {contractStats.conSla} con SLA asignado y {contractStats.porVencer} por vencer.
+              </p>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Wallet className="h-4 w-4 text-emerald-600" />
+                Facturación visible por moneda
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {Object.keys(billingStats).length > 0 ? (
+                  Object.entries(billingStats).map(([currency, total]) => (
+                    <Badge key={currency} variant="outline">
+                      {currency} {total.toLocaleString("es-AR", { maximumFractionDigits: 0 })}
+                    </Badge>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Sin facturas visibles en la carga actual.
+                  </p>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -239,10 +437,7 @@ export default function HelpDeskDashboard() {
                         <span className="font-mono text-xs text-muted-foreground">
                           {ticket.numero}
                         </span>
-                        <Badge
-                          variant="outline"
-                          className={prioridadColors[ticket.prioridad]}
-                        >
+                        <Badge variant="outline" className={prioridadColors[ticket.prioridad]}>
                           {ticket.prioridad}
                         </Badge>
                       </div>
@@ -316,6 +511,104 @@ export default function HelpDeskDashboard() {
                   </div>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Riesgo SLA</CardTitle>
+              <CardDescription>
+                Acuerdos con incumplimientos o presión operativa visible
+              </CardDescription>
+            </div>
+            <Link href="/helpdesk/slas">
+              <Button variant="ghost" size="sm">
+                Ver SLAs
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {slaRisk.slice(0, 4).map((item) => (
+                <div
+                  key={item.sla.id}
+                  className="flex items-start justify-between gap-4 rounded-lg border p-3"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <p className="font-medium truncate">{item.sla.nombre}</p>
+                    <div className="text-xs text-muted-foreground">
+                      {item.clientesCubiertos} clientes · {item.abiertos} tickets abiertos
+                    </div>
+                  </div>
+                  <Badge
+                    variant={
+                      item.incumplidos > 0
+                        ? "destructive"
+                        : item.sla.estado === "activo"
+                          ? "default"
+                          : "secondary"
+                    }
+                  >
+                    {item.incumplidos} fuera SLA
+                  </Badge>
+                </div>
+              ))}
+              {slaRisk.length === 0 && (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  No hay SLAs visibles para resumir en el dashboard.
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Cobertura de clientes</CardTitle>
+              <CardDescription>Situación contractual y consumo del padrón visible</CardDescription>
+            </div>
+            <Link href="/helpdesk/clientes">
+              <Button variant="ghost" size="sm">
+                Ver clientes
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Clientes activos</p>
+                <p className="mt-2 text-2xl font-semibold">
+                  {clientes.filter((cliente) => cliente.contratoActivo).length}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Sin contrato activo</p>
+                <p className="mt-2 text-2xl font-semibold">
+                  {clientes.filter((cliente) => !cliente.contratoActivo).length}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Con SLA asignado</p>
+                <p className="mt-2 text-2xl font-semibold">
+                  {clientes.filter((cliente) => Boolean(cliente.slaId)).length}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Tickets usados mes</p>
+                <p className="mt-2 text-2xl font-semibold">
+                  {clientes.reduce(
+                    (sum, cliente) => sum + Number(cliente.ticketsUsadosMes ?? 0),
+                    0
+                  )}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>

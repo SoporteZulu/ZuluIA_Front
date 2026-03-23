@@ -1,8 +1,8 @@
-'use client'
+"use client"
 
-import { useState, useEffect, useCallback } from 'react'
-import { apiGet, apiPost } from '@/lib/api'
-import type { OrdenCompra } from '@/lib/types/configuracion'
+import { useState, useEffect, useCallback } from "react"
+import { apiGet, apiPost } from "@/lib/api"
+import type { CreateOrdenCompraDto, OrdenCompra } from "@/lib/types/configuracion"
 
 interface UseOrdenesCompraOptions {
   proveedorId?: number
@@ -13,34 +13,36 @@ export function useOrdenesCompra(options: UseOrdenesCompraOptions = {}) {
   const [ordenes, setOrdenes] = useState<OrdenCompra[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [estado, setEstado] = useState('')
+  const [estado, setEstado] = useState("")
 
   const fetchOrdenes = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const params = new URLSearchParams()
-      if (options.proveedorId) params.set('proveedorId', String(options.proveedorId))
-      if (options.habilitada !== undefined) params.set('habilitada', String(options.habilitada))
-      if (estado) params.set('estado', estado)
+      if (options.proveedorId) params.set("proveedorId", String(options.proveedorId))
+      if (options.habilitada !== undefined) params.set("habilitada", String(options.habilitada))
+      if (estado) params.set("estado", estado)
 
       const qs = params.toString()
-      const result = await apiGet<OrdenCompra[]>(`/api/ordenes-compra${qs ? `?${qs}` : ''}`)
+      const result = await apiGet<OrdenCompra[]>(`/api/ordenes-compra${qs ? `?${qs}` : ""}`)
       setOrdenes(Array.isArray(result) ? result : [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar órdenes de compra')
+      setError(e instanceof Error ? e.message : "Error al cargar órdenes de compra")
     } finally {
       setLoading(false)
     }
   }, [estado, options.proveedorId, options.habilitada])
 
-  useEffect(() => { fetchOrdenes() }, [fetchOrdenes])
+  useEffect(() => {
+    fetchOrdenes()
+  }, [fetchOrdenes])
 
   const getById = async (id: number): Promise<OrdenCompra | null> => {
     try {
       return await apiGet<OrdenCompra>(`/api/ordenes-compra/${id}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar orden de compra')
+      setError(e instanceof Error ? e.message : "Error al cargar orden de compra")
       return null
     }
   }
@@ -50,7 +52,7 @@ export function useOrdenesCompra(options: UseOrdenesCompraOptions = {}) {
       await apiPost<void>(`/api/ordenes-compra/${id}/recibir`, {})
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al recibir orden de compra')
+      setError(e instanceof Error ? e.message : "Error al recibir orden de compra")
       return false
     }
   }
@@ -60,7 +62,17 @@ export function useOrdenesCompra(options: UseOrdenesCompraOptions = {}) {
       await apiPost<void>(`/api/ordenes-compra/${id}/cancelar`, {})
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cancelar orden de compra')
+      setError(e instanceof Error ? e.message : "Error al cancelar orden de compra")
+      return false
+    }
+  }
+
+  const crear = async (dto: CreateOrdenCompraDto): Promise<boolean> => {
+    try {
+      await apiPost<OrdenCompra>("/api/ordenes-compra", dto)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al crear orden de compra")
       return false
     }
   }
@@ -72,6 +84,7 @@ export function useOrdenesCompra(options: UseOrdenesCompraOptions = {}) {
     estado,
     setEstado,
     getById,
+    crear,
     recibir,
     cancelar,
     refetch: fetchOrdenes,

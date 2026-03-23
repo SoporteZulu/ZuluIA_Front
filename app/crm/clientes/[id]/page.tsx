@@ -1,12 +1,28 @@
 "use client"
 
-import { useState } from "react"
 import Link from "next/link"
-import { useRouter, useParams } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { useMemo } from "react"
+import { useParams, useRouter } from "next/navigation"
+import {
+  ArrowLeft,
+  Building2,
+  Calendar,
+  CheckCircle2,
+  Clock3,
+  Globe,
+  Mail,
+  MapPin,
+  MessageSquare,
+  Phone,
+  Plus,
+  Target,
+  Users,
+} from "lucide-react"
+
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
   TableBody,
@@ -15,228 +31,428 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  ArrowLeft,
-  Building2,
-  Phone,
-  Mail,
-  Globe,
-  MapPin,
-  Calendar,
-  User,
-  Pencil,
-  Plus,
-  MessageSquare,
-  Target,
-  Users,
-  Clock,
-} from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   useCrmClientes,
   useCrmContactos,
-  useCrmOportunidades,
   useCrmInteracciones,
+  useCrmOportunidades,
   useCrmTareas,
   useCrmUsuarios,
 } from "@/lib/hooks/useCrm"
-import type { CRMComment } from "@/lib/types"
 
-const getTipoColor = (tipo: string) => {
-  switch (tipo) {
-    case "prospecto": return "bg-blue-500/20 text-blue-400"
-    case "activo": return "bg-green-500/20 text-green-400"
-    case "inactivo": return "bg-yellow-500/20 text-yellow-400"
-    case "perdido": return "bg-red-500/20 text-red-400"
-    default: return "bg-gray-500/20 text-gray-400"
-  }
+function formatDate(value?: Date) {
+  if (!value) return "-"
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(value))
 }
 
-const getEtapaColor = (etapa: string) => {
-  switch (etapa) {
-    case "lead": return "bg-slate-500/20 text-slate-400"
-    case "calificado": return "bg-blue-500/20 text-blue-400"
-    case "propuesta": return "bg-purple-500/20 text-purple-400"
-    case "negociacion": return "bg-yellow-500/20 text-yellow-400"
-    case "cerrado_ganado": return "bg-green-500/20 text-green-400"
-    case "cerrado_perdido": return "bg-red-500/20 text-red-400"
-    default: return "bg-gray-500/20 text-gray-400"
-  }
+function formatDateTime(value?: Date) {
+  if (!value) return "-"
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value))
 }
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("es-AR", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value)
+function formatMoney(value: number, currency: "ARS" | "USD" | "EUR" | "MXN") {
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(value)
+}
 
-const formatDate = (date: Date) =>
-  new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric" }).format(date)
+function formatPipelineByCurrency(
+  pipelineByCurrency: Partial<Record<"ARS" | "USD" | "EUR" | "MXN", number>>
+) {
+  const currencies: Array<"ARS" | "USD" | "EUR" | "MXN"> = ["ARS", "USD", "EUR", "MXN"]
+  const visible = currencies.filter((currency) => Number(pipelineByCurrency[currency] ?? 0) > 0)
 
-const formatDateTime = (date: Date) =>
-  new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)
+  if (visible.length === 0) {
+    return "Sin pipeline visible"
+  }
+
+  return visible
+    .map((currency) => formatMoney(Number(pipelineByCurrency[currency] ?? 0), currency))
+    .join(" · ")
+}
+
+function getTipoBadgeVariant(tipo: string) {
+  if (tipo === "activo") return "secondary"
+  if (tipo === "perdido") return "destructive"
+  return "outline"
+}
+
+function getEstadoRelacionBadgeVariant(estado: string) {
+  if (estado === "fidelizado") return "secondary"
+  if (estado === "en_riesgo") return "destructive"
+  return "outline"
+}
+
+function getTaskStateLabel(taskState: string) {
+  const labels: Record<string, string> = {
+    pendiente: "Pendiente",
+    en_curso: "En curso",
+    completada: "Completada",
+    vencida: "Vencida",
+  }
+  return labels[taskState] ?? taskState
+}
+
+function getInteractionLabel(type: string) {
+  const labels: Record<string, string> = {
+    llamada: "Llamada",
+    email: "Email",
+    reunion: "Reunión",
+    visita: "Visita",
+    ticket: "Ticket",
+    mensaje: "Mensaje",
+  }
+  return labels[type] ?? type
+}
 
 export default function ClienteDetallePage() {
   const params = useParams()
-  const id = params.id as string
   const router = useRouter()
-  const [newComment, setNewComment] = useState("")
-  const [comments, setComments] = useState<CRMComment[]>([])
+  const id = params.id as string
 
-  const { clientes } = useCrmClientes()
-  const { contactos: contacts } = useCrmContactos(id)
-  const { oportunidades: opportunities } = useCrmOportunidades(id)
-  const { interacciones: interactions } = useCrmInteracciones(id)
-  const { tareas: tasks } = useCrmTareas(id)
+  const { clientes, loading: loadingCliente, error: errorCliente } = useCrmClientes()
+  const { contactos, loading: loadingContactos, error: errorContactos } = useCrmContactos(id)
+  const {
+    oportunidades,
+    loading: loadingOportunidades,
+    error: errorOportunidades,
+  } = useCrmOportunidades(id)
+  const {
+    interacciones,
+    loading: loadingInteracciones,
+    error: errorInteracciones,
+  } = useCrmInteracciones(id)
+  const { tareas, loading: loadingTareas, error: errorTareas } = useCrmTareas(id)
   const { usuarios } = useCrmUsuarios()
 
-  const client = clientes.find((c) => c.id === id)
-  const responsable = client?.responsableId ? usuarios.find((u) => u.id === client.responsableId) : null
-  const getUserById = (userId: string) => usuarios.find((u) => u.id === userId)
+  const client = clientes.find((current) => current.id === id)
+  const responsable = client?.responsableId
+    ? usuarios.find((usuario) => usuario.id === client.responsableId)
+    : null
 
-  const handleAddComment = () => {
-    if (!newComment.trim()) return
-    const comment: CRMComment = {
-      id: `com-${Date.now()}`,
-      usuarioId: "usr-001",
-      referenciaId: id,
-      referenciaTipo: "cliente",
-      texto: newComment,
-      fechaHora: new Date(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-    setComments([...comments, comment])
-    setNewComment("")
+  const loading =
+    loadingCliente ||
+    loadingContactos ||
+    loadingOportunidades ||
+    loadingInteracciones ||
+    loadingTareas
+
+  const combinedError =
+    errorCliente || errorContactos || errorOportunidades || errorInteracciones || errorTareas
+
+  const pipelineByCurrency = useMemo(() => {
+    return oportunidades.reduce<Partial<Record<"ARS" | "USD" | "EUR" | "MXN", number>>>(
+      (accumulator, oportunidad) => {
+        if (!["cerrado_ganado", "cerrado_perdido"].includes(oportunidad.etapa)) {
+          accumulator[oportunidad.moneda] =
+            Number(accumulator[oportunidad.moneda] ?? 0) + Number(oportunidad.montoEstimado ?? 0)
+        }
+        return accumulator
+      },
+      {}
+    )
+  }, [oportunidades])
+
+  const lastInteraction = useMemo(() => {
+    return [...interacciones].sort(
+      (left, right) => new Date(right.fechaHora).getTime() - new Date(left.fechaHora).getTime()
+    )[0]
+  }, [interacciones])
+
+  const openTasks = useMemo(() => {
+    return tareas.filter((task) => task.estado !== "completada")
+  }, [tareas])
+
+  const overdueTasks = useMemo(() => {
+    const today = Date.now()
+    return tareas.filter((task) => {
+      if (task.estado === "completada") return false
+      return new Date(task.fechaVencimiento).getTime() < today || task.estado === "vencida"
+    })
+  }, [tareas])
+
+  const activeContacts = useMemo(() => {
+    return contactos.filter((contact) => contact.estadoContacto === "activo")
+  }, [contactos])
+
+  const opportunitySummary = useMemo(() => {
+    const abiertas = oportunidades.filter(
+      (oportunidad) => !["cerrado_ganado", "cerrado_perdido"].includes(oportunidad.etapa)
+    )
+    const cierresProximos = abiertas.filter((oportunidad) => {
+      if (!oportunidad.fechaEstimadaCierre) return false
+      const daysToClose =
+        (new Date(oportunidad.fechaEstimadaCierre).getTime() - Date.now()) / 86400000
+      return daysToClose >= 0 && daysToClose <= 30
+    })
+    return { abiertas, cierresProximos }
+  }, [oportunidades])
+
+  const highlightedOpportunity = opportunitySummary.abiertas.sort(
+    (left, right) =>
+      right.probabilidad - left.probabilidad || right.montoEstimado - left.montoEstimado
+  )[0]
+
+  const highlightedContact = activeContacts[0] ?? contactos[0] ?? null
+
+  if (loading && !client) {
+    return <div className="p-8 text-center text-muted-foreground">Cargando cliente...</div>
   }
 
-  if (!client) return <div className="p-8 text-center text-muted-foreground">Cliente no encontrado</div>
+  if (!client) {
+    return <div className="p-8 text-center text-muted-foreground">Cliente no encontrado</div>
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold">{client.nombre}</h1>
-            <Badge className={getTipoColor(client.tipoCliente)}>{client.tipoCliente}</Badge>
+    <div className="space-y-6 pb-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex items-start gap-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-3xl font-bold tracking-tight">{client.nombre}</h1>
+              <Badge variant={getTipoBadgeVariant(client.tipoCliente)}>{client.tipoCliente}</Badge>
+              <Badge variant={getEstadoRelacionBadgeVariant(client.estadoRelacion)}>
+                {client.estadoRelacion.replace("_", " ")}
+              </Badge>
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              {client.segmento} · {client.industria ?? "Industria no informada"} · alta{" "}
+              {formatDate(client.fechaAlta)}
+            </p>
           </div>
-          <p className="text-muted-foreground capitalize">{client.segmento} - {client.industria}</p>
         </div>
-        <Button asChild>
-          <Link href={`/crm/clientes?action=edit&id=${id}`}>
-            <Pencil className="mr-2 h-4 w-4" />
-            Editar
-          </Link>
-        </Button>
+
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link href={`/crm/interacciones?action=new&clienteId=${id}`}>
+              <MessageSquare className="mr-2 h-4 w-4" />
+              Nueva interacción
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href={`/crm/oportunidades?action=new&clienteId=${id}`}>
+              <Plus className="mr-2 h-4 w-4" />
+              Nueva oportunidad
+            </Link>
+          </Button>
+        </div>
       </div>
 
-      {/* Info Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      {combinedError ? (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Cliente CRM</AlertTitle>
+          <AlertDescription>{combinedError}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Contacto</CardTitle>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Contactos activos</p>
+            <p className="mt-2 text-2xl font-bold">{activeContacts.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Oportunidades abiertas</p>
+            <p className="mt-2 text-2xl font-bold">{opportunitySummary.abiertas.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Tareas abiertas</p>
+            <p className="mt-2 text-2xl font-bold">{openTasks.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Tareas vencidas</p>
+            <p className="mt-2 text-2xl font-bold text-red-600">{overdueTasks.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Última gestión</p>
+            <p className="mt-2 text-sm font-semibold">
+              {formatDateTime(lastInteraction?.fechaHora)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Ficha operativa</CardTitle>
+            <CardDescription>
+              Resumen comercial, cobertura de contacto y referencia del responsable visible hoy.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {client.telefonoPrincipal && (
-              <div className="flex items-center gap-2">
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center gap-2 text-sm font-medium">
                 <Phone className="h-4 w-4 text-muted-foreground" />
-                <span>{client.telefonoPrincipal}</span>
+                Contacto principal
               </div>
-            )}
-            {client.emailPrincipal && (
-              <div className="flex items-center gap-2">
-                <Mail className="h-4 w-4 text-muted-foreground" />
-                <span>{client.emailPrincipal}</span>
-              </div>
-            )}
-            {client.sitioWeb && (
-              <div className="flex items-center gap-2">
-                <Globe className="h-4 w-4 text-muted-foreground" />
-                <a href={`https://${client.sitioWeb}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                  {client.sitioWeb}
-                </a>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Ubicacion</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-muted-foreground" />
-              <span>{client.ciudad}, {client.provincia}</span>
+              <p className="text-sm text-muted-foreground">
+                {client.telefonoPrincipal ?? "Sin teléfono principal"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {client.emailPrincipal ?? "Sin email principal"}
+              </p>
+              <p className="text-sm text-muted-foreground">{client.sitioWeb ?? "Sin sitio web"}</p>
             </div>
-            <p className="text-sm text-muted-foreground">{client.direccion}</p>
-            <p className="text-sm">{client.pais}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Informacion</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {client.cuit && (
-              <div className="flex items-center gap-2">
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <MapPin className="h-4 w-4 text-muted-foreground" />
+                Ubicación
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {[client.ciudad, client.provincia, client.pais].filter(Boolean).join(", ") ||
+                  "Sin ubicación informada"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {client.direccion ?? "Sin dirección informada"}
+              </p>
+            </div>
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center gap-2 text-sm font-medium">
                 <Building2 className="h-4 w-4 text-muted-foreground" />
-                <span>CUIT: {client.cuit}</span>
+                Cobertura comercial
               </div>
-            )}
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <span>Alta: {formatDate(client.fechaAlta)}</span>
+              <p className="text-sm text-muted-foreground">Origen: {client.origenCliente}</p>
+              <p className="text-sm text-muted-foreground">
+                Pipeline visible: {formatPipelineByCurrency(pipelineByCurrency)}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {opportunitySummary.cierresProximos.length} cierres estimados en los próximos 30
+                días
+              </p>
             </div>
-            {responsable && (
-              <div className="flex items-center gap-2">
-                <User className="h-4 w-4 text-muted-foreground" />
-                <span>{responsable.nombre} {responsable.apellido}</span>
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                Responsable
               </div>
-            )}
+              <p className="text-sm text-muted-foreground">
+                {responsable
+                  ? `${responsable.nombre} ${responsable.apellido}`
+                  : "Sin responsable asignado"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {responsable?.email ?? "Sin email disponible"}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Foco del cliente</CardTitle>
+            <CardDescription>
+              Prioriza la gestión más relevante sin inventar scoring ni comentarios persistidos.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {highlightedOpportunity ? (
+              <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-4">
+                <p className="text-sm font-medium text-sky-900">Oportunidad prioritaria</p>
+                <h3 className="mt-1 text-lg font-semibold text-sky-950">
+                  {highlightedOpportunity.titulo}
+                </h3>
+                <p className="text-sm text-sky-900/80">
+                  {highlightedOpportunity.etapa.replace("_", " ")} ·{" "}
+                  {highlightedOpportunity.probabilidad}%
+                </p>
+                <p className="mt-2 text-sm font-medium text-sky-950">
+                  {formatMoney(highlightedOpportunity.montoEstimado, highlightedOpportunity.moneda)}
+                </p>
+              </div>
+            ) : null}
+
+            {highlightedContact ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                <p className="text-sm font-medium text-amber-900">Contacto a priorizar</p>
+                <h3 className="mt-1 text-lg font-semibold text-amber-950">
+                  {highlightedContact.nombre} {highlightedContact.apellido}
+                </h3>
+                <p className="text-sm text-amber-900/80">
+                  {highlightedContact.cargo ?? "Sin cargo informado"} ·{" "}
+                  {highlightedContact.canalPreferido}
+                </p>
+                <p className="mt-2 text-sm text-amber-950">
+                  {highlightedContact.email ??
+                    highlightedContact.telefono ??
+                    "Sin dato de contacto directo"}
+                </p>
+              </div>
+            ) : null}
+
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Los comentarios internos del legado no se exponen en el backend actual. Esta ficha
+                usa sólo notas generales, interacciones, tareas y oportunidades visibles hoy.
+              </AlertDescription>
+            </Alert>
           </CardContent>
         </Card>
       </div>
 
-      {/* Tabs */}
       <Tabs defaultValue="contactos" className="space-y-4">
-        <TabsList>
+        <TabsList className="flex flex-wrap">
           <TabsTrigger value="contactos">
             <Users className="mr-2 h-4 w-4" />
-            Contactos ({contacts.length})
+            Contactos ({contactos.length})
           </TabsTrigger>
           <TabsTrigger value="oportunidades">
             <Target className="mr-2 h-4 w-4" />
-            Oportunidades ({opportunities.length})
+            Oportunidades ({oportunidades.length})
           </TabsTrigger>
           <TabsTrigger value="interacciones">
-            <Phone className="mr-2 h-4 w-4" />
-            Interacciones ({interactions.length})
+            <MessageSquare className="mr-2 h-4 w-4" />
+            Interacciones ({interacciones.length})
           </TabsTrigger>
           <TabsTrigger value="tareas">
-            <Clock className="mr-2 h-4 w-4" />
-            Tareas ({tasks.length})
+            <Clock3 className="mr-2 h-4 w-4" />
+            Tareas ({tareas.length})
           </TabsTrigger>
-          <TabsTrigger value="comentarios">
-            <MessageSquare className="mr-2 h-4 w-4" />
-            Comentarios ({comments.length})
+          <TabsTrigger value="contexto">
+            <CheckCircle2 className="mr-2 h-4 w-4" />
+            Contexto
           </TabsTrigger>
         </TabsList>
 
-        {/* Contactos */}
         <TabsContent value="contactos">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
               <div>
-                <CardTitle>Contactos</CardTitle>
-                <CardDescription>Personas de contacto del cliente</CardDescription>
+                <CardTitle>Red de contactos</CardTitle>
+                <CardDescription>
+                  Cobertura visible del cliente por interlocutor, canal preferido y estado actual.
+                </CardDescription>
               </div>
               <Button size="sm" asChild>
                 <Link href={`/crm/contactos?action=new&clienteId=${id}`}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Agregar Contacto
+                  Agregar contacto
                 </Link>
               </Button>
             </CardHeader>
@@ -246,31 +462,30 @@ export default function ClienteDetallePage() {
                   <TableRow>
                     <TableHead>Nombre</TableHead>
                     <TableHead>Cargo</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Telefono</TableHead>
-                    <TableHead>Canal Preferido</TableHead>
+                    <TableHead>Canal</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Contacto</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {contacts.map((contact) => (
-                    <TableRow key={contact.id}>
-                      <TableCell className="font-medium">
-                        <Link href={`/crm/contactos/${contact.id}`} className="hover:underline">
-                          {contact.nombre} {contact.apellido}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{contact.cargo || "-"}</TableCell>
-                      <TableCell>{contact.email || "-"}</TableCell>
-                      <TableCell>{contact.telefono || "-"}</TableCell>
-                      <TableCell className="capitalize">{contact.canalPreferido}</TableCell>
-                    </TableRow>
-                  ))}
-                  {contacts.length === 0 && (
+                  {contactos.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        No hay contactos registrados
+                      <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                        No hay contactos registrados.
                       </TableCell>
                     </TableRow>
+                  ) : (
+                    contactos.map((contact) => (
+                      <TableRow key={contact.id}>
+                        <TableCell className="font-medium">
+                          {contact.nombre} {contact.apellido}
+                        </TableCell>
+                        <TableCell>{contact.cargo ?? "-"}</TableCell>
+                        <TableCell>{contact.canalPreferido}</TableCell>
+                        <TableCell>{contact.estadoContacto}</TableCell>
+                        <TableCell>{contact.email ?? contact.telefono ?? "-"}</TableCell>
+                      </TableRow>
+                    ))
                   )}
                 </TableBody>
               </Table>
@@ -278,18 +493,19 @@ export default function ClienteDetallePage() {
           </Card>
         </TabsContent>
 
-        {/* Oportunidades */}
         <TabsContent value="oportunidades">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
               <div>
-                <CardTitle>Oportunidades</CardTitle>
-                <CardDescription>Negocios y oportunidades del cliente</CardDescription>
+                <CardTitle>Pipeline del cliente</CardTitle>
+                <CardDescription>
+                  Pipeline abierto por etapa y moneda visible, sin mezclar importes multimoneda.
+                </CardDescription>
               </div>
               <Button size="sm" asChild>
                 <Link href={`/crm/oportunidades?action=new&clienteId=${id}`}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Nueva Oportunidad
+                  Nueva oportunidad
                 </Link>
               </Button>
             </CardHeader>
@@ -297,37 +513,32 @@ export default function ClienteDetallePage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Titulo</TableHead>
+                    <TableHead>Título</TableHead>
                     <TableHead>Etapa</TableHead>
                     <TableHead>Monto</TableHead>
                     <TableHead>Probabilidad</TableHead>
-                    <TableHead>Cierre Esperado</TableHead>
+                    <TableHead>Cierre estimado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {opportunities.map((opp) => (
-                    <TableRow key={opp.id}>
-                      <TableCell className="font-medium">
-                        <Link href={`/crm/oportunidades/${opp.id}`} className="hover:underline">
-                          {opp.titulo}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={getEtapaColor(opp.etapa)}>
-                          {opp.etapa.replace("_", " ")}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{formatCurrency(opp.montoEstimado)}</TableCell>
-                      <TableCell>{opp.probabilidad}%</TableCell>
-                      <TableCell>{opp.fechaEstimadaCierre ? formatDate(opp.fechaEstimadaCierre) : "-"}</TableCell>
-                    </TableRow>
-                  ))}
-                  {opportunities.length === 0 && (
+                  {oportunidades.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        No hay oportunidades registradas
+                      <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                        No hay oportunidades registradas.
                       </TableCell>
                     </TableRow>
+                  ) : (
+                    oportunidades.map((opportunity) => (
+                      <TableRow key={opportunity.id}>
+                        <TableCell className="font-medium">{opportunity.titulo}</TableCell>
+                        <TableCell>{opportunity.etapa.replace("_", " ")}</TableCell>
+                        <TableCell>
+                          {formatMoney(opportunity.montoEstimado, opportunity.moneda)}
+                        </TableCell>
+                        <TableCell>{opportunity.probabilidad}%</TableCell>
+                        <TableCell>{formatDate(opportunity.fechaEstimadaCierre)}</TableCell>
+                      </TableRow>
+                    ))
                   )}
                 </TableBody>
               </Table>
@@ -335,69 +546,72 @@ export default function ClienteDetallePage() {
           </Card>
         </TabsContent>
 
-        {/* Interacciones */}
         <TabsContent value="interacciones">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
               <div>
-                <CardTitle>Interacciones</CardTitle>
-                <CardDescription>Historial de comunicaciones</CardDescription>
+                <CardTitle>Seguimiento e interacciones</CardTitle>
+                <CardDescription>
+                  Historial visible de gestión, canal, resultado y responsable.
+                </CardDescription>
               </div>
               <Button size="sm" asChild>
                 <Link href={`/crm/interacciones?action=new&clienteId=${id}`}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Nueva Interaccion
+                  Nueva interacción
                 </Link>
               </Button>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {interactions.map((interaction) => {
-                  const user = getUserById(interaction.usuarioResponsableId)
+            <CardContent className="space-y-3">
+              {interacciones.length === 0 ? (
+                <p className="py-8 text-center text-muted-foreground">
+                  No hay interacciones registradas.
+                </p>
+              ) : (
+                interacciones.map((interaction) => {
+                  const user = usuarios.find(
+                    (usuario) => usuario.id === interaction.usuarioResponsableId
+                  )
                   return (
-                    <div key={interaction.id} className="flex gap-4 p-4 bg-muted/50 rounded-lg">
-                      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        {interaction.tipoInteraccion === "llamada" && <Phone className="h-5 w-5 text-primary" />}
-                        {interaction.tipoInteraccion === "email" && <Mail className="h-5 w-5 text-primary" />}
-                        {interaction.tipoInteraccion === "reunion" && <Users className="h-5 w-5 text-primary" />}
-                        {interaction.tipoInteraccion === "visita" && <MapPin className="h-5 w-5 text-primary" />}
+                    <div key={interaction.id} className="rounded-lg border p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium">
+                            {getInteractionLabel(interaction.tipoInteraccion)} · {interaction.canal}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {interaction.descripcion ?? "Sin detalle adicional"}
+                          </p>
+                        </div>
+                        <Badge variant="outline">{interaction.resultado}</Badge>
                       </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className="font-medium capitalize">{interaction.tipoInteraccion} - {interaction.canal}</p>
-                          <span className="text-sm text-muted-foreground">{formatDateTime(interaction.fechaHora)}</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1">{interaction.descripcion}</p>
-                        <div className="flex items-center gap-2 mt-2">
-                          <Badge variant="outline">{interaction.resultado}</Badge>
-                          {user && <span className="text-xs text-muted-foreground">por {user.nombre} {user.apellido}</span>}
-                        </div>
+                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                        <span>{formatDateTime(interaction.fechaHora)}</span>
+                        <span>
+                          {user ? `${user.nombre} ${user.apellido}` : "Responsable no encontrado"}
+                        </span>
                       </div>
                     </div>
                   )
-                })}
-                {interactions.length === 0 && (
-                  <p className="text-center py-8 text-muted-foreground">
-                    No hay interacciones registradas
-                  </p>
-                )}
-              </div>
+                })
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Tareas */}
         <TabsContent value="tareas">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
               <div>
-                <CardTitle>Tareas</CardTitle>
-                <CardDescription>Tareas y seguimientos</CardDescription>
+                <CardTitle>Backlog del cliente</CardTitle>
+                <CardDescription>
+                  Tareas abiertas y vencidas sobre este cliente usando el contrato real de CRMTask.
+                </CardDescription>
               </div>
               <Button size="sm" asChild>
                 <Link href={`/crm/tareas?action=new&clienteId=${id}`}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Nueva Tarea
+                  Nueva tarea
                 </Link>
               </Button>
             </CardHeader>
@@ -405,37 +619,39 @@ export default function ClienteDetallePage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Titulo</TableHead>
+                    <TableHead>Título</TableHead>
                     <TableHead>Tipo</TableHead>
+                    <TableHead>Responsable</TableHead>
                     <TableHead>Vencimiento</TableHead>
-                    <TableHead>Prioridad</TableHead>
                     <TableHead>Estado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {tasks.map((task) => (
-                    <TableRow key={task.id}>
-                      <TableCell className="font-medium">{task.titulo}</TableCell>
-                      <TableCell className="capitalize">{task.tipoTarea.replace("_", " ")}</TableCell>
-                      <TableCell>{formatDate(task.fechaVencimiento)}</TableCell>
-                      <TableCell>
-                        <Badge variant={task.prioridad === "alta" ? "destructive" : task.prioridad === "media" ? "default" : "secondary"}>
-                          {task.prioridad}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={task.estado === "completada" ? "default" : task.estado === "vencida" ? "destructive" : "outline"}>
-                          {task.estado}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {tasks.length === 0 && (
+                  {tareas.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        No hay tareas registradas
+                      <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                        No hay tareas registradas.
                       </TableCell>
                     </TableRow>
+                  ) : (
+                    tareas.map((task) => {
+                      const owner = usuarios.find((usuario) => usuario.id === task.asignadoAId)
+                      return (
+                        <TableRow key={task.id}>
+                          <TableCell className="font-medium">{task.titulo}</TableCell>
+                          <TableCell>{task.tipoTarea.replace("_", " ")}</TableCell>
+                          <TableCell>
+                            {owner ? `${owner.nombre} ${owner.apellido}` : "Sin responsable"}
+                          </TableCell>
+                          <TableCell>{formatDate(task.fechaVencimiento)}</TableCell>
+                          <TableCell>
+                            <Badge variant={task.estado === "vencida" ? "destructive" : "outline"}>
+                              {getTaskStateLabel(task.estado)}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -443,58 +659,40 @@ export default function ClienteDetallePage() {
           </Card>
         </TabsContent>
 
-        {/* Comentarios */}
-        <TabsContent value="comentarios">
+        <TabsContent value="contexto">
           <Card>
             <CardHeader>
-              <CardTitle>Comentarios</CardTitle>
-              <CardDescription>Notas y comentarios del equipo</CardDescription>
+              <CardTitle>Contexto legado visible</CardTitle>
+              <CardDescription>
+                La ficha expone lo que hoy está publicado y deja explícitos los límites del
+                contrato.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Textarea
-                  placeholder="Escribe un comentario..."
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  rows={2}
-                />
-                <Button onClick={handleAddComment}>Agregar</Button>
+              <div className="rounded-lg border p-4">
+                <p className="text-sm font-medium">Notas generales</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {client.notasGenerales ?? "No hay notas generales publicadas para este cliente."}
+                </p>
               </div>
-              <div className="space-y-3">
-                {comments.map((comment) => {
-                  const user = getUserById(comment.usuarioId)
-                  return (
-                    <div key={comment.id} className="p-4 bg-muted/50 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium">{user ? `${user.nombre} ${user.apellido}` : "Usuario"}</span>
-                        <span className="text-sm text-muted-foreground">{formatDateTime(comment.fechaHora)}</span>
-                      </div>
-                      <p className="text-sm">{comment.texto}</p>
-                    </div>
-                  )
-                })}
-                {comments.length === 0 && (
-                  <p className="text-center py-4 text-muted-foreground">
-                    No hay comentarios
-                  </p>
-                )}
+              <div className="rounded-lg border p-4">
+                <p className="text-sm font-medium">Lo que sí está visible</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Responsable, contactos, oportunidades, interacciones, tareas, estado de relación y
+                  origen del cliente.
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-sm font-medium">Lo que no se simula</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Comentarios persistidos, scoring, health score externo, forecast propietario o
+                  historial financiero fuera de las oportunidades visibles.
+                </p>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
-
-      {/* Notas generales */}
-      {client.notasGenerales && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Notas Generales</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>{client.notasGenerales}</p>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

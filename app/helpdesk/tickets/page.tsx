@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, Suspense } from "react"
+import React, { useMemo, useState, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -63,14 +63,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useHdTickets, useHdClientes, useHdAgentes } from "@/lib/hooks/useHelpdesk"
-import type { HDTicket, HDTicketComment } from "@/lib/types"
-
-const departamentos = [
-  { id: "dep-001", nombre: "Soporte Técnico" },
-  { id: "dep-002", nombre: "Atención al Cliente" },
-  { id: "dep-003", nombre: "Servicios en Campo" },
-]
-const getDepartamentoById = (id: string) => departamentos.find((d) => d.id === id)
+import { buildHdDepartmentOptions, getHdDepartmentLabel } from "@/lib/helpdesk-departments"
+import type { HDTicket } from "@/lib/types"
 
 const prioridadColors: Record<string, string> = {
   critica: "bg-red-500/10 text-red-500 border-red-500/20",
@@ -116,14 +110,21 @@ const canalLabels: Record<string, string> = {
 function TicketsContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { tickets: ticketsList, loading, error, createTicket, updateTicket, deleteTicket, addComment } = useHdTickets()
+  const {
+    tickets: ticketsList,
+    loading,
+    error,
+    createTicket,
+    updateTicket,
+    deleteTicket,
+    addComment,
+  } = useHdTickets()
   const { clientes: clientesHD } = useHdClientes()
   const { agentes } = useHdAgentes()
 
-  const getClienteById = (id: string) => clientesHD.find(c => c.id === id)
-  const getAgenteById = (id: string) => agentes.find(a => a.id === id)
+  const getClienteById = (id: string) => clientesHD.find((c) => c.id === id)
+  const getAgenteById = (id: string) => agentes.find((a) => a.id === id)
 
-  const [commentsList, setCommentsList] = React.useState<HDTicketComment[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [filterPrioridad, setFilterPrioridad] = useState<string>("todos")
@@ -134,6 +135,7 @@ function TicketsContent() {
   const [selectedTicket, setSelectedTicket] = useState<HDTicket | null>(null)
   const [newComment, setNewComment] = useState("")
   const [isInternalComment, setIsInternalComment] = useState(false)
+  const [commentFeedback, setCommentFeedback] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     asunto: "",
     descripcion: "",
@@ -145,6 +147,21 @@ function TicketsContent() {
     departamentoId: "",
     tags: "",
   })
+
+  const departmentOptions = useMemo(
+    () =>
+      buildHdDepartmentOptions(agentes, [selectedTicket?.departamentoId, formData.departamentoId]),
+    [agentes, selectedTicket?.departamentoId, formData.departamentoId]
+  )
+
+  React.useEffect(() => {
+    if (!selectedTicket) return
+
+    const updatedTicket = ticketsList.find((ticket) => ticket.id === selectedTicket.id)
+    if (updatedTicket && updatedTicket !== selectedTicket) {
+      setSelectedTicket(updatedTicket)
+    }
+  }, [ticketsList, selectedTicket])
 
   const filteredTickets = ticketsList.filter((ticket) => {
     const matchesSearch =
@@ -196,6 +213,9 @@ function TicketsContent() {
 
   const openDetail = (ticket: HDTicket) => {
     setSelectedTicket(ticket)
+    setNewComment("")
+    setIsInternalComment(false)
+    setCommentFeedback(null)
     setIsDetailOpen(true)
   }
 
@@ -204,7 +224,10 @@ function TicketsContent() {
       await updateTicket(selectedTicket.id, {
         ...formData,
         tags: formData.tags ? formData.tags.split(",").map((s) => s.trim()) : [],
-        estado: formData.asignadoAId && selectedTicket.estado === "nuevo" ? "asignado" : selectedTicket.estado,
+        estado:
+          formData.asignadoAId && selectedTicket.estado === "nuevo"
+            ? "asignado"
+            : selectedTicket.estado,
       })
     } else {
       await createTicket({
@@ -221,7 +244,7 @@ function TicketsContent() {
         fechaCreacion: new Date(),
         cumpleSLA: true,
         tags: formData.tags ? formData.tags.split(",").map((s) => s.trim()) : [],
-      } as Omit<HDTicket, 'id' | 'createdAt' | 'updatedAt'>)
+      } as Omit<HDTicket, "id" | "createdAt" | "updatedAt">)
     }
     closeForm()
   }
@@ -244,21 +267,23 @@ function TicketsContent() {
 
   const handleAddComment = async () => {
     if (!selectedTicket || !newComment.trim()) return
-    const comment = await addComment(selectedTicket.id, {
-      ticketId: selectedTicket.id,
-      usuarioId: "ag-001",
-      texto: newComment,
-      esInterno: isInternalComment,
-      fechaHora: new Date(),
-    })
-    setCommentsList((prev) => [...prev, comment])
-    setNewComment("")
-  }
 
-  const getTicketComments = (ticketId: string) => {
-    return commentsList
-      .filter((c) => c.ticketId === ticketId)
-      .sort((a, b) => new Date(a.fechaHora).getTime() - new Date(b.fechaHora).getTime())
+    try {
+      await addComment(selectedTicket.id, {
+        ticketId: selectedTicket.id,
+        usuarioId: "ag-001",
+        texto: newComment,
+        esInterno: isInternalComment,
+        fechaHora: new Date(),
+      })
+      setNewComment("")
+      setIsInternalComment(false)
+      setCommentFeedback(
+        "Comentario registrado. El backend actual no expone un historial consultable, por eso esta vista no lista comentarios previos."
+      )
+    } catch {
+      setCommentFeedback("No se pudo registrar el comentario. Intenta nuevamente.")
+    }
   }
 
   const formatDate = (date: Date | undefined) => {
@@ -345,7 +370,7 @@ function TicketsContent() {
               />
             </div>
             <Select value={filterEstado} onValueChange={setFilterEstado}>
-              <SelectTrigger className="w-full md:w-[180px]">
+              <SelectTrigger className="w-full md:w-45">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
@@ -359,7 +384,7 @@ function TicketsContent() {
               </SelectContent>
             </Select>
             <Select value={filterPrioridad} onValueChange={setFilterPrioridad}>
-              <SelectTrigger className="w-full md:w-[150px]">
+              <SelectTrigger className="w-full md:w-37.5">
                 <SelectValue placeholder="Prioridad" />
               </SelectTrigger>
               <SelectContent>
@@ -371,7 +396,7 @@ function TicketsContent() {
               </SelectContent>
             </Select>
             <Select value={filterCategoria} onValueChange={setFilterCategoria}>
-              <SelectTrigger className="w-full md:w-[180px]">
+              <SelectTrigger className="w-full md:w-45">
                 <SelectValue placeholder="Categoria" />
               </SelectTrigger>
               <SelectContent>
@@ -383,7 +408,9 @@ function TicketsContent() {
                 <SelectItem value="sugerencia">Sugerencia</SelectItem>
               </SelectContent>
             </Select>
-            {(filterEstado !== "todos" || filterPrioridad !== "todos" || filterCategoria !== "todos") && (
+            {(filterEstado !== "todos" ||
+              filterPrioridad !== "todos" ||
+              filterCategoria !== "todos") && (
               <Button
                 variant="ghost"
                 onClick={() => {
@@ -425,7 +452,7 @@ function TicketsContent() {
                   <TableRow key={ticket.id} className="group">
                     <TableCell className="font-mono text-xs">{ticket.numero}</TableCell>
                     <TableCell>
-                      <div className="max-w-[200px]">
+                      <div className="max-w-50">
                         <p className="font-medium truncate">{ticket.asunto}</p>
                         {ticket.tags && ticket.tags.length > 0 && (
                           <div className="flex gap-1 mt-1">
@@ -450,16 +477,18 @@ function TicketsContent() {
                         {estadoLabels[ticket.estado]}
                       </Badge>
                     </TableCell>
-                    <TableCell>
-                      {agente ? `${agente.nombre} ${agente.apellido}` : "-"}
-                    </TableCell>
+                    <TableCell>{agente ? `${agente.nombre} ${agente.apellido}` : "-"}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {formatDate(ticket.fechaCreacion)}
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="opacity-0 group-hover:opacity-100"
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -501,7 +530,7 @@ function TicketsContent() {
       </Card>
 
       {/* Dialog Formulario */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+      <Dialog open={isFormOpen} onOpenChange={(open) => (open ? setIsFormOpen(true) : closeForm())}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedTicket ? "Editar Ticket" : "Nuevo Ticket"}</DialogTitle>
@@ -574,7 +603,9 @@ function TicketsContent() {
                 <Label htmlFor="categoria">Categoria</Label>
                 <Select
                   value={formData.categoria}
-                  onValueChange={(v) => setFormData({ ...formData, categoria: v as HDTicket["categoria"] })}
+                  onValueChange={(v) =>
+                    setFormData({ ...formData, categoria: v as HDTicket["categoria"] })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -592,7 +623,9 @@ function TicketsContent() {
                 <Label htmlFor="prioridad">Prioridad</Label>
                 <Select
                   value={formData.prioridad}
-                  onValueChange={(v) => setFormData({ ...formData, prioridad: v as HDTicket["prioridad"] })}
+                  onValueChange={(v) =>
+                    setFormData({ ...formData, prioridad: v as HDTicket["prioridad"] })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -610,14 +643,17 @@ function TicketsContent() {
               <div className="grid gap-2">
                 <Label htmlFor="departamentoId">Departamento</Label>
                 <Select
-                  value={formData.departamentoId}
-                  onValueChange={(v) => setFormData({ ...formData, departamentoId: v })}
+                  value={formData.departamentoId || "none"}
+                  onValueChange={(v) =>
+                    setFormData({ ...formData, departamentoId: v === "none" ? "" : v })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccionar departamento" />
                   </SelectTrigger>
                   <SelectContent>
-                    {departamentos.map((dep) => (
+                    <SelectItem value="none">Sin departamento</SelectItem>
+                    {departmentOptions.map((dep) => (
                       <SelectItem key={dep.id} value={dep.id}>
                         {dep.nombre}
                       </SelectItem>
@@ -686,9 +722,7 @@ function TicketsContent() {
               <Tabs defaultValue="detalle" className="mt-4">
                 <TabsList>
                   <TabsTrigger value="detalle">Detalle</TabsTrigger>
-                  <TabsTrigger value="comentarios">
-                    Comentarios ({getTicketComments(selectedTicket.id).length})
-                  </TabsTrigger>
+                  <TabsTrigger value="comentarios">Comentarios</TabsTrigger>
                   <TabsTrigger value="historial">Historial</TabsTrigger>
                 </TabsList>
 
@@ -714,7 +748,9 @@ function TicketsContent() {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Tipo:</span>
-                          <span>{getClienteById(selectedTicket.clienteId)?.tipoCliente.toUpperCase()}</span>
+                          <span>
+                            {getClienteById(selectedTicket.clienteId)?.tipoCliente.toUpperCase()}
+                          </span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Canal:</span>
@@ -732,7 +768,7 @@ function TicketsContent() {
                           <span className="text-muted-foreground">Departamento:</span>
                           <span>
                             {selectedTicket.departamentoId
-                              ? getDepartamentoById(selectedTicket.departamentoId)?.nombre
+                              ? getHdDepartmentLabel(selectedTicket.departamentoId)
                               : "-"}
                           </span>
                         </div>
@@ -764,7 +800,9 @@ function TicketsContent() {
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Primera Respuesta</p>
-                          <p className="text-sm">{formatDate(selectedTicket.fechaPrimeraRespuesta)}</p>
+                          <p className="text-sm">
+                            {formatDate(selectedTicket.fechaPrimeraRespuesta)}
+                          </p>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Resolucion</p>
@@ -783,9 +821,11 @@ function TicketsContent() {
                   <div className="flex gap-2">
                     <Select
                       value={selectedTicket.estado}
-                      onValueChange={(v) => handleStatusChange(selectedTicket.id, v as HDTicket["estado"])}
+                      onValueChange={(v) =>
+                        handleStatusChange(selectedTicket.id, v as HDTicket["estado"])
+                      }
                     >
-                      <SelectTrigger className="w-[200px]">
+                      <SelectTrigger className="w-50">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -805,39 +845,23 @@ function TicketsContent() {
                 </TabsContent>
 
                 <TabsContent value="comentarios" className="space-y-4">
-                  <div className="space-y-4 max-h-[300px] overflow-y-auto">
-                    {getTicketComments(selectedTicket.id).map((comment) => {
-                      const autor = getAgenteById(comment.usuarioId)
-                      return (
-                        <div
-                          key={comment.id}
-                          className={`rounded-lg border p-3 ${comment.esInterno ? "bg-yellow-500/5 border-yellow-500/20" : ""}`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">
-                                {autor ? `${autor.nombre} ${autor.apellido}` : "Usuario"}
-                              </span>
-                              {comment.esInterno && (
-                                <Badge variant="outline" className="text-xs">
-                                  Interno
-                                </Badge>
-                              )}
-                            </div>
-                            <span className="text-xs text-muted-foreground">
-                              {formatDate(comment.fechaHora)}
-                            </span>
-                          </div>
-                          <p className="text-sm whitespace-pre-wrap">{comment.texto}</p>
-                        </div>
-                      )
-                    })}
-                    {getTicketComments(selectedTicket.id).length === 0 && (
-                      <p className="text-center text-muted-foreground py-8">
-                        No hay comentarios aun
+                  <Card>
+                    <CardContent className="space-y-3 pt-6">
+                      <p className="text-sm text-muted-foreground">
+                        Esta pantalla puede registrar comentarios en el ticket, pero el backend
+                        actual no expone un endpoint de lectura para reconstruir el historial.
                       </p>
-                    )}
-                  </div>
+                      <p className="text-sm text-muted-foreground">
+                        Hasta que exista esa consulta, el seguimiento conversacional debe hacerse
+                        desde el circuito operativo externo al detalle de este ticket.
+                      </p>
+                      {commentFeedback && (
+                        <div className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm">
+                          {commentFeedback}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                   <div className="flex gap-2">
                     <Textarea
                       value={newComment}
@@ -847,7 +871,11 @@ function TicketsContent() {
                       rows={2}
                     />
                     <div className="flex flex-col gap-2">
-                      <Button size="sm" variant={isInternalComment ? "default" : "outline"} onClick={() => setIsInternalComment(!isInternalComment)}>
+                      <Button
+                        size="sm"
+                        variant={isInternalComment ? "default" : "outline"}
+                        onClick={() => setIsInternalComment(!isInternalComment)}
+                      >
                         {isInternalComment ? "Interno" : "Publico"}
                       </Button>
                       <Button size="sm" onClick={handleAddComment} disabled={!newComment.trim()}>

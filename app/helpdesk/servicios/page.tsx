@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, Suspense } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -48,16 +48,51 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useHdServicios } from "@/lib/hooks/useHelpdesk"
-import type { HDServicio } from "@/lib/types"
-
-const categoriasServicio = [
-  { id: "cat-001", nombre: "Soporte Técnico" },
-  { id: "cat-002", nombre: "Instalaciones" },
-  { id: "cat-003", nombre: "Mantenimiento" },
-  { id: "cat-004", nombre: "Consultoría" },
-]
+import {
+  useHdCategorias,
+  useHdFacturacion,
+  useHdOrdenesServicio,
+  useHdServicios,
+} from "@/lib/hooks/useHelpdesk"
+import type { HDCategoriaServicio, HDServicio } from "@/lib/types"
 import Loading from "@/components/ui/loading" // Declare the Loading variable
+
+type HdCategoryOption = {
+  id: string
+  nombre: string
+}
+
+function getCategoriaLabel(id?: string | null) {
+  if (!id) return "-"
+
+  const cleaned = id.trim()
+  const match = cleaned.match(/^cat[-_ ]?(\d+)$/i)
+  if (match) return `Categoria ${match[1]}`
+
+  return cleaned
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ")
+}
+
+function buildCategoriaOptions(
+  categorias: HDCategoriaServicio[],
+  extraIds: Array<string | null | undefined>
+): HdCategoryOption[] {
+  const options = new Map<string, string>()
+
+  categorias.forEach((categoria) => {
+    options.set(categoria.id, categoria.nombre)
+  })
+
+  extraIds.forEach((id) => {
+    if (!id || options.has(id)) return
+    options.set(id, getCategoriaLabel(id))
+  })
+
+  return Array.from(options.entries()).map(([id, nombre]) => ({ id, nombre }))
+}
 
 const tipoPrecioLabels: Record<string, string> = {
   fijo: "Precio Fijo",
@@ -69,7 +104,18 @@ const tipoPrecioLabels: Record<string, string> = {
 function ServiciosContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { servicios: serviciosList, loading, error, createServicio, updateServicio, deleteServicio } = useHdServicios()
+  const { categorias } = useHdCategorias()
+  const [today] = useState(() => new Date())
+  const {
+    servicios: serviciosList,
+    loading,
+    error,
+    createServicio,
+    updateServicio,
+    deleteServicio,
+  } = useHdServicios()
+  const { ordenes: hdOrdenesServicio } = useHdOrdenesServicio()
+  const { facturas: hdFacturas } = useHdFacturacion()
   const [searchTerm, setSearchTerm] = useState("")
   const [filterCategoria, setFilterCategoria] = useState<string>("todos")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
@@ -89,6 +135,22 @@ function ServiciosContent() {
     estado: "activo" as HDServicio["estado"],
   })
 
+  const categoriaOptions = useMemo(
+    () =>
+      buildCategoriaOptions(
+        categorias,
+        serviciosList
+          .map((servicio) => servicio.categoriaId)
+          .concat([filterCategoria !== "todos" ? filterCategoria : null, formData.categoriaId])
+      ),
+    [categorias, serviciosList, filterCategoria, formData.categoriaId]
+  )
+
+  const categoriaNameById = useMemo(
+    () => new Map(categoriaOptions.map((categoria) => [categoria.id, categoria.nombre])),
+    [categoriaOptions]
+  )
+
   const filteredServicios = serviciosList.filter((servicio) => {
     const matchesSearch =
       servicio.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -97,6 +159,164 @@ function ServiciosContent() {
     const matchesEstado = filterEstado === "todos" || servicio.estado === filterEstado
     return matchesSearch && matchesCategoria && matchesEstado
   })
+
+  const serviceIds = useMemo(
+    () => new Set(filteredServicios.map((servicio) => servicio.id)),
+    [filteredServicios]
+  )
+
+  const ordersByService = useMemo(() => {
+    const map = new Map<string, typeof hdOrdenesServicio>()
+
+    hdOrdenesServicio.forEach((orden) => {
+      if (!serviceIds.has(orden.servicioId)) return
+      map.set(orden.servicioId, [...(map.get(orden.servicioId) ?? []), orden])
+    })
+
+    return map
+  }, [hdOrdenesServicio, serviceIds])
+
+  const invoiceItemsByService = useMemo(() => {
+    const map = new Map<
+      string,
+      Array<{ moneda: string; total: number; estado: string; ordenServicioId?: string }>
+    >()
+
+    hdFacturas.forEach((factura) => {
+      factura.items.forEach((item) => {
+        if (!item.servicioId || !serviceIds.has(item.servicioId)) return
+        map.set(item.servicioId, [
+          ...(map.get(item.servicioId) ?? []),
+          {
+            moneda: factura.moneda,
+            total: item.total,
+            estado: factura.estado,
+            ordenServicioId: item.ordenServicioId,
+          },
+        ])
+      })
+    })
+
+    return map
+  }, [hdFacturas, serviceIds])
+
+  const summary = useMemo(() => {
+    const activos = filteredServicios.filter((servicio) => servicio.estado === "activo")
+    const conGarantia = filteredServicios.filter((servicio) => (servicio.garantiaDias ?? 0) > 0)
+    const conOrdenesAbiertas = filteredServicios.filter((servicio) => {
+      const ordenes = ordersByService.get(servicio.id) ?? []
+      return ordenes.some((orden) => !["completada", "cancelada"].includes(orden.estado))
+    })
+    const conFacturacion = filteredServicios.filter(
+      (servicio) => (invoiceItemsByService.get(servicio.id) ?? []).length > 0
+    )
+
+    return {
+      activos: activos.length,
+      visibles: filteredServicios.length,
+      conGarantia: conGarantia.length,
+      conOrdenesAbiertas: conOrdenesAbiertas.length,
+      conFacturacion: conFacturacion.length,
+    }
+  }, [filteredServicios, invoiceItemsByService, ordersByService])
+
+  const categoryCoverage = useMemo(() => {
+    return filteredServicios
+      .reduce<
+        Array<{
+          categoria: string
+          total: number
+          activos: number
+          ordenes: number
+          garantia: number
+        }>
+      >((acc, servicio) => {
+        const categoria = getCategoriaName(servicio.categoriaId)
+        const existing = acc.find((item) => item.categoria === categoria)
+        const ordenes = (ordersByService.get(servicio.id) ?? []).length
+        const garantia = (servicio.garantiaDias ?? 0) > 0 ? 1 : 0
+
+        if (existing) {
+          existing.total += 1
+          if (servicio.estado === "activo") existing.activos += 1
+          existing.ordenes += ordenes
+          existing.garantia += garantia
+          return acc
+        }
+
+        acc.push({
+          categoria,
+          total: 1,
+          activos: servicio.estado === "activo" ? 1 : 0,
+          ordenes,
+          garantia,
+        })
+        return acc
+      }, [])
+      .sort((a, b) => b.total - a.total)
+  }, [filteredServicios, ordersByService])
+
+  const serviceRadar = useMemo(() => {
+    return filteredServicios
+      .map((servicio) => {
+        const ordenes = ordersByService.get(servicio.id) ?? []
+        const abiertas = ordenes.filter(
+          (orden) => !["completada", "cancelada"].includes(orden.estado)
+        )
+        const completadas = ordenes.filter((orden) => orden.estado === "completada")
+        const atrasadas = abiertas.filter((orden) => {
+          if (!orden.fechaProgramada) return false
+          return new Date(orden.fechaProgramada).getTime() < today.getTime()
+        }).length
+        const calificaciones = completadas
+          .map((orden) => orden.calificacion)
+          .filter((value): value is number => typeof value === "number")
+        const promedioCalificacion = calificaciones.length
+          ? (calificaciones.reduce((sum, value) => sum + value, 0) / calificaciones.length).toFixed(
+              1
+            )
+          : null
+        const facturacionPorMoneda = (invoiceItemsByService.get(servicio.id) ?? []).reduce<
+          Record<string, number>
+        >((acc, item) => {
+          acc[item.moneda] = (acc[item.moneda] ?? 0) + item.total
+          return acc
+        }, {})
+
+        return {
+          servicio,
+          abiertas: abiertas.length,
+          atrasadas,
+          completadas: completadas.length,
+          promedioCalificacion,
+          facturacionPorMoneda,
+          puntaje:
+            abiertas.length * 2 +
+            atrasadas * 2 +
+            (servicio.estado === "inactivo" ? 1 : 0) +
+            ((servicio.garantiaDias ?? 0) > 0 ? 1 : 0),
+        }
+      })
+      .sort((a, b) => b.puntaje - a.puntaje || b.abiertas - a.abiertas)
+      .slice(0, 6)
+  }, [filteredServicios, invoiceItemsByService, ordersByService, today])
+
+  const highlightedService =
+    selectedServicio && filteredServicios.some((servicio) => servicio.id === selectedServicio.id)
+      ? selectedServicio
+      : (filteredServicios[0] ?? null)
+  const highlightedOrders = highlightedService
+    ? (ordersByService.get(highlightedService.id) ?? [])
+    : []
+  const highlightedBilling = highlightedService
+    ? (invoiceItemsByService.get(highlightedService.id) ?? []).reduce<Record<string, number>>(
+        (acc, item) => {
+          acc[item.moneda] = (acc[item.moneda] ?? 0) + item.total
+          return acc
+        },
+        {}
+      )
+    : {}
 
   const openForm = (servicio?: HDServicio) => {
     if (servicio) {
@@ -141,7 +361,7 @@ function ServiciosContent() {
     if (selectedServicio) {
       await updateServicio(selectedServicio.id, formData)
     } else {
-      await createServicio(formData as Omit<HDServicio, 'id' | 'createdAt' | 'updatedAt'>)
+      await createServicio(formData as Omit<HDServicio, "id" | "createdAt" | "updatedAt">)
     }
     closeForm()
   }
@@ -154,8 +374,25 @@ function ServiciosContent() {
     }
   }
 
+  useEffect(() => {
+    if (!selectedServicio) return
+
+    const nextSelected = serviciosList.find((servicio) => servicio.id === selectedServicio.id)
+
+    if (!nextSelected) {
+      setSelectedServicio(null)
+      setIsDeleteOpen(false)
+      setIsFormOpen(false)
+      return
+    }
+
+    if (nextSelected !== selectedServicio) {
+      setSelectedServicio(nextSelected)
+    }
+  }, [selectedServicio, serviciosList])
+
   const getCategoriaName = (categoriaId: string) => {
-    return categoriasServicio.find((c) => c.id === categoriaId)?.nombre || "-"
+    return categoriaNameById.get(categoriaId) ?? getCategoriaLabel(categoriaId)
   }
 
   const formatDuration = (minutes: number) => {
@@ -182,7 +419,9 @@ function ServiciosContent() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Catalogo de Servicios</h1>
-          <p className="text-muted-foreground">Administra los servicios disponibles</p>
+          <p className="text-muted-foreground">
+            Administra y prioriza servicios con demanda, garantia y facturacion visibles
+          </p>
         </div>
         <Button onClick={() => openForm()}>
           <Plus className="mr-2 h-4 w-4" />
@@ -204,12 +443,12 @@ function ServiciosContent() {
               />
             </div>
             <Select value={filterCategoria} onValueChange={setFilterCategoria}>
-              <SelectTrigger className="w-full md:w-[200px]">
+              <SelectTrigger className="w-full md:w-50">
                 <SelectValue placeholder="Categoria" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todas las categorias</SelectItem>
-                {categoriasServicio.map((cat) => (
+                {categoriaOptions.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     {cat.nombre}
                   </SelectItem>
@@ -217,7 +456,7 @@ function ServiciosContent() {
               </SelectContent>
             </Select>
             <Select value={filterEstado} onValueChange={setFilterEstado}>
-              <SelectTrigger className="w-full md:w-[150px]">
+              <SelectTrigger className="w-full md:w-37.5">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
@@ -239,6 +478,247 @@ function ServiciosContent() {
               </Button>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Servicios visibles</CardDescription>
+            <CardTitle className="text-2xl">{summary.visibles}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              {summary.activos} activos en la vista actual
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Con ordenes abiertas</CardDescription>
+            <CardTitle className="text-2xl">{summary.conOrdenesAbiertas}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Servicios con trabajo operativo pendiente
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Con garantia</CardDescription>
+            <CardTitle className="text-2xl">{summary.conGarantia}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Cobertura post-servicio visible en el contrato
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Con facturacion asociada</CardDescription>
+            <CardTitle className="text-2xl">{summary.conFacturacion}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Servicios presentes en items ya facturados
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Radar de demanda</CardTitle>
+            <CardDescription>
+              Prioriza servicios con ordenes abiertas, agenda vencida y calificacion real cuando
+              existe.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {serviceRadar.length > 0 ? (
+              serviceRadar.map((entry) => (
+                <div key={entry.servicio.id} className="rounded-lg border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{entry.servicio.nombre}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {getCategoriaName(entry.servicio.categoriaId)} ·{" "}
+                        {tipoPrecioLabels[entry.servicio.tipoPrecio]}
+                      </p>
+                    </div>
+                    <Badge
+                      variant={
+                        entry.atrasadas > 0
+                          ? "destructive"
+                          : entry.abiertas > 0
+                            ? "secondary"
+                            : "outline"
+                      }
+                    >
+                      {entry.abiertas} abiertas
+                    </Badge>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Agenda vencida</p>
+                      <p className="mt-1 font-medium">{entry.atrasadas}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Completadas</p>
+                      <p className="mt-1 font-medium">{entry.completadas}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Calificación</p>
+                      <p className="mt-1 font-medium">
+                        {entry.promedioCalificacion ?? "Sin feedback"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {Object.keys(entry.facturacionPorMoneda).length > 0 ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {Object.entries(entry.facturacionPorMoneda).map(([moneda, total]) => (
+                        <Badge key={moneda} variant="outline">
+                          {moneda} {total.toLocaleString("es-AR", { maximumFractionDigits: 0 })}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      Sin items facturados visibles.
+                    </p>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                No hay servicios visibles para construir el radar operativo.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Servicio destacado</CardTitle>
+            <CardDescription>
+              Resumen contractual y operativo del primer servicio visible o seleccionado.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {highlightedService ? (
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{highlightedService.nombre}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {getCategoriaName(highlightedService.categoriaId)}
+                    </p>
+                  </div>
+                  <Badge variant={highlightedService.estado === "activo" ? "default" : "secondary"}>
+                    {highlightedService.estado}
+                  </Badge>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Duración estimada</p>
+                    <p className="mt-2 font-medium">
+                      {formatDuration(highlightedService.duracionEstimada)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Precio base</p>
+                    <p className="mt-2 font-medium">
+                      {formatPrice(highlightedService.precioBase, highlightedService.tipoPrecio)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Órdenes vinculadas</p>
+                    <p className="mt-2 font-medium">{highlightedOrders.length}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Garantía</p>
+                    <p className="mt-2 font-medium">
+                      {highlightedService.garantiaDias
+                        ? `${highlightedService.garantiaDias} días`
+                        : "Sin garantía"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border bg-muted/20 p-4">
+                  <p className="text-sm text-muted-foreground">Facturación visible por moneda</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {Object.keys(highlightedBilling).length > 0 ? (
+                      Object.entries(highlightedBilling).map(([moneda, total]) => (
+                        <Badge key={moneda} variant="outline">
+                          {moneda} {total.toLocaleString("es-AR", { maximumFractionDigits: 0 })}
+                        </Badge>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Sin facturación asociada en los datos actuales.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+                  La pantalla usa sólo catálogo, órdenes y facturas visibles. Agenda granular por
+                  técnico, costos reales de recursos y forecast contractual siguen fuera del backend
+                  actual.
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                No hay servicios visibles para construir el resumen destacado.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Cobertura por categoría</CardTitle>
+          <CardDescription>
+            Reparto del catálogo visible entre activación, demanda y garantía publicada.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {categoryCoverage.length > 0 ? (
+            categoryCoverage.map((category) => (
+              <div key={category.categoria} className="rounded-lg border p-4">
+                <p className="font-medium">{category.categoria}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {category.total} servicios visibles
+                </p>
+                <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+                  <div>
+                    <p className="text-muted-foreground">Activos</p>
+                    <p className="font-medium">{category.activos}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Órdenes</p>
+                    <p className="font-medium">{category.ordenes}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Garantía</p>
+                    <p className="font-medium">{category.garantia}</p>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              No hay categorías visibles para resumir.
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -266,7 +746,7 @@ function ServiciosContent() {
                     <div>
                       <p className="font-medium">{servicio.nombre}</p>
                       {servicio.descripcion && (
-                        <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                        <p className="max-w-50 truncate text-xs text-muted-foreground">
                           {servicio.descripcion}
                         </p>
                       )}
@@ -296,7 +776,11 @@ function ServiciosContent() {
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="opacity-0 group-hover:opacity-100"
+                        >
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -333,7 +817,7 @@ function ServiciosContent() {
       </Card>
 
       {/* Dialog Formulario */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+      <Dialog open={isFormOpen} onOpenChange={(open) => (open ? setIsFormOpen(true) : closeForm())}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{selectedServicio ? "Editar Servicio" : "Nuevo Servicio"}</DialogTitle>
@@ -363,7 +847,7 @@ function ServiciosContent() {
                     <SelectValue placeholder="Seleccionar" />
                   </SelectTrigger>
                   <SelectContent>
-                    {categoriasServicio.map((cat) => (
+                    {categoriaOptions.map((cat) => (
                       <SelectItem key={cat.id} value={cat.id}>
                         {cat.nombre}
                       </SelectItem>
@@ -396,7 +880,9 @@ function ServiciosContent() {
                   id="duracionEstimada"
                   type="number"
                   value={formData.duracionEstimada}
-                  onChange={(e) => setFormData({ ...formData, duracionEstimada: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, duracionEstimada: Number(e.target.value) })
+                  }
                 />
               </div>
               <div className="grid gap-2">
@@ -405,7 +891,9 @@ function ServiciosContent() {
                   id="garantiaDias"
                   type="number"
                   value={formData.garantiaDias}
-                  onChange={(e) => setFormData({ ...formData, garantiaDias: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, garantiaDias: Number(e.target.value) })
+                  }
                 />
               </div>
             </div>
@@ -423,7 +911,9 @@ function ServiciosContent() {
                 <Label htmlFor="tipoPrecio">Tipo de Precio</Label>
                 <Select
                   value={formData.tipoPrecio}
-                  onValueChange={(v) => setFormData({ ...formData, tipoPrecio: v as HDServicio["tipoPrecio"] })}
+                  onValueChange={(v) =>
+                    setFormData({ ...formData, tipoPrecio: v as HDServicio["tipoPrecio"] })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -441,7 +931,9 @@ function ServiciosContent() {
               <Label htmlFor="estado">Estado</Label>
               <Select
                 value={formData.estado}
-                onValueChange={(v) => setFormData({ ...formData, estado: v as HDServicio["estado"] })}
+                onValueChange={(v) =>
+                  setFormData({ ...formData, estado: v as HDServicio["estado"] })
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -488,7 +980,13 @@ function ServiciosContent() {
 
 export default function ServiciosPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-64 text-muted-foreground">Cargando...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-64 text-muted-foreground">
+          Cargando...
+        </div>
+      }
+    >
       <ServiciosContent />
     </Suspense>
   )

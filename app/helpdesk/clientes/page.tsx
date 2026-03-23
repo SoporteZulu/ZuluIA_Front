@@ -1,24 +1,50 @@
 "use client"
 
-import { useState, Suspense } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
+import { useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Search, X, Users, Crown, UserCheck, UserMinus, Phone, Mail, Building2, ExternalLink, FileText } from "lucide-react"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Search,
+  X,
+  Users,
+  Crown,
+  UserCheck,
+  UserMinus,
+  Phone,
+  Mail,
+  Building2,
+  ExternalLink,
+  FileText,
+  ShieldCheck,
+  Ticket,
+} from "lucide-react"
 import { useCrmClientes } from "@/lib/hooks/useCrm"
-import { useHdContratos, useHdSlas } from "@/lib/hooks/useHelpdesk"
-import type { CRMClient } from "@/lib/types"
-
-function mapClienteToHDType(cliente: CRMClient): 'vip' | 'estandar' | 'basico' {
-  if (cliente.segmento === 'corporativo' || cliente.segmento === 'gobierno') return 'vip'
-  if (cliente.segmento === 'pyme') return 'estandar'
-  return 'basico'
-}
+import { useHdClientes, useHdContratos, useHdSlas, useHdTickets } from "@/lib/hooks/useHelpdesk"
+import type { CRMClient, HDContrato, HDTicket } from "@/lib/types"
 import Link from "next/link"
+
+function mapClienteToHDType(cliente: CRMClient): "vip" | "estandar" | "basico" {
+  if (cliente.segmento === "corporativo" || cliente.segmento === "gobierno") return "vip"
+  if (cliente.segmento === "pyme") return "estandar"
+  return "basico"
+}
 
 const tipoClienteLabels = {
   vip: "VIP",
@@ -32,45 +58,99 @@ const tipoClienteColors = {
   basico: "bg-slate-500/10 text-slate-500",
 }
 
+function isClosedTicket(ticket: HDTicket) {
+  return ticket.estado === "resuelto" || ticket.estado === "cerrado"
+}
+
+function isCurrentMonth(value: Date | string | undefined) {
+  if (!value) return false
+
+  const date = new Date(value)
+  const now = new Date()
+  return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear()
+}
+
+function pickActiveContrato(contratos: HDContrato[]) {
+  return [...contratos]
+    .filter((contrato) => contrato.estado === "activo")
+    .sort(
+      (left, right) => new Date(left.fechaFin).getTime() - new Date(right.fechaFin).getTime()
+    )[0]
+}
+
 function ClientesHDContent() {
-  const searchParams = useSearchParams()
-  const router = useRouter()
   const [searchTerm, setSearchTerm] = useState("")
   const [filterTipo, setFilterTipo] = useState<string>("all")
   const [filterContrato, setFilterContrato] = useState<string>("all")
 
-  // Obtener solo clientes activos o prospectos del CRM
   const { clientes: crmClients, loading } = useCrmClientes()
+  const { clientes: hdClientes } = useHdClientes()
+  const { tickets } = useHdTickets()
   const { contratos } = useHdContratos()
   const { slas } = useHdSlas()
 
-  const clientesActivos = crmClients.filter(c => c.tipoCliente === "activo" || c.tipoCliente === "prospecto")
+  const clientesActivos = useMemo(
+    () =>
+      crmClients.filter(
+        (cliente) => cliente.tipoCliente === "activo" || cliente.tipoCliente === "prospecto"
+      ),
+    [crmClients]
+  )
 
-  // Mapear clientes con información de Help Desk
-  const clientesConHD = clientesActivos.map(cliente => {
-    const tipoHD = mapClienteToHDType(cliente)
-    const sla = slas.find(s => s.tipoCliente === mapClienteToHDType(cliente) && s.estado === 'activo')
-    const contratosCliente = contratos.filter(c => c.clienteId === cliente.id)
-    const contratoActivo = contratosCliente.some(c => c.estado === "activo")
-    const limiteTickets = tipoHD === "vip" ? 100 : tipoHD === "estandar" ? 50 : 20
+  const clientesConHD = useMemo(() => {
+    return clientesActivos.map((cliente) => {
+      const tipoHD = mapClienteToHDType(cliente)
+      const contratosCliente = contratos.filter((contrato) => contrato.clienteId === cliente.id)
+      const contratoPrincipal = pickActiveContrato(contratosCliente)
+      const hdProfile = hdClientes.find((hdCliente) => hdCliente.id === cliente.id)
+      const ticketsCliente = tickets.filter((ticket) => ticket.clienteId === cliente.id)
+      const ticketsMes = ticketsCliente.filter((ticket) =>
+        isCurrentMonth(ticket.fechaCreacion)
+      ).length
+      const ticketsAbiertos = ticketsCliente.filter((ticket) => !isClosedTicket(ticket)).length
+      const ticketsCerrados = ticketsCliente.length - ticketsAbiertos
+      const ticketsCumplenSla = ticketsCliente.filter((ticket) => ticket.cumpleSLA).length
+      const porcentajeCumplimiento = ticketsCliente.length
+        ? Math.round((ticketsCumplenSla / ticketsCliente.length) * 100)
+        : null
 
-    return {
-      ...cliente,
-      tipoHD,
-      sla,
-      contratosCliente,
-      contratoActivo,
-      limiteTickets,
-      ticketsUsados: Math.floor(Math.random() * limiteTickets * 0.6), // Mock data
-    }
-  })
+      const fallbackSla = slas.find((sla) => sla.tipoCliente === tipoHD && sla.estado === "activo")
+      const sla =
+        slas.find((candidate) => candidate.id === contratoPrincipal?.slaId) ??
+        slas.find((candidate) => candidate.id === hdProfile?.slaId) ??
+        fallbackSla ??
+        null
 
-  const filteredClientes = clientesConHD.filter(cliente => {
-    const matchesSearch = cliente.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      const limiteTickets =
+        hdProfile?.limiteTicketsMes ?? (tipoHD === "vip" ? 100 : tipoHD === "estandar" ? 50 : 20)
+      const ticketsUsados = hdProfile?.ticketsUsadosMes ?? ticketsMes
+
+      return {
+        ...cliente,
+        tipoHD,
+        sla,
+        contratosCliente,
+        contratoActivo: Boolean(contratoPrincipal),
+        contratoPrincipal,
+        limiteTickets,
+        ticketsUsados,
+        ticketsMes,
+        ticketsAbiertos,
+        ticketsCerrados,
+        ticketsTotales: ticketsCliente.length,
+        porcentajeCumplimiento,
+      }
+    })
+  }, [clientesActivos, contratos, hdClientes, slas, tickets])
+
+  const filteredClientes = clientesConHD.filter((cliente) => {
+    const matchesSearch =
+      cliente.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
       cliente.emailPrincipal?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       cliente.cuit?.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesTipo = filterTipo === "all" || cliente.tipoHD === filterTipo
-    const matchesContrato = filterContrato === "all" || 
+    const matchesContrato =
+      filterContrato === "all" ||
       (filterContrato === "activo" && cliente.contratoActivo) ||
       (filterContrato === "inactivo" && !cliente.contratoActivo)
     return matchesSearch && matchesTipo && matchesContrato
@@ -78,10 +158,12 @@ function ClientesHDContent() {
 
   const stats = {
     total: clientesConHD.length,
-    vip: clientesConHD.filter(c => c.tipoHD === "vip").length,
-    estandar: clientesConHD.filter(c => c.tipoHD === "estandar").length,
-    basico: clientesConHD.filter(c => c.tipoHD === "basico").length,
-    conContrato: clientesConHD.filter(c => c.contratoActivo).length,
+    vip: clientesConHD.filter((cliente) => cliente.tipoHD === "vip").length,
+    estandar: clientesConHD.filter((cliente) => cliente.tipoHD === "estandar").length,
+    basico: clientesConHD.filter((cliente) => cliente.tipoHD === "basico").length,
+    conContrato: clientesConHD.filter((cliente) => cliente.contratoActivo).length,
+    conSla: clientesConHD.filter((cliente) => cliente.sla).length,
+    ticketsAbiertos: clientesConHD.reduce((total, cliente) => total + cliente.ticketsAbiertos, 0),
   }
 
   const clearFilters = () => {
@@ -97,7 +179,9 @@ function ClientesHDContent() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Clientes Help Desk</h1>
-          <p className="text-muted-foreground">Clientes del CRM con información de soporte y contratos</p>
+          <p className="text-muted-foreground">
+            Clientes del CRM con información de soporte y contratos
+          </p>
         </div>
         <Link href="/crm/clientes">
           <Button variant="outline">
@@ -108,7 +192,7 @@ function ClientesHDContent() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Clientes</CardTitle>
@@ -154,6 +238,24 @@ function ClientesHDContent() {
             <div className="text-2xl font-bold">{stats.conContrato}</div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Con SLA</CardTitle>
+            <ShieldCheck className="h-4 w-4 text-emerald-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.conSla}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Tickets Abiertos</CardTitle>
+            <Ticket className="h-4 w-4 text-rose-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.ticketsAbiertos}</div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Filters */}
@@ -163,7 +265,7 @@ function ClientesHDContent() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-4">
-            <div className="flex-1 min-w-[200px]">
+            <div className="flex-1 min-w-50">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -175,7 +277,7 @@ function ClientesHDContent() {
               </div>
             </div>
             <Select value={filterTipo} onValueChange={setFilterTipo}>
-              <SelectTrigger className="w-[160px]">
+              <SelectTrigger className="w-40">
                 <SelectValue placeholder="Tipo" />
               </SelectTrigger>
               <SelectContent>
@@ -186,7 +288,7 @@ function ClientesHDContent() {
               </SelectContent>
             </Select>
             <Select value={filterContrato} onValueChange={setFilterContrato}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-45">
                 <SelectValue placeholder="Contrato" />
               </SelectTrigger>
               <SelectContent>
@@ -209,9 +311,7 @@ function ClientesHDContent() {
       <Card>
         <CardHeader>
           <CardTitle>Listado de Clientes</CardTitle>
-          <CardDescription>
-            {filteredClientes.length} cliente(s) encontrado(s)
-          </CardDescription>
+          <CardDescription>{filteredClientes.length} cliente(s) encontrado(s)</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -272,7 +372,7 @@ function ClientesHDContent() {
                       <div className="flex items-center gap-2">
                         <Badge variant="default">Activo</Badge>
                         <span className="text-xs text-muted-foreground">
-                          ({cliente.contratosCliente.filter(c => c.estado === "activo").length})
+                          ({cliente.contratosCliente.filter((c) => c.estado === "activo").length})
                         </span>
                       </div>
                     ) : (
@@ -281,12 +381,26 @@ function ClientesHDContent() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <span className={cliente.ticketsUsados >= cliente.limiteTickets * 0.8 ? "text-destructive font-medium" : ""}>
+                      <span
+                        className={
+                          cliente.ticketsUsados >= cliente.limiteTickets * 0.8
+                            ? "text-destructive font-medium"
+                            : ""
+                        }
+                      >
                         {cliente.ticketsUsados} / {cliente.limiteTickets}
                       </span>
                       {cliente.ticketsUsados >= cliente.limiteTickets * 0.8 && (
-                        <Badge variant="destructive" className="text-xs">Alto</Badge>
+                        <Badge variant="destructive" className="text-xs">
+                          Alto
+                        </Badge>
                       )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {cliente.ticketsAbiertos} abiertos, {cliente.ticketsCerrados} cerrados
+                      {cliente.porcentajeCumplimiento !== null
+                        ? `, SLA ${cliente.porcentajeCumplimiento}%`
+                        : ""}
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
@@ -300,7 +414,7 @@ function ClientesHDContent() {
                       <Link href={`/helpdesk/contratos?cliente=${cliente.id}`}>
                         <Button variant="ghost" size="sm">
                           <FileText className="h-4 w-4 mr-1" />
-                          Contratos
+                          {cliente.contratoPrincipal ? "Contrato" : "Contratos"}
                         </Button>
                       </Link>
                     </div>
@@ -323,9 +437,5 @@ function ClientesHDContent() {
 }
 
 export default function ClientesHDPage() {
-  return (
-    <Suspense fallback={<div className="flex items-center justify-center h-64 text-muted-foreground">Cargando...</div>}>
-      <ClientesHDContent />
-    </Suspense>
-  )
+  return <ClientesHDContent />
 }

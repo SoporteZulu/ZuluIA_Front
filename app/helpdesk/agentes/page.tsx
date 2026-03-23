@@ -1,20 +1,62 @@
 "use client"
 
-import React, { useState, Suspense } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
+import React, { useMemo, useState, Suspense } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Plus, Search, Edit, Trash2, X, Users, UserCheck, UserMinus, Star, Ticket, Clock } from "lucide-react"
-import { useHdAgentes } from \"@/lib/hooks/useHelpdesk\"
-import { departamentos as hdDepartamentos } from \"@/lib/helpdesk-data\"
+import {
+  Plus,
+  Search,
+  Edit,
+  Trash2,
+  X,
+  Users,
+  UserCheck,
+  UserMinus,
+  Star,
+  Ticket,
+  Clock,
+} from "lucide-react"
+import { useHdAgentes } from "@/lib/hooks/useHelpdesk"
+import { buildHdDepartmentOptions, getHdDepartmentLabel } from "@/lib/helpdesk-departments"
 import type { HDAgente } from "@/lib/types"
 
 const rolLabels = {
@@ -45,14 +87,18 @@ function formatMinutes(minutes: number): string {
 }
 
 function AgentesContent() {
-  const searchParams = useSearchParams()
-  const router = useRouter()
   const { agentes, loading, error, createAgente, updateAgente, deleteAgente } = useHdAgentes()
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingAgente, setEditingAgente] = useState<HDAgente | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("all")
   const [filterRol, setFilterRol] = useState<string>("all")
+
+  const departmentOptions = useMemo(
+    () =>
+      buildHdDepartmentOptions(agentes, [editingAgente?.departamentoId, formData.departamentoId]),
+    [agentes, editingAgente?.departamentoId, formData.departamentoId]
+  )
 
   const [formData, setFormData] = useState<Partial<HDAgente>>({
     nombre: "",
@@ -69,8 +115,9 @@ function AgentesContent() {
     calificacionPromedio: 0,
   })
 
-  const filteredAgentes = agentes.filter(agente => {
-    const matchesSearch = agente.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  const filteredAgentes = agentes.filter((agente) => {
+    const matchesSearch =
+      agente.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
       agente.apellido.toLowerCase().includes(searchTerm.toLowerCase()) ||
       agente.email.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesEstado = filterEstado === "all" || agente.estado === filterEstado
@@ -80,9 +127,9 @@ function AgentesContent() {
 
   const stats = {
     total: agentes.length,
-    activos: agentes.filter(a => a.estado === "activo").length,
-    inactivos: agentes.filter(a => a.estado === "inactivo").length,
-    vacaciones: agentes.filter(a => a.estado === "vacaciones").length,
+    activos: agentes.filter((a) => a.estado === "activo").length,
+    inactivos: agentes.filter((a) => a.estado === "inactivo").length,
+    vacaciones: agentes.filter((a) => a.estado === "vacaciones").length,
   }
 
   const openForm = (agente?: HDAgente) => {
@@ -119,7 +166,7 @@ function AgentesContent() {
     if (editingAgente) {
       await updateAgente(editingAgente.id, formData)
     } else {
-      await createAgente(formData as Omit<HDAgente, 'id' | 'createdAt' | 'updatedAt'>)
+      await createAgente(formData as Omit<HDAgente, "id" | "createdAt" | "updatedAt">)
     }
     closeForm()
   }
@@ -143,7 +190,10 @@ function AgentesContent() {
           <h1 className="text-3xl font-bold">Agentes</h1>
           <p className="text-muted-foreground">Gestion del equipo de soporte</p>
         </div>
-        <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+        <Dialog
+          open={isFormOpen}
+          onOpenChange={(open) => (open ? setIsFormOpen(true) : closeForm())}
+        >
           <DialogTrigger asChild>
             <Button onClick={() => openForm()}>
               <Plus className="mr-2 h-4 w-4" />
@@ -154,7 +204,9 @@ function AgentesContent() {
             <DialogHeader>
               <DialogTitle>{editingAgente ? "Editar Agente" : "Nuevo Agente"}</DialogTitle>
               <DialogDescription>
-                {editingAgente ? "Modifica los datos del agente" : "Agrega un nuevo miembro al equipo"}
+                {editingAgente
+                  ? "Modifica los datos del agente"
+                  : "Agrega un nuevo miembro al equipo"}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -204,7 +256,9 @@ function AgentesContent() {
                   <Label htmlFor="rol">Rol</Label>
                   <Select
                     value={formData.rol}
-                    onValueChange={(value) => setFormData({ ...formData, rol: value as HDAgente["rol"] })}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, rol: value as HDAgente["rol"] })
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -221,7 +275,9 @@ function AgentesContent() {
                   <Label htmlFor="estado">Estado</Label>
                   <Select
                     value={formData.estado}
-                    onValueChange={(value) => setFormData({ ...formData, estado: value as HDAgente["estado"] })}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, estado: value as HDAgente["estado"] })
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -239,22 +295,28 @@ function AgentesContent() {
                 <Label htmlFor="departamentoId">Departamento</Label>
                 <Select
                   value={formData.departamentoId || "none"}
-                  onValueChange={(value) => setFormData({ ...formData, departamentoId: value === "none" ? "" : value })}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, departamentoId: value === "none" ? "" : value })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccionar departamento" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Sin departamento</SelectItem>
-                    {hdDepartamentos.map((dep) => (
-                      <SelectItem key={dep.id} value={dep.id}>{dep.nombre}</SelectItem>
+                    {departmentOptions.map((dep) => (
+                      <SelectItem key={dep.id} value={dep.id}>
+                        {dep.nombre}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={closeForm}>Cancelar</Button>
+                <Button type="button" variant="outline" onClick={closeForm}>
+                  Cancelar
+                </Button>
                 <Button type="submit">{editingAgente ? "Guardar Cambios" : "Crear Agente"}</Button>
               </DialogFooter>
             </form>
@@ -309,7 +371,7 @@ function AgentesContent() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-4">
-            <div className="flex-1 min-w-[200px]">
+            <div className="flex-1 min-w-50">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -321,7 +383,7 @@ function AgentesContent() {
               </div>
             </div>
             <Select value={filterEstado} onValueChange={setFilterEstado}>
-              <SelectTrigger className="w-[150px]">
+              <SelectTrigger className="w-37.5">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
@@ -332,7 +394,7 @@ function AgentesContent() {
               </SelectContent>
             </Select>
             <Select value={filterRol} onValueChange={setFilterRol}>
-              <SelectTrigger className="w-[150px]">
+              <SelectTrigger className="w-37.5">
                 <SelectValue placeholder="Rol" />
               </SelectTrigger>
               <SelectContent>
@@ -375,17 +437,22 @@ function AgentesContent() {
             </TableHeader>
             <TableBody>
               {filteredAgentes.map((agente) => {
-                const departamento = hdDepartamentos.find(d => d.id === agente.departamentoId)
+                const departamento = getHdDepartmentLabel(agente.departamentoId)
                 return (
                   <TableRow key={agente.id} className="group">
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9">
                           <AvatarImage src={agente.avatar || "/placeholder.svg"} />
-                          <AvatarFallback>{agente.nombre[0]}{agente.apellido[0]}</AvatarFallback>
+                          <AvatarFallback>
+                            {agente.nombre[0]}
+                            {agente.apellido[0]}
+                          </AvatarFallback>
                         </Avatar>
                         <div>
-                          <div className="font-medium">{agente.nombre} {agente.apellido}</div>
+                          <div className="font-medium">
+                            {agente.nombre} {agente.apellido}
+                          </div>
                           <div className="text-sm text-muted-foreground">{agente.email}</div>
                         </div>
                       </div>
@@ -394,7 +461,7 @@ function AgentesContent() {
                       <Badge variant="outline">{rolLabels[agente.rol]}</Badge>
                     </TableCell>
                     <TableCell>
-                      {departamento?.nombre || <span className="text-muted-foreground">Sin asignar</span>}
+                      {departamento || <span className="text-muted-foreground">Sin asignar</span>}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
@@ -428,7 +495,11 @@ function AgentesContent() {
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -441,7 +512,10 @@ function AgentesContent() {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDelete(agente.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                              <AlertDialogAction
+                                onClick={() => handleDelete(agente.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
                                 Eliminar
                               </AlertDialogAction>
                             </AlertDialogFooter>
@@ -462,7 +536,13 @@ function AgentesContent() {
 
 export default function AgentesPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-64 text-muted-foreground">Cargando...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-64 text-muted-foreground">
+          Cargando...
+        </div>
+      }
+    >
       <AgentesContent />
     </Suspense>
   )

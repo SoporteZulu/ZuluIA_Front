@@ -1,26 +1,30 @@
-'use client'
+"use client"
 
-import { useEffect, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
-import { isAuthenticated } from '@/lib/auth'
+import { useEffect } from "react"
+import { useRouter, usePathname } from "next/navigation"
+import { isAuthenticated } from "@/lib/auth"
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const [mounted, setMounted] = useState(false)
+  const mounted = typeof window !== "undefined"
+  const authenticated = mounted ? isAuthenticated() : false
 
   useEffect(() => {
-    setMounted(true)
-    if (!isAuthenticated()) {
-      router.replace('/login')
+    if (!mounted || authenticated) {
+      return
     }
-  }, [pathname, router])
+
+    if (!authenticated) {
+      router.replace("/login")
+    }
+  }, [authenticated, mounted, pathname, router])
 
   // Before mounting, render nothing on both server and client to avoid
   // hydration mismatch (localStorage is not available during SSR).
   if (!mounted) return null
 
-  if (!isAuthenticated()) return null
+  if (!authenticated) return null
 
   return <>{children}</>
 }

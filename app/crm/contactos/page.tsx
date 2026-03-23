@@ -1,37 +1,78 @@
 "use client"
 
-import React from "react"
-
-import { useState, Suspense } from "react"
+import React, { Suspense, useMemo, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table"
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select"
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  Plus, Search, MoreHorizontal, Pencil, Trash2, User, Phone, Mail, Building2,
+  Plus,
+  Search,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  User,
+  Phone,
+  Mail,
+  Building2,
+  AlertTriangle,
+  ArrowRight,
+  MessageSquare,
+  Users,
+  BriefcaseBusiness,
 } from "lucide-react"
-import { useCrmContactos, useCrmClientes } from "@/lib/hooks/useCrm"
-import type { CRMContact } from "@/lib/types"
+import {
+  useCrmContactos,
+  useCrmClientes,
+  useCrmInteracciones,
+  useCrmOportunidades,
+  useCrmTareas,
+} from "@/lib/hooks/useCrm"
+import type { CRMContact, CRMOpportunity } from "@/lib/types"
 
 const canalLabels: Record<CRMContact["canalPreferido"], string> = {
   email: "Email",
@@ -47,11 +88,48 @@ const estadoLabels: Record<CRMContact["estadoContacto"], string> = {
   inactivo: "Inactivo",
 }
 
+const formatDateTime = (value?: Date | string | null) => {
+  if (!value) return "Sin interacción"
+
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value))
+}
+
+const formatCurrency = (value: number, currency: CRMOpportunity["moneda"]) =>
+  new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value)
+
+const getDaysSince = (value?: Date | string | null, referenceDate?: Date) => {
+  if (!value) return null
+
+  const baseDate = new Date(referenceDate ?? new Date())
+  baseDate.setHours(0, 0, 0, 0)
+
+  const targetDate = new Date(value)
+  targetDate.setHours(0, 0, 0, 0)
+
+  return Math.round((baseDate.getTime() - targetDate.getTime()) / 86400000)
+}
+
 function ContactosContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const action = searchParams.get("action")
   const clienteIdParam = searchParams.get("clienteId")
+  const [today] = useState(() => {
+    const baseDate = new Date()
+    baseDate.setHours(0, 0, 0, 0)
+    return baseDate
+  })
 
   const [search, setSearch] = useState("")
   const [filterCliente, setFilterCliente] = useState<string>("all")
@@ -59,14 +137,17 @@ function ContactosContent() {
   const [isFormOpen, setIsFormOpen] = useState(action === "new")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [selectedContact, setSelectedContact] = useState<CRMContact | null>(null)
-  const [contacts, setContacts] = useState<CRMContact[]>([])
-  const { contactos, loading, error, createContacto, updateContacto, deleteContacto } = useCrmContactos(clienteIdParam || undefined)
+  const { contactos, loading, error, createContacto, updateContacto, deleteContacto } =
+    useCrmContactos(clienteIdParam || undefined)
   const { clientes: crmClients } = useCrmClientes()
+  const { interacciones } = useCrmInteracciones(clienteIdParam || undefined)
+  const { oportunidades } = useCrmOportunidades(clienteIdParam || undefined)
+  const { tareas } = useCrmTareas(clienteIdParam || undefined)
 
-  const getClientById = (id?: string) => crmClients.find(c => c.id === id)
-
-  // sync hook data into local state for optimistic UI
-  React.useEffect(() => { setContacts(contactos) }, [contactos])
+  const clientsById = useMemo(
+    () => new Map(crmClients.map((client) => [client.id, client])),
+    [crmClients]
+  )
 
   const emptyForm: Partial<CRMContact> = {
     clienteId: clienteIdParam || "",
@@ -82,8 +163,8 @@ function ContactosContent() {
 
   const [formData, setFormData] = useState<Partial<CRMContact>>(emptyForm)
 
-  const filteredContacts = contacts.filter(contact => {
-    const matchesSearch = 
+  const filteredContacts = contactos.filter((contact) => {
+    const matchesSearch =
       `${contact.nombre} ${contact.apellido}`.toLowerCase().includes(search.toLowerCase()) ||
       contact.email?.toLowerCase().includes(search.toLowerCase()) ||
       contact.cargo?.toLowerCase().includes(search.toLowerCase())
@@ -91,6 +172,150 @@ function ContactosContent() {
     const matchesEstado = filterEstado === "all" || contact.estadoContacto === filterEstado
     return matchesSearch && matchesCliente && matchesEstado
   })
+
+  const contactRows = useMemo(() => {
+    return filteredContacts.map((contact) => {
+      const cliente = clientsById.get(contact.clienteId)
+      const contactInteractions = interacciones.filter(
+        (interaction) => interaction.contactoId === contact.id
+      )
+      const contactTasks = tareas.filter(
+        (task) => task.clienteId === contact.clienteId && task.estado !== "completada"
+      )
+      const contactPipeline = oportunidades.filter(
+        (opportunity) =>
+          opportunity.clienteId === contact.clienteId &&
+          opportunity.contactoPrincipalId === contact.id &&
+          !["cerrado_ganado", "cerrado_perdido"].includes(opportunity.etapa)
+      )
+      const lastInteraction = contactInteractions.reduce<Date | null>((latest, interaction) => {
+        const current = new Date(interaction.fechaHora)
+        if (!latest || current > latest) return current
+        return latest
+      }, null)
+      const daysSinceLastTouch = getDaysSince(lastInteraction, today)
+      const pipelineByCurrency = contactPipeline.reduce<Record<string, number>>(
+        (acc, opportunity) => {
+          acc[opportunity.moneda] =
+            (acc[opportunity.moneda] ?? 0) + Number(opportunity.montoEstimado ?? 0)
+          return acc
+        },
+        {}
+      )
+
+      const score =
+        (contact.estadoContacto === "no_contactar" ? 4 : 0) +
+        (contact.estadoContacto === "bounced" ? 3 : 0) +
+        (daysSinceLastTouch === null ? 2 : daysSinceLastTouch > 30 ? 2 : 0) +
+        contactTasks.length +
+        contactPipeline.length
+
+      return {
+        contact,
+        cliente,
+        contactInteractions,
+        contactTasks,
+        contactPipeline,
+        lastInteraction,
+        daysSinceLastTouch,
+        pipelineByCurrency,
+        score,
+      }
+    })
+  }, [clientsById, filteredContacts, interacciones, oportunidades, tareas, today])
+
+  const stats = useMemo(() => {
+    return {
+      visible: contactRows.length,
+      activos: contactRows.filter(({ contact }) => contact.estadoContacto === "activo").length,
+      preferWhatsApp: contactRows.filter(({ contact }) => contact.canalPreferido === "whatsapp")
+        .length,
+      sinGestionReciente: contactRows.filter(
+        ({ daysSinceLastTouch }) => daysSinceLastTouch === null || daysSinceLastTouch > 30
+      ).length,
+    }
+  }, [contactRows])
+
+  const channelCoverage = useMemo(() => {
+    return Object.entries(
+      contactRows.reduce<Record<string, number>>((acc, row) => {
+        acc[row.contact.canalPreferido] = (acc[row.contact.canalPreferido] ?? 0) + 1
+        return acc
+      }, {})
+    ).sort((left, right) => right[1] - left[1])
+  }, [contactRows])
+
+  const accountCoverage = useMemo(() => {
+    return crmClients
+      .map((client) => {
+        const clientContacts = contactRows.filter((row) => row.contact.clienteId === client.id)
+        if (!clientContacts.length) return null
+
+        return {
+          id: client.id,
+          nombre: client.nombre,
+          contactos: clientContacts.length,
+          sinGestion: clientContacts.filter(
+            (row) => row.daysSinceLastTouch === null || row.daysSinceLastTouch > 30
+          ).length,
+          noContactar: clientContacts.filter((row) => row.contact.estadoContacto === "no_contactar")
+            .length,
+        }
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .sort((left, right) => right.contactos - left.contactos || right.sinGestion - left.sinGestion)
+      .slice(0, 4)
+  }, [contactRows, crmClients])
+
+  const alerts = useMemo(() => {
+    const items: Array<{ title: string; detail: string }> = []
+    const bounced = contactRows.filter(({ contact }) => contact.estadoContacto === "bounced").length
+    const noContact = contactRows.filter(
+      ({ contact }) => contact.estadoContacto === "no_contactar"
+    ).length
+    const withoutTouch = contactRows.filter(
+      ({ daysSinceLastTouch }) => daysSinceLastTouch === null || daysSinceLastTouch > 30
+    ).length
+
+    if (bounced > 0) {
+      items.push({
+        title: "Correos rebotados",
+        detail: `${bounced} contactos visibles están en bounced y conviene revisar su canal preferido.`,
+      })
+    }
+
+    if (noContact > 0) {
+      items.push({
+        title: "Bloqueo comercial",
+        detail: `${noContact} contactos están marcados como no contactar dentro de la red filtrada.`,
+      })
+    }
+
+    if (withoutTouch > 0) {
+      items.push({
+        title: "Sin gestión reciente",
+        detail: `${withoutTouch} contactos no muestran interacción reciente o no tienen actividad visible registrada.`,
+      })
+    }
+
+    if (!items.length) {
+      items.push({
+        title: "Sin alertas críticas",
+        detail: "La red visible de contactos no presenta desvíos fuertes con la carga actual.",
+      })
+    }
+
+    return items.slice(0, 4)
+  }, [contactRows])
+
+  const highlightedContact = useMemo(() => {
+    const sorted = [...contactRows].sort(
+      (left, right) =>
+        right.score - left.score || right.contactPipeline.length - left.contactPipeline.length
+    )
+
+    return sorted[0] ?? null
+  }, [contactRows])
 
   const getEstadoColor = (estado: CRMContact["estadoContacto"]) => {
     const colors = {
@@ -124,14 +349,7 @@ function ContactosContent() {
     if (selectedContact) {
       await updateContacto(selectedContact.id, formData)
     } else {
-      const newContact: CRMContact = {
-        ...formData as CRMContact,
-        id: `con-${Date.now()}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      setContacts([newContact, ...contacts])
-      await createContacto(formData as Omit<CRMContact, 'id' | 'createdAt' | 'updatedAt'>)
+      await createContacto(formData as Omit<CRMContact, "id" | "createdAt" | "updatedAt">)
     }
     closeForm()
   }
@@ -151,6 +369,14 @@ function ContactosContent() {
     router.push("/crm/contactos")
   }
 
+  if (loading && contactos.length === 0) {
+    return (
+      <div className="flex min-h-80 items-center justify-center rounded-lg border border-dashed text-muted-foreground">
+        Cargando red de contactos...
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -163,6 +389,41 @@ function ContactosContent() {
           Nuevo Contacto
         </Button>
       </div>
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Contactos visibles</p>
+            <p className="mt-2 text-2xl font-bold">{stats.visible}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Activos</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-500">{stats.activos}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Canal WhatsApp</p>
+            <p className="mt-2 text-2xl font-bold text-blue-500">{stats.preferWhatsApp}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Sin gestión reciente</p>
+            <p className="mt-2 text-2xl font-bold text-amber-500">{stats.sinGestionReciente}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {error && (
+        <Card className="border-red-500/40">
+          <CardContent className="pt-6 text-sm text-red-300">
+            No se pudo cargar parte de la red de contactos: {error}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="pt-6">
@@ -177,30 +438,209 @@ function ContactosContent() {
               />
             </div>
             <Select value={filterCliente} onValueChange={setFilterCliente}>
-              <SelectTrigger className="w-full md:w-[200px]">
+              <SelectTrigger className="w-full md:w-50">
                 <SelectValue placeholder="Cliente" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los clientes</SelectItem>
-                {crmClients.map(client => (
-                  <SelectItem key={client.id} value={client.id}>{client.nombre}</SelectItem>
+                {crmClients.map((client) => (
+                  <SelectItem key={client.id} value={client.id}>
+                    {client.nombre}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Select value={filterEstado} onValueChange={setFilterEstado}>
-              <SelectTrigger className="w-full md:w-[160px]">
+              <SelectTrigger className="w-full md:w-40">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
                 {Object.entries(estadoLabels).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>{label}</SelectItem>
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
         </CardContent>
       </Card>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Radar de red comercial</CardTitle>
+            <CardDescription>
+              Alertas de cobertura, rebotes y contactos sin actividad reciente dentro de la red
+              visible.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {alerts.map((alert) => (
+              <div key={alert.title} className="rounded-lg border p-4">
+                <p className="font-medium">{alert.title}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{alert.detail}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Cobertura por canal</CardTitle>
+            <CardDescription>
+              Preferencias visibles de contacto sobre la red filtrada.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {channelCoverage.map(([channel, total]) => (
+              <div
+                key={channel}
+                className="flex items-center justify-between rounded-lg border p-4"
+              >
+                <div>
+                  <p className="font-medium">
+                    {canalLabels[channel as CRMContact["canalPreferido"]]}
+                  </p>
+                  <p className="text-sm text-muted-foreground">{total} contactos</p>
+                </div>
+                <Badge variant="outline">
+                  {Math.round((total / Math.max(stats.visible, 1)) * 100)}%
+                </Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Contacto destacado</CardTitle>
+              <CardDescription>
+                Persona con mayor sensibilidad visible por estado, pendiente comercial o falta de
+                gestión.
+              </CardDescription>
+            </div>
+            {highlightedContact?.cliente && (
+              <Link href={`/crm/clientes/${highlightedContact.cliente.id}`}>
+                <Button variant="ghost" size="sm">
+                  Ver cliente
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+            )}
+          </CardHeader>
+          <CardContent>
+            {highlightedContact ? (
+              <div className="space-y-4 rounded-lg border p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-lg font-semibold">
+                      {highlightedContact.contact.nombre} {highlightedContact.contact.apellido}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {highlightedContact.contact.cargo || "Sin cargo informado"} ·{" "}
+                      {highlightedContact.cliente?.nombre || "Cliente no disponible"}
+                    </p>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={getEstadoColor(highlightedContact.contact.estadoContacto)}
+                  >
+                    {estadoLabels[highlightedContact.contact.estadoContacto]}
+                  </Badge>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Última interacción</p>
+                    <p className="mt-2 font-medium">
+                      {formatDateTime(highlightedContact.lastInteraction)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {highlightedContact.daysSinceLastTouch === null
+                        ? "Sin gestión registrada"
+                        : `${highlightedContact.daysSinceLastTouch} días desde el último contacto`}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Pendientes</p>
+                    <p className="mt-2 font-medium">
+                      {highlightedContact.contactTasks.length} tareas abiertas
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {highlightedContact.contactInteractions.length} interacciones visibles
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <BriefcaseBusiness className="h-4 w-4 text-primary" />
+                    Pipeline asociado
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {Object.entries(highlightedContact.pipelineByCurrency).length > 0 ? (
+                      Object.entries(highlightedContact.pipelineByCurrency).map(
+                        ([currency, total]) => (
+                          <Badge key={currency} variant="outline">
+                            {formatCurrency(total, currency as CRMOpportunity["moneda"])}
+                          </Badge>
+                        )
+                      )
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Sin oportunidades abiertas donde figure como contacto principal.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                No hay un contacto destacado con los filtros actuales.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Cobertura por cuenta</CardTitle>
+            <CardDescription>
+              Clientes con mayor densidad de contactos y señales de seguimiento pendientes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {accountCoverage.map((account) => (
+              <div key={account.id} className="rounded-lg border p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium">{account.nombre}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {account.contactos} contactos visibles
+                    </p>
+                  </div>
+                  <Badge variant={account.noContactar > 0 ? "destructive" : "outline"}>
+                    {account.noContactar} no contactar
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {account.sinGestion} sin gestión reciente dentro de la cuenta.
+                </p>
+              </div>
+            ))}
+            {accountCoverage.length === 0 && (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                No hay cobertura suficiente para resumir por cliente con los filtros actuales.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardContent className="p-0">
@@ -211,13 +651,14 @@ function ContactosContent() {
                 <TableHead>Cliente</TableHead>
                 <TableHead>Cargo</TableHead>
                 <TableHead>Canal Preferido</TableHead>
+                <TableHead>Última Gestión</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredContacts.map((contact) => {
-                const cliente = getClientById(contact.clienteId)
+              {contactRows.map((row) => {
+                const { contact, cliente } = row
                 return (
                   <TableRow key={contact.id} className="group">
                     <TableCell>
@@ -226,7 +667,9 @@ function ContactosContent() {
                           <User className="h-5 w-5 text-primary" />
                         </div>
                         <div>
-                          <p className="font-medium">{contact.nombre} {contact.apellido}</p>
+                          <p className="font-medium">
+                            {contact.nombre} {contact.apellido}
+                          </p>
                           <div className="flex items-center gap-3 text-sm text-muted-foreground">
                             {contact.email && (
                               <span className="flex items-center gap-1">
@@ -240,14 +683,29 @@ function ContactosContent() {
                     </TableCell>
                     <TableCell>
                       {cliente ? (
-                        <Link href={`/crm/clientes/${cliente.id}`} className="hover:underline flex items-center gap-1">
+                        <Link
+                          href={`/crm/clientes/${cliente.id}`}
+                          className="hover:underline flex items-center gap-1"
+                        >
                           <Building2 className="h-3 w-3" />
                           {cliente.nombre}
                         </Link>
-                      ) : "-"}
+                      ) : (
+                        "-"
+                      )}
                     </TableCell>
                     <TableCell>{contact.cargo || "-"}</TableCell>
                     <TableCell>{canalLabels[contact.canalPreferido]}</TableCell>
+                    <TableCell>
+                      <div className="space-y-1 text-sm">
+                        <p>{formatDateTime(row.lastInteraction)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {row.daysSinceLastTouch === null
+                            ? "Sin gestión visible"
+                            : `${row.daysSinceLastTouch} días desde el último contacto`}
+                        </p>
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={getEstadoColor(contact.estadoContacto)}>
                         {estadoLabels[contact.estadoContacto]}
@@ -256,7 +714,11 @@ function ContactosContent() {
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="opacity-0 group-hover:opacity-100"
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -266,7 +728,10 @@ function ContactosContent() {
                             Editar
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleDelete(contact)} className="text-red-500">
+                          <DropdownMenuItem
+                            onClick={() => handleDelete(contact)}
+                            className="text-red-500"
+                          >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Eliminar
                           </DropdownMenuItem>
@@ -276,9 +741,9 @@ function ContactosContent() {
                   </TableRow>
                 )
               })}
-              {filteredContacts.length === 0 && (
+              {contactRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     No se encontraron contactos
                   </TableCell>
                 </TableRow>
@@ -293,7 +758,9 @@ function ContactosContent() {
           <DialogHeader>
             <DialogTitle>{selectedContact ? "Editar Contacto" : "Nuevo Contacto"}</DialogTitle>
             <DialogDescription>
-              {selectedContact ? "Modifica los datos del contacto" : "Ingresa los datos del nuevo contacto"}
+              {selectedContact
+                ? "Modifica los datos del contacto"
+                : "Ingresa los datos del nuevo contacto"}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit}>
@@ -309,8 +776,10 @@ function ContactosContent() {
                     <SelectValue placeholder="Seleccionar cliente" />
                   </SelectTrigger>
                   <SelectContent>
-                    {crmClients.map(client => (
-                      <SelectItem key={client.id} value={client.id}>{client.nombre}</SelectItem>
+                    {crmClients.map((client) => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.nombre}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -362,14 +831,21 @@ function ContactosContent() {
                   <Label>Canal Preferido</Label>
                   <Select
                     value={formData.canalPreferido}
-                    onValueChange={(value) => setFormData({ ...formData, canalPreferido: value as CRMContact["canalPreferido"] })}
+                    onValueChange={(value) =>
+                      setFormData({
+                        ...formData,
+                        canalPreferido: value as CRMContact["canalPreferido"],
+                      })
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {Object.entries(canalLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>{label}</SelectItem>
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -378,14 +854,21 @@ function ContactosContent() {
                   <Label>Estado</Label>
                   <Select
                     value={formData.estadoContacto}
-                    onValueChange={(value) => setFormData({ ...formData, estadoContacto: value as CRMContact["estadoContacto"] })}
+                    onValueChange={(value) =>
+                      setFormData({
+                        ...formData,
+                        estadoContacto: value as CRMContact["estadoContacto"],
+                      })
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {Object.entries(estadoLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>{label}</SelectItem>
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -401,7 +884,9 @@ function ContactosContent() {
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={closeForm}>Cancelar</Button>
+              <Button type="button" variant="outline" onClick={closeForm}>
+                Cancelar
+              </Button>
               <Button type="submit">{selectedContact ? "Guardar" : "Crear"}</Button>
             </DialogFooter>
           </form>
@@ -429,7 +914,7 @@ function ContactosContent() {
 }
 
 function Loading() {
-  return null;
+  return null
 }
 
 export default function ContactosPage() {

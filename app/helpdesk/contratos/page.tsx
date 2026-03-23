@@ -1,20 +1,64 @@
 "use client"
 
-import React, { useState, Suspense } from "react"
+import React, { Suspense, useMemo, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Search, Edit, Trash2, X, FileText, CheckCircle, XCircle, DollarSign, Calendar, RefreshCw } from "lucide-react"
+import {
+  Plus,
+  Search,
+  Edit,
+  Trash2,
+  X,
+  FileText,
+  CheckCircle,
+  XCircle,
+  DollarSign,
+  Calendar,
+  RefreshCw,
+  ShieldAlert,
+  Users,
+} from "lucide-react"
 import { useHdContratos, useHdSlas, useHdServicios } from "@/lib/hooks/useHelpdesk"
 import { useCrmClientes } from "@/lib/hooks/useCrm"
 import type { HDContrato } from "@/lib/types"
@@ -40,10 +84,26 @@ const tipoLabels: Record<string, string> = {
   proyecto: "Proyecto",
 }
 
+function getDaysToEnd(value: Date) {
+  const end = new Date(value)
+  if (Number.isNaN(end.getTime())) return null
+
+  const today = new Date()
+  const base = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const target = new Date(end.getFullYear(), end.getMonth(), end.getDate())
+  return Math.round((target.getTime() - base.getTime()) / 86400000)
+}
+
 function ContratosContent() {
-  const searchParams = useSearchParams()
-  const router = useRouter()
-  const { contratos: contratosList, loading, error, createContrato, updateContrato, deleteContrato } = useHdContratos()
+  const [today] = useState(() => new Date())
+  const {
+    contratos: contratosList,
+    loading,
+    error,
+    createContrato,
+    updateContrato,
+    deleteContrato,
+  } = useHdContratos()
   const { slas } = useHdSlas()
   const { servicios } = useHdServicios()
   const { clientes: crmClients } = useCrmClientes()
@@ -73,24 +133,87 @@ function ContratosContent() {
   })
 
   // Filtrar solo clientes activos del CRM
-  const clientesActivos = crmClients.filter(c => c.tipoCliente === 'activo' || c.tipoCliente === 'prospecto')
+  const clientesActivos = crmClients.filter(
+    (c) => c.tipoCliente === "activo" || c.tipoCliente === "prospecto"
+  )
 
-  const filteredContratos = contratosList.filter(contrato => {
-    const cliente = crmClients.find(c => c.id === contrato.clienteId)
-    const matchesSearch = contrato.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      contrato.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      cliente?.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesEstado = filterEstado === "all" || contrato.estado === filterEstado
-    const matchesTipo = filterTipo === "all" || contrato.tipo === filterTipo
-    return matchesSearch && matchesEstado && matchesTipo
-  })
+  const clientById = useMemo(
+    () => new Map(crmClients.map((client) => [client.id, client])),
+    [crmClients]
+  )
+  const slaById = useMemo(() => new Map(slas.map((sla) => [sla.id, sla])), [slas])
+  const serviceById = useMemo(
+    () => new Map(servicios.map((servicio) => [servicio.id, servicio])),
+    [servicios]
+  )
 
-  const stats = {
-    total: contratosList.length,
-    activos: contratosList.filter(c => c.estado === "activo").length,
-    vencidos: contratosList.filter(c => c.estado === "vencido").length,
-    valorMensualTotal: contratosList.filter(c => c.estado === "activo").reduce((sum, c) => sum + (c.valorMensual || 0), 0),
-  }
+  const filteredContratos = useMemo(() => {
+    return contratosList.filter((contrato) => {
+      const cliente = clientById.get(contrato.clienteId)
+      const matchesSearch =
+        contrato.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        contrato.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        cliente?.nombre.toLowerCase().includes(searchTerm.toLowerCase())
+      const matchesEstado = filterEstado === "all" || contrato.estado === filterEstado
+      const matchesTipo = filterTipo === "all" || contrato.tipo === filterTipo
+      return matchesSearch && matchesEstado && matchesTipo
+    })
+  }, [clientById, contratosList, filterEstado, filterTipo, searchTerm])
+
+  const contractCoverage = useMemo(() => {
+    return filteredContratos
+      .map((contrato) => {
+        const cliente = clientById.get(contrato.clienteId)
+        const sla = contrato.slaId ? slaById.get(contrato.slaId) : null
+        const diasRestantes = getDaysToEnd(contrato.fechaFin)
+        const horasPercent = contrato.horasIncluidas
+          ? Math.min((contrato.horasConsumidas / contrato.horasIncluidas) * 100, 100)
+          : null
+        const serviciosNombres = (contrato.serviciosIncluidos ?? [])
+          .map((serviceId) => serviceById.get(serviceId)?.nombre)
+          .filter(Boolean)
+
+        return {
+          contrato,
+          cliente,
+          sla,
+          diasRestantes,
+          horasPercent,
+          serviciosNombres,
+          criticidad:
+            (contrato.estado === "vencido" ? 3 : 0) +
+            (contrato.estado === "pausado" ? 2 : 0) +
+            (diasRestantes !== null && diasRestantes <= 15 && contrato.estado === "activo"
+              ? 2
+              : 0) +
+            (horasPercent !== null && horasPercent >= 85 ? 2 : 0) +
+            (!contrato.slaId ? 1 : 0),
+        }
+      })
+      .sort(
+        (a, b) =>
+          b.criticidad - a.criticidad || (a.diasRestantes ?? 9999) - (b.diasRestantes ?? 9999)
+      )
+  }, [clientById, filteredContratos, serviceById, slaById])
+
+  const stats = useMemo(() => {
+    return {
+      total: filteredContratos.length,
+      activos: filteredContratos.filter((contrato) => contrato.estado === "activo").length,
+      vencidos: filteredContratos.filter((contrato) => contrato.estado === "vencido").length,
+      valorMensualTotal: filteredContratos
+        .filter((contrato) => contrato.estado === "activo")
+        .reduce((sum, contrato) => sum + (contrato.valorMensual || 0), 0),
+      porVencer: contractCoverage.filter(
+        (item) => item.diasRestantes !== null && item.diasRestantes >= 0 && item.diasRestantes <= 15
+      ).length,
+      conSla: contractCoverage.filter((item) => Boolean(item.sla)).length,
+    }
+  }, [contractCoverage, filteredContratos])
+
+  const highlightedContract = editingContrato
+    ? (contractCoverage.find((item) => item.contrato.id === editingContrato.id) ?? null)
+    : (contractCoverage[0] ?? null)
 
   const openForm = (contrato?: HDContrato) => {
     if (contrato) {
@@ -130,7 +253,7 @@ function ContratosContent() {
     if (editingContrato) {
       await updateContrato(editingContrato.id, formData)
     } else {
-      await createContrato(formData as Omit<HDContrato, 'id' | 'createdAt' | 'updatedAt'>)
+      await createContrato(formData as Omit<HDContrato, "id" | "createdAt" | "updatedAt">)
     }
     closeForm()
   }
@@ -161,7 +284,9 @@ function ContratosContent() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Contratos</h1>
-          <p className="text-muted-foreground">Gestion de contratos de servicio vinculados a clientes del CRM</p>
+          <p className="text-muted-foreground">
+            Consola contractual vinculada a clientes CRM, SLAs y catálogo de servicios visibles
+          </p>
         </div>
         <Button onClick={() => openForm()}>
           <Plus className="mr-2 h-4 w-4" />
@@ -209,6 +334,202 @@ function ContratosContent() {
         </Card>
       </div>
 
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Por vencer</CardTitle>
+            <Calendar className="h-4 w-4 text-amber-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-amber-600">{stats.porVencer}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Con SLA visible</CardTitle>
+            <ShieldAlert className="h-4 w-4 text-sky-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.conSla}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Clientes cubiertos</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {new Set(filteredContratos.map((contrato) => contrato.clienteId)).size}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Horas exigidas</CardTitle>
+            <RefreshCw className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {filteredContratos.reduce((sum, contrato) => sum + (contrato.horasIncluidas || 0), 0)}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Radar contractual</CardTitle>
+            <CardDescription>
+              Prioriza contratos vencidos, por vencer, sin SLA o con consumo horario exigido.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {contractCoverage.length > 0 ? (
+              contractCoverage.slice(0, 6).map((item) => (
+                <button
+                  key={item.contrato.id}
+                  className="w-full rounded-lg border p-4 text-left transition hover:bg-muted/40"
+                  onClick={() => openForm(item.contrato)}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{item.contrato.nombre}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {item.cliente?.nombre || "Cliente no encontrado"} ·{" "}
+                        {tipoLabels[item.contrato.tipo]}
+                      </p>
+                    </div>
+                    <Badge className={estadoColors[item.contrato.estado]}>
+                      {estadoLabels[item.contrato.estado]}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Vigencia</p>
+                      <p className="mt-1 font-medium">
+                        {item.diasRestantes === null
+                          ? "Sin fecha"
+                          : item.diasRestantes < 0
+                            ? `Vencido ${Math.abs(item.diasRestantes)} días`
+                            : `${item.diasRestantes} días`}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">SLA</p>
+                      <p className="mt-1 font-medium">{item.sla?.nombre ?? "Sin SLA"}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Horas</p>
+                      <p className="mt-1 font-medium">
+                        {item.contrato.horasIncluidas
+                          ? `${item.contrato.horasConsumidas}/${item.contrato.horasIncluidas}`
+                          : "Ilimitado"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Servicios</p>
+                      <p className="mt-1 font-medium">{item.serviciosNombres.length}</p>
+                    </div>
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                No hay contratos visibles para construir el radar contractual.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Contrato destacado</CardTitle>
+            <CardDescription>
+              Resumen comercial y operativo del contrato principal en la vista actual.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {highlightedContract ? (
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{highlightedContract.contrato.nombre}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {highlightedContract.cliente?.nombre || "Cliente no encontrado"}
+                    </p>
+                  </div>
+                  <Badge className={estadoColors[highlightedContract.contrato.estado]}>
+                    {estadoLabels[highlightedContract.contrato.estado]}
+                  </Badge>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Valor mensual</p>
+                    <p className="mt-2 font-medium">
+                      {highlightedContract.contrato.valorMensual
+                        ? formatCurrency(highlightedContract.contrato.valorMensual)
+                        : "Sin abono mensual"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Valor total</p>
+                    <p className="mt-2 font-medium">
+                      {highlightedContract.contrato.valorTotal
+                        ? formatCurrency(highlightedContract.contrato.valorTotal)
+                        : "Sin total publicado"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">SLA aplicable</p>
+                    <p className="mt-2 font-medium">
+                      {highlightedContract.sla?.nombre ?? "Sin SLA"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm text-muted-foreground">Renovación</p>
+                    <p className="mt-2 font-medium">
+                      {highlightedContract.contrato.renovacionAutomatica ? "Automática" : "Manual"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Servicios incluidos</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {highlightedContract.serviciosNombres.length > 0 ? (
+                      highlightedContract.serviciosNombres.map((serviceName) => (
+                        <Badge key={serviceName} variant="outline">
+                          {serviceName}
+                        </Badge>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Sin servicios vinculados en el contrato actual.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+                  La pantalla usa vigencia, importes, servicios, horas y SLA visibles hoy. No simula
+                  renovaciones masivas, consumo automático por orden, recurrencia de facturación ni
+                  anexos comerciales porque el backend actual todavía no los expone.
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                No hay contratos visibles para construir el resumen destacado.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Filters */}
       <Card>
         <CardHeader>
@@ -216,7 +537,7 @@ function ContratosContent() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-4">
-            <div className="flex-1 min-w-[200px]">
+            <div className="flex-1 min-w-50">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -228,7 +549,7 @@ function ContratosContent() {
               </div>
             </div>
             <Select value={filterEstado} onValueChange={setFilterEstado}>
-              <SelectTrigger className="w-[150px]">
+              <SelectTrigger className="w-37.5">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
@@ -240,7 +561,7 @@ function ContratosContent() {
               </SelectContent>
             </Select>
             <Select value={filterTipo} onValueChange={setFilterTipo}>
-              <SelectTrigger className="w-[150px]">
+              <SelectTrigger className="w-37.5">
                 <SelectValue placeholder="Tipo" />
               </SelectTrigger>
               <SelectContent>
@@ -283,8 +604,8 @@ function ContratosContent() {
             </TableHeader>
             <TableBody>
               {filteredContratos.map((contrato) => {
-                const cliente = crmClients.find(c => c.id === contrato.clienteId)
-                const horasPercent = contrato.horasIncluidas 
+                const cliente = clientById.get(contrato.clienteId)
+                const horasPercent = contrato.horasIncluidas
                   ? Math.min((contrato.horasConsumidas / contrato.horasIncluidas) * 100, 100)
                   : 0
                 return (
@@ -292,10 +613,14 @@ function ContratosContent() {
                     <TableCell className="font-mono text-sm">{contrato.numero}</TableCell>
                     <TableCell>
                       <div>
-                        <div className="font-medium">{cliente?.nombre || "Cliente no encontrado"}</div>
+                        <div className="font-medium">
+                          {cliente?.nombre || "Cliente no encontrado"}
+                        </div>
                         <div className="text-sm text-muted-foreground">{contrato.nombre}</div>
                         {cliente && (
-                          <Badge variant="outline" className="mt-1 text-xs">{cliente.segmento}</Badge>
+                          <Badge variant="outline" className="mt-1 text-xs">
+                            {cliente.segmento}
+                          </Badge>
                         )}
                       </div>
                     </TableCell>
@@ -317,7 +642,9 @@ function ContratosContent() {
                     <TableCell className="font-medium">
                       {contrato.valorMensual ? formatCurrency(contrato.valorMensual) : "-"}
                       {contrato.valorTotal && !contrato.valorMensual && (
-                        <div className="text-sm text-muted-foreground">Total: {formatCurrency(contrato.valorTotal)}</div>
+                        <div className="text-sm text-muted-foreground">
+                          Total: {formatCurrency(contrato.valorTotal)}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>
@@ -342,9 +669,9 @@ function ContratosContent() {
                         <Button variant="ghost" size="icon" onClick={() => openForm(contrato)}>
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           className="text-destructive hover:text-destructive"
                           onClick={() => setDeleteId(contrato.id)}
                         >
@@ -368,12 +695,14 @@ function ContratosContent() {
       </Card>
 
       {/* Form Dialog */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+      <Dialog open={isFormOpen} onOpenChange={(open) => (open ? setIsFormOpen(true) : closeForm())}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingContrato ? "Editar Contrato" : "Nuevo Contrato"}</DialogTitle>
             <DialogDescription>
-              {editingContrato ? "Modifica los datos del contrato" : "Los clientes se obtienen del modulo CRM"}
+              {editingContrato
+                ? "Modifica los datos del contrato"
+                : "Los clientes se obtienen del modulo CRM"}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -389,8 +718,8 @@ function ContratosContent() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="clienteId">Cliente (CRM) *</Label>
-                <Select 
-                  value={formData.clienteId} 
+                <Select
+                  value={formData.clienteId}
                   onValueChange={(value) => setFormData({ ...formData, clienteId: value })}
                 >
                   <SelectTrigger>
@@ -421,9 +750,11 @@ function ContratosContent() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="tipo">Tipo de Contrato</Label>
-                <Select 
-                  value={formData.tipo} 
-                  onValueChange={(value: HDContrato["tipo"]) => setFormData({ ...formData, tipo: value })}
+                <Select
+                  value={formData.tipo}
+                  onValueChange={(value: HDContrato["tipo"]) =>
+                    setFormData({ ...formData, tipo: value })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -438,19 +769,21 @@ function ContratosContent() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="slaId">SLA Aplicable</Label>
-                <Select 
-                  value={formData.slaId} 
+                <Select
+                  value={formData.slaId}
                   onValueChange={(value) => setFormData({ ...formData, slaId: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccionar SLA" />
                   </SelectTrigger>
                   <SelectContent>
-                    {slas.filter(s => s.estado === 'activo').map((sla) => (
-                      <SelectItem key={sla.id} value={sla.id}>
-                        {sla.nombre} (Resp: {sla.tiempoRespuesta}min)
-                      </SelectItem>
-                    ))}
+                    {slas
+                      .filter((s) => s.estado === "activo")
+                      .map((sla) => (
+                        <SelectItem key={sla.id} value={sla.id}>
+                          {sla.nombre} (Resp: {sla.tiempoRespuesta}min)
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -462,8 +795,14 @@ function ContratosContent() {
                 <Input
                   id="fechaInicio"
                   type="date"
-                  value={formData.fechaInicio ? new Date(formData.fechaInicio).toISOString().split('T')[0] : ''}
-                  onChange={(e) => setFormData({ ...formData, fechaInicio: new Date(e.target.value) })}
+                  value={
+                    formData.fechaInicio
+                      ? new Date(formData.fechaInicio).toISOString().split("T")[0]
+                      : ""
+                  }
+                  onChange={(e) =>
+                    setFormData({ ...formData, fechaInicio: new Date(e.target.value) })
+                  }
                 />
               </div>
               <div className="space-y-2">
@@ -471,7 +810,9 @@ function ContratosContent() {
                 <Input
                   id="fechaFin"
                   type="date"
-                  value={formData.fechaFin ? new Date(formData.fechaFin).toISOString().split('T')[0] : ''}
+                  value={
+                    formData.fechaFin ? new Date(formData.fechaFin).toISOString().split("T")[0] : ""
+                  }
                   onChange={(e) => setFormData({ ...formData, fechaFin: new Date(e.target.value) })}
                 />
               </div>
@@ -485,8 +826,10 @@ function ContratosContent() {
                   type="number"
                   min="0"
                   step="0.01"
-                  value={formData.valorMensual || ''}
-                  onChange={(e) => setFormData({ ...formData, valorMensual: parseFloat(e.target.value) || 0 })}
+                  value={formData.valorMensual || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, valorMensual: parseFloat(e.target.value) || 0 })
+                  }
                 />
               </div>
               <div className="space-y-2">
@@ -496,8 +839,10 @@ function ContratosContent() {
                   type="number"
                   min="0"
                   step="0.01"
-                  value={formData.valorTotal || ''}
-                  onChange={(e) => setFormData({ ...formData, valorTotal: parseFloat(e.target.value) || 0 })}
+                  value={formData.valorTotal || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, valorTotal: parseFloat(e.target.value) || 0 })
+                  }
                 />
               </div>
             </div>
@@ -509,8 +854,10 @@ function ContratosContent() {
                   id="horasIncluidas"
                   type="number"
                   min="0"
-                  value={formData.horasIncluidas || ''}
-                  onChange={(e) => setFormData({ ...formData, horasIncluidas: parseInt(e.target.value) || 0 })}
+                  value={formData.horasIncluidas || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, horasIncluidas: parseInt(e.target.value) || 0 })
+                  }
                   placeholder="0 = Ilimitado"
                 />
               </div>
@@ -521,7 +868,9 @@ function ContratosContent() {
                   type="number"
                   min="0"
                   value={formData.horasConsumidas || 0}
-                  onChange={(e) => setFormData({ ...formData, horasConsumidas: parseInt(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, horasConsumidas: parseInt(e.target.value) || 0 })
+                  }
                 />
               </div>
             </div>
@@ -529,9 +878,11 @@ function ContratosContent() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="estado">Estado</Label>
-                <Select 
-                  value={formData.estado} 
-                  onValueChange={(value: HDContrato["estado"]) => setFormData({ ...formData, estado: value })}
+                <Select
+                  value={formData.estado}
+                  onValueChange={(value: HDContrato["estado"]) =>
+                    setFormData({ ...formData, estado: value })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -548,7 +899,9 @@ function ContratosContent() {
                 <Switch
                   id="renovacionAutomatica"
                   checked={formData.renovacionAutomatica}
-                  onCheckedChange={(checked) => setFormData({ ...formData, renovacionAutomatica: checked })}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, renovacionAutomatica: checked })
+                  }
                 />
                 <Label htmlFor="renovacionAutomatica">Renovacion Automatica</Label>
               </div>
@@ -558,7 +911,7 @@ function ContratosContent() {
               <Label htmlFor="condiciones">Condiciones y Notas</Label>
               <Textarea
                 id="condiciones"
-                value={formData.condiciones || ''}
+                value={formData.condiciones || ""}
                 onChange={(e) => setFormData({ ...formData, condiciones: e.target.value })}
                 rows={3}
                 placeholder="Terminos y condiciones del contrato..."
@@ -588,8 +941,8 @@ function ContratosContent() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={() => deleteId && handleDelete(deleteId)} 
+            <AlertDialogAction
+              onClick={() => deleteId && handleDelete(deleteId)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Eliminar
@@ -603,7 +956,13 @@ function ContratosContent() {
 
 export default function ContratosPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-64 text-muted-foreground">Cargando...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-64 text-muted-foreground">
+          Cargando...
+        </div>
+      }
+    >
       <ContratosContent />
     </Suspense>
   )

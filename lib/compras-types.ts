@@ -9,10 +9,10 @@ export interface Supplier extends BaseEntity {
   razonSocial: string
   nombreComercial?: string
   cuit: string
-  condicionImpositiva: 'responsable_inscripto' | 'monotributista' | 'exento' | 'consumidor_final'
+  condicionImpositiva: "responsable_inscripto" | "monotributista" | "exento" | "consumidor_final"
   categoria: string[]
   sitioWeb?: string
-  estado: 'activo' | 'inactivo'
+  estado: "activo" | "inactivo"
   proveedorPreferido: boolean
   requiereAprobacionEspecial: boolean
   rating: number
@@ -30,7 +30,7 @@ export interface SupplierContact extends BaseEntity {
 
 export interface SupplierAddress extends BaseEntity {
   proveedorId: string
-  tipo: 'fiscal' | 'entrega' | 'facturacion'
+  tipo: "fiscal" | "entrega" | "facturacion"
   calle: string
   numero?: string
   piso?: string
@@ -43,7 +43,7 @@ export interface SupplierAddress extends BaseEntity {
 export interface PaymentCondition extends BaseEntity {
   codigo: string
   descripcion: string
-  tipo: 'contado' | 'plazo'
+  tipo: "contado" | "plazo"
   diasPlazo: number
   activo: boolean
 }
@@ -53,7 +53,7 @@ export interface SupplierCommercialTerms extends BaseEntity {
   condicionPagoId: string
   tiempoEntregaDias: number
   montoMinimo: number
-  divisa: 'ARS' | 'USD' | 'EUR'
+  divisa: "ARS" | "USD" | "EUR"
   incoterms?: string
   metodoEnvioPreferido?: string
 }
@@ -61,7 +61,7 @@ export interface SupplierCommercialTerms extends BaseEntity {
 export interface SupplierBankAccount extends BaseEntity {
   proveedorId: string
   banco: string
-  tipoCuenta: 'cuenta_corriente' | 'caja_ahorro'
+  tipoCuenta: "cuenta_corriente" | "caja_ahorro"
   numeroCuenta: string
   cbu: string
   titular: string
@@ -89,11 +89,19 @@ export interface PurchaseOrder extends BaseEntity {
   fechaEntregaEsperada: Date
   almacenId: string
   condicionPagoId: string
-  divisa: 'ARS' | 'USD' | 'EUR'
-  estado: 'borrador' | 'enviada' | 'confirmada' | 'en_transito' | 'recibida_parcial' | 'recibida_total' | 'cerrada' | 'cancelada'
-  estadoAprobacion: 'pendiente' | 'aprobada' | 'rechazada'
+  divisa: "ARS" | "USD" | "EUR"
+  estado:
+    | "borrador"
+    | "enviada"
+    | "confirmada"
+    | "en_transito"
+    | "recibida_parcial"
+    | "recibida_total"
+    | "cerrada"
+    | "cancelada"
+  estadoAprobacion: "pendiente" | "aprobada" | "rechazada"
   aprobadorId?: string
-  prioridad: 'normal' | 'urgente' | 'critica'
+  prioridad: "normal" | "urgente" | "critica"
   referencia?: string
   subtotal: number
   descuento: number
@@ -132,7 +140,7 @@ export interface MerchandiseReceipt extends BaseEntity {
   fechaRecepcion: Date
   almacenId: string
   usuarioReceptorId: string
-  estado: 'completa' | 'con_rechazos'
+  estado: "completa" | "con_rechazos"
   observaciones?: string
   items: MerchandiseReceiptItem[]
 }
@@ -154,9 +162,9 @@ export interface MerchandiseReturn extends BaseEntity {
   proveedorId: string
   fechaDevolucion: Date
   motivoDetallado: string
-  metodoDevolucion: 'retiro_proveedor' | 'envio' | 'credito_directo'
+  metodoDevolucion: "retiro_proveedor" | "envio" | "credito_directo"
   items: MerchandiseReturnItem[]
-  estado: 'pendiente' | 'procesada' | 'completada'
+  estado: "pendiente" | "procesada" | "completada"
 }
 
 export interface MerchandiseReturnItem {
@@ -188,13 +196,13 @@ export interface SupplierEvaluation extends BaseEntity {
 
 export interface PurchaseRequest extends BaseEntity {
   codigo: string
-  origen: 'automatico' | 'manual'
-  estado: 'pendiente' | 'aprobada' | 'convertida_oc' | 'rechazada' | 'cancelada'
+  origen: "automatico" | "manual"
+  estado: "pendiente" | "aprobada" | "convertida_oc" | "rechazada" | "cancelada"
   fechaCreacion: Date
   proveedorSugeridoId?: string
   usuarioSolicitanteId: string
   motivo?: string
-  prioridad: 'normal' | 'urgente' | 'critica'
+  prioridad: "normal" | "urgente" | "critica"
   items: PurchaseRequestItem[]
 }
 
@@ -220,7 +228,7 @@ export interface ReplenishmentParams extends BaseEntity {
   leadTimeDias: number
   proveedorPreferidoId: string
   reabastecimientoAutoHabilitado: boolean
-  metodoCalculo: 'cantidad_fija' | 'hasta_maximo' | 'dias_cobertura' | 'sugerencia_ia'
+  metodoCalculo: "cantidad_fija" | "hasta_maximo" | "dias_cobertura" | "sugerencia_ia"
   diasCoberturaDeseados?: number
 }
 
@@ -229,17 +237,17 @@ export interface ReplenishmentParams extends BaseEntity {
 // ============================================
 
 export interface PurchaseDocument extends BaseEntity {
-  tipo: 'factura' | 'nota_credito' | 'nota_debito' | 'remito'
+  tipo: "factura" | "nota_credito" | "nota_debito" | "remito"
   numero: string
   puntoVenta: string
-  letra: 'A' | 'B' | 'C'
+  letra: "A" | "B" | "C"
   fecha: Date
   fechaVencimiento?: Date
   proveedorId: string
   ordenCompraId?: string
   recepcionId?: string
-  estado: 'borrador' | 'pendiente' | 'aprobada' | 'pagada' | 'anulada'
-  divisa: 'ARS' | 'USD' | 'EUR'
+  estado: "borrador" | "pendiente" | "aprobada" | "pagada" | "anulada"
+  divisa: "ARS" | "USD" | "EUR"
   tipoCambio: number
   items: PurchaseDocumentItem[]
   subtotal: number
@@ -273,7 +281,7 @@ export interface PurchaseDocumentItem {
 
 export interface SupplierCurrentAccount extends BaseEntity {
   proveedorId: string
-  tipoMovimiento: 'debito' | 'credito'
+  tipoMovimiento: "debito" | "credito"
   documentoId?: string
   fecha: Date
   descripcion: string
@@ -286,14 +294,14 @@ export interface SupplierCurrentAccount extends BaseEntity {
 // ============================================
 
 export interface Notification extends BaseEntity {
-  tipo: 'alerta' | 'info' | 'exito' | 'error'
+  tipo: "alerta" | "info" | "exito" | "error"
   usuarioId: string
   titulo: string
   mensaje: string
   fecha: Date
   leida: boolean
   enlaceEntidad?: string
-  metadata?: any
+  metadata?: Record<string, unknown>
 }
 
 // ============================================
@@ -301,7 +309,7 @@ export interface Notification extends BaseEntity {
 // ============================================
 
 export interface ApprovalFlow extends BaseEntity {
-  documentoTipo: 'orden_compra' | 'solicitud_compra'
+  documentoTipo: "orden_compra" | "solicitud_compra"
   nivel: number
   montoMinimo: number
   montoMaximo: number
