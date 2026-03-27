@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -55,7 +55,6 @@ import {
   useHdServicios,
 } from "@/lib/hooks/useHelpdesk"
 import type { HDCategoriaServicio, HDServicio } from "@/lib/types"
-import Loading from "@/components/ui/loading" // Declare the Loading variable
 
 type HdCategoryOption = {
   id: string
@@ -108,8 +107,6 @@ function ServiciosContent() {
   const [today] = useState(() => new Date())
   const {
     servicios: serviciosList,
-    loading,
-    error,
     createServicio,
     updateServicio,
     deleteServicio,
@@ -121,7 +118,7 @@ function ServiciosContent() {
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [isFormOpen, setIsFormOpen] = useState(searchParams.get("action") === "new")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
-  const [selectedServicio, setSelectedServicio] = useState<HDServicio | null>(null)
+  const [selectedServicioId, setSelectedServicioId] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     codigo: "",
     nombre: "",
@@ -149,6 +146,11 @@ function ServiciosContent() {
   const categoriaNameById = useMemo(
     () => new Map(categoriaOptions.map((categoria) => [categoria.id, categoria.nombre])),
     [categoriaOptions]
+  )
+
+  const selectedServicio = useMemo(
+    () => serviciosList.find((servicio) => servicio.id === selectedServicioId) ?? null,
+    [selectedServicioId, serviciosList]
   )
 
   const filteredServicios = serviciosList.filter((servicio) => {
@@ -231,7 +233,8 @@ function ServiciosContent() {
           garantia: number
         }>
       >((acc, servicio) => {
-        const categoria = getCategoriaName(servicio.categoriaId)
+        const categoria =
+          categoriaNameById.get(servicio.categoriaId) ?? getCategoriaLabel(servicio.categoriaId)
         const existing = acc.find((item) => item.categoria === categoria)
         const ordenes = (ordersByService.get(servicio.id) ?? []).length
         const garantia = (servicio.garantiaDias ?? 0) > 0 ? 1 : 0
@@ -254,7 +257,7 @@ function ServiciosContent() {
         return acc
       }, [])
       .sort((a, b) => b.total - a.total)
-  }, [filteredServicios, ordersByService])
+  }, [categoriaNameById, filteredServicios, ordersByService])
 
   const serviceRadar = useMemo(() => {
     return filteredServicios
@@ -320,7 +323,7 @@ function ServiciosContent() {
 
   const openForm = (servicio?: HDServicio) => {
     if (servicio) {
-      setSelectedServicio(servicio)
+      setSelectedServicioId(servicio.id)
       setFormData({
         codigo: servicio.codigo,
         nombre: servicio.nombre,
@@ -334,7 +337,7 @@ function ServiciosContent() {
         estado: servicio.estado,
       })
     } else {
-      setSelectedServicio(null)
+      setSelectedServicioId(null)
       setFormData({
         codigo: `SRV-${String(serviciosList.length + 1).padStart(3, "0")}`,
         nombre: "",
@@ -353,7 +356,7 @@ function ServiciosContent() {
 
   const closeForm = () => {
     setIsFormOpen(false)
-    setSelectedServicio(null)
+    setSelectedServicioId(null)
     router.push("/helpdesk/servicios")
   }
 
@@ -370,26 +373,9 @@ function ServiciosContent() {
     if (selectedServicio) {
       await deleteServicio(selectedServicio.id)
       setIsDeleteOpen(false)
-      setSelectedServicio(null)
+      setSelectedServicioId(null)
     }
   }
-
-  useEffect(() => {
-    if (!selectedServicio) return
-
-    const nextSelected = serviciosList.find((servicio) => servicio.id === selectedServicio.id)
-
-    if (!nextSelected) {
-      setSelectedServicio(null)
-      setIsDeleteOpen(false)
-      setIsFormOpen(false)
-      return
-    }
-
-    if (nextSelected !== selectedServicio) {
-      setSelectedServicio(nextSelected)
-    }
-  }, [selectedServicio, serviciosList])
 
   const getCategoriaName = (categoriaId: string) => {
     return categoriaNameById.get(categoriaId) ?? getCategoriaLabel(categoriaId)
@@ -791,7 +777,7 @@ function ServiciosContent() {
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => {
-                            setSelectedServicio(servicio)
+                            setSelectedServicioId(servicio.id)
                             setIsDeleteOpen(true)
                           }}
                           className="text-red-600"
@@ -957,7 +943,15 @@ function ServiciosContent() {
       </Dialog>
 
       {/* Alert Dialog Eliminar */}
-      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+      <AlertDialog
+        open={isDeleteOpen && !!selectedServicio}
+        onOpenChange={(open) => {
+          setIsDeleteOpen(open)
+          if (!open) {
+            setSelectedServicioId(null)
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar servicio</AlertDialogTitle>

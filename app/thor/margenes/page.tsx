@@ -526,5 +526,3 @@ export default function MargeneModule() {
     </div>
   )
 }
-
-export default MargeneModule

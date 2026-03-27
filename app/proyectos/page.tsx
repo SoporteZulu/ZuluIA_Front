@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+
 import {
   AlertCircle,
   BarChart3,
@@ -175,6 +177,58 @@ export default function ProyectosDashboard() {
     },
   ]
 
+  const accesosRapidos = [
+    {
+      title: "Lista de proyectos",
+      description: "Gestiona la cartera principal, filtros y altas del módulo.",
+      href: "/proyectos/lista",
+      icon: Briefcase,
+      color: "text-sky-700",
+    },
+    {
+      title: "Tareas",
+      description: "Revisa backlog, prioridades y entregables abiertos.",
+      href: "/proyectos/tareas",
+      icon: ClipboardList,
+      color: "text-amber-700",
+    },
+    {
+      title: "Equipo",
+      description: "Monitorea disponibilidad, carga y asignaciones del equipo.",
+      href: "/proyectos/equipo",
+      icon: Users,
+      color: "text-emerald-700",
+    },
+    {
+      title: "Obras",
+      description: "Sigue entidades, frentes de obra y desvíos visibles.",
+      href: "/proyectos/obras",
+      icon: HardHat,
+      color: "text-rose-700",
+    },
+    {
+      title: "Presupuestos",
+      description: "Cruza presupuesto, avance y cobertura legacy visible.",
+      href: "/proyectos/presupuestos",
+      icon: CalendarRange,
+      color: "text-violet-700",
+    },
+    {
+      title: "Tiempo",
+      description: "Consola de seguimiento sobre horas y esfuerzo registrado.",
+      href: "/proyectos/tiempo",
+      icon: CalendarClock,
+      color: "text-cyan-700",
+    },
+    {
+      title: "Analíticas",
+      description: "Explora capacidad, riesgo y desempeño de la cartera.",
+      href: "/proyectos/analiticas",
+      icon: BarChart3,
+      color: "text-orange-700",
+    },
+  ]
+
   return (
     <div className="flex-1 space-y-8">
       <div>
@@ -231,6 +285,24 @@ export default function ProyectosDashboard() {
               <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
             </CardContent>
           </Card>
+        ))}
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {accesosRapidos.map((item) => (
+          <Link key={item.href} href={item.href}>
+            <Card className="h-full cursor-pointer transition-colors hover:bg-muted/50">
+              <CardHeader className="flex flex-row items-center gap-4">
+                <div className={`rounded-lg bg-muted p-2 ${item.color}`}>
+                  <item.icon className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">{item.title}</CardTitle>
+                  <CardDescription className="text-xs">{item.description}</CardDescription>
+                </div>
+              </CardHeader>
+            </Card>
+          </Link>
         ))}
       </div>
 

@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useMemo, useState } from "react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -550,14 +551,21 @@ export default function OrdenesTrabajPage() {
                   </p>
                 </div>
 
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => handleOpenDetail(selected.id)}
-                >
-                  <Eye className="h-4 w-4" />
-                  Ver detalle completo
-                </Button>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => handleOpenDetail(selected.id)}
+                  >
+                    <Eye className="h-4 w-4" />
+                    Ver detalle completo
+                  </Button>
+                  <Button asChild className="w-full">
+                    <Link href={`/almacenes/produccion?orden=${selected.id}`}>
+                      Abrir circuito productivo
+                    </Link>
+                  </Button>
+                </div>
               </>
             ) : (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
@@ -644,6 +652,16 @@ export default function OrdenesTrabajPage() {
                       ? `${getDaysOffset(detail.fechaFinPrevista) ?? 0} dias`
                       : "Sin fecha prevista"}
                   </p>
+                </div>
+                <div className="rounded-lg border p-3 sm:col-span-2">
+                  <p className="text-sm text-muted-foreground">Circuito productivo ampliado</p>
+                  <p className="mt-2 text-sm font-medium">
+                    Consumos, ingresos y ajustes de producción se siguen desde la consola nueva de
+                    frontend mientras el backend no publique mutaciones específicas por orden.
+                  </p>
+                  <Button asChild variant="outline" className="mt-3 bg-transparent">
+                    <Link href={`/almacenes/produccion?orden=${detail.id}`}>Ir a producción</Link>
+                  </Button>
                 </div>
               </TabsContent>
             </Tabs>

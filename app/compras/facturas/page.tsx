@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { useMemo, useState } from "react"
 import {
   Plus,
   Search,
@@ -47,6 +48,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { buildLegacyPurchaseInvoiceOverlay } from "@/lib/compras-legacy-data"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
@@ -240,6 +242,15 @@ function PurchaseInvoiceForm({ onClose, onSaved, emitir }: PurchaseInvoiceFormPr
       { subtotal: 0, iva: 0, total: 0 }
     )
   }, [lineItems])
+
+  const legacyPreview = buildLegacyPurchaseInvoiceOverlay(
+    {
+      id: form.tipoComprobanteId || form.proveedorId || 0,
+      observacion: form.observacion,
+      fechaVto: form.fechaVto,
+    },
+    proveedores.find((supplier) => supplier.id === form.proveedorId)?.razonSocial ?? null
+  )
 
   const handleSave = async () => {
     if (
@@ -509,10 +520,36 @@ function PurchaseInvoiceForm({ onClose, onSaved, emitir }: PurchaseInvoiceFormPr
 
         <TabsContent value="legado" className="mt-4 space-y-4">
           <Card>
-            <CardContent className="pt-6 text-sm text-muted-foreground">
-              El circuito legado de compras incluía imputaciones, asociación a órdenes, validación
-              fiscal extendida y control documental por recepción. Esta etapa deja estable el alta
-              real del comprobante y reserva esos bloques para profundización posterior.
+            <CardHeader>
+              <CardTitle className="text-base">Preview documental heredado</CardTitle>
+              <CardDescription>
+                Imputación y control visible en lectura mientras no existen campos nativos.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <DetailFieldGrid
+                fields={[
+                  { label: "Centro de costo", value: legacyPreview.centroCosto },
+                  { label: "Imputación principal", value: legacyPreview.imputacionPrincipal },
+                  { label: "Recepción asociada", value: legacyPreview.recepcionAsociada },
+                  { label: "Remito proveedor", value: legacyPreview.remitoProveedor },
+                  { label: "Circuito fiscal", value: legacyPreview.circuitoFiscal },
+                  { label: "Condición de pago", value: legacyPreview.condicionPago },
+                  { label: "Responsable carga", value: legacyPreview.responsableCarga },
+                  { label: "Control documental", value: legacyPreview.controlDocumental },
+                ]}
+              />
+              <div className="grid gap-4 md:grid-cols-2 text-sm">
+                <div className="rounded-lg border p-4">
+                  <p className="font-medium">Retenciones previstas</p>
+                  <p className="mt-2 text-muted-foreground">
+                    {legacyPreview.retenciones.join(" · ")}
+                  </p>
+                </div>
+                <div className="rounded-lg border p-4 text-muted-foreground">
+                  {legacyPreview.observacionInterna}
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -552,6 +589,8 @@ function PurchaseInvoiceDetail({
   sucursalName: string
   relatedOrder: OrdenCompra | null
 }) {
+  const legacyFields = buildLegacyPurchaseInvoiceOverlay(invoice, supplierName)
+
   const principalFields = [
     { label: "Comprobante", value: invoice.nroComprobante ?? `#${invoice.id}` },
     { label: "Tipo", value: typeName },
@@ -745,17 +784,30 @@ function PurchaseInvoiceDetail({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Landmark className="h-4 w-4" /> Bloques reservados
+              <Landmark className="h-4 w-4" /> Circuito heredado ampliado
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2 text-sm text-muted-foreground">
-            <div className="rounded-lg border p-4">
-              Esta etapa ya deja visible el estado documental, fiscal y de saldo; siguen pendientes
-              imputaciones contables, centros de costo y validación de recepción avanzada.
-            </div>
-            <div className="rounded-lg border p-4">
-              Retenciones, prorrateos y circuito documental ampliado del legacy de compras quedan
-              reservados para la siguiente fase.
+          <CardContent className="space-y-4">
+            <DetailFieldGrid
+              fields={[
+                { label: "Centro de costo", value: legacyFields.centroCosto },
+                { label: "Imputación principal", value: legacyFields.imputacionPrincipal },
+                { label: "Recepción asociada", value: legacyFields.recepcionAsociada },
+                { label: "Remito proveedor", value: legacyFields.remitoProveedor },
+                { label: "Circuito fiscal", value: legacyFields.circuitoFiscal },
+                { label: "Condición de pago", value: legacyFields.condicionPago },
+                { label: "Responsable carga", value: legacyFields.responsableCarga },
+                { label: "Control documental", value: legacyFields.controlDocumental },
+              ]}
+            />
+            <div className="grid gap-4 md:grid-cols-2 text-sm">
+              <div className="rounded-lg border p-4">
+                <p className="font-medium">Retenciones previstas</p>
+                <p className="mt-2 text-muted-foreground">{legacyFields.retenciones.join(" · ")}</p>
+              </div>
+              <div className="rounded-lg border p-4 text-muted-foreground">
+                {legacyFields.observacionInterna}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -765,6 +817,7 @@ function PurchaseInvoiceDetail({
 }
 
 export default function FacturasComprasPage() {
+  const searchParams = useSearchParams()
   const {
     comprobantes,
     loading,
@@ -784,33 +837,56 @@ export default function FacturasComprasPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("todos")
   const [typeFilter, setTypeFilter] = useState("todos")
+  const [manualDueFilter, setManualDueFilter] = useState<string | null>(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
-  const [selectedInvoice, setSelectedInvoice] = useState<Comprobante | null>(null)
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null)
   const [detailInvoice, setDetailInvoice] = useState<ComprobanteDetalle | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const routeDueFilter =
+    searchParams.get("filtro") === "proximos-vencimientos" ? "proximos" : "todos"
+  const dueFilter = manualDueFilter ?? routeDueFilter
 
   const compraTypes = useMemo(() => tipos.filter((tipo) => tipo.esCompra), [tipos])
   const ordenesByComprobanteId = useMemo(
     () => new Map(ordenes.map((order) => [order.comprobanteId, order])),
     [ordenes]
   )
+  const supplierNameById = useMemo(
+    () => new Map(proveedores.map((proveedor) => [proveedor.id, proveedor.razonSocial])),
+    [proveedores]
+  )
+  const typeNameById = useMemo(
+    () => new Map(tipos.map((tipo) => [tipo.id, tipo.descripcion])),
+    [tipos]
+  )
+  const sucursalNameById = useMemo(
+    () => new Map(sucursales.map((sucursal) => [sucursal.id, sucursal.descripcion])),
+    [sucursales]
+  )
+  const selectedInvoice = useMemo(
+    () => comprobantes.find((invoice) => invoice.id === selectedInvoiceId) ?? null,
+    [comprobantes, selectedInvoiceId]
+  )
+  const detailOpen = isDetailOpen && selectedInvoice !== null
 
-  const getSupplierName = (terceroId: number) =>
-    proveedores.find((proveedor) => proveedor.id === terceroId)?.razonSocial ?? `#${terceroId}`
+  const getSupplierName = (terceroId: number) => supplierNameById.get(terceroId) ?? `#${terceroId}`
   const getTypeName = (tipoId: number, fallback?: string) =>
-    tipos.find((tipo) => tipo.id === tipoId)?.descripcion ?? fallback ?? `#${tipoId}`
+    typeNameById.get(tipoId) ?? fallback ?? `#${tipoId}`
   const getSucursalName = (sucursalId: number) =>
-    sucursales.find((sucursal) => sucursal.id === sucursalId)?.descripcion ?? `#${sucursalId}`
+    sucursalNameById.get(sucursalId) ?? `#${sucursalId}`
 
   const filtered = useMemo(() => {
     const term = searchTerm.toLowerCase().trim()
     return comprobantes.filter((invoice) => {
-      const typeName = getTypeName(
-        invoice.tipoComprobanteId,
-        invoice.tipoComprobanteDescripcion
+      const typeName = (
+        typeNameById.get(invoice.tipoComprobanteId) ??
+        invoice.tipoComprobanteDescripcion ??
+        `#${invoice.tipoComprobanteId}`
       ).toLowerCase()
-      const supplierName = getSupplierName(invoice.terceroId).toLowerCase()
+      const supplierName = (
+        supplierNameById.get(invoice.terceroId) ?? `#${invoice.terceroId}`
+      ).toLowerCase()
       const matchesSearch =
         term === "" ||
         (invoice.nroComprobante ?? String(invoice.id)).toLowerCase().includes(term) ||
@@ -819,10 +895,28 @@ export default function FacturasComprasPage() {
 
       const matchesStatus = statusFilter === "todos" || invoice.estado === statusFilter
       const matchesType = typeFilter === "todos" || String(invoice.tipoComprobanteId) === typeFilter
+      const daysPastDue = getDaysPastDue(invoice.fechaVto)
+      const matchesDue =
+        dueFilter === "todos" ||
+        (dueFilter === "proximos" &&
+          invoice.estado !== "ANULADO" &&
+          invoice.estado !== "PAGADO" &&
+          invoice.saldo > 0 &&
+          daysPastDue !== null &&
+          daysPastDue <= 0 &&
+          daysPastDue >= -7)
 
-      return matchesSearch && matchesStatus && matchesType
+      return matchesSearch && matchesStatus && matchesType && matchesDue
     })
-  }, [comprobantes, proveedores, searchTerm, statusFilter, typeFilter, tipos])
+  }, [
+    comprobantes,
+    dueFilter,
+    searchTerm,
+    statusFilter,
+    supplierNameById,
+    typeFilter,
+    typeNameById,
+  ])
 
   const kpis = {
     total: comprobantes.length,
@@ -834,23 +928,6 @@ export default function FacturasComprasPage() {
       .filter((invoice) => invoice.estado !== "PAGADO" && invoice.estado !== "ANULADO")
       .reduce((sum, invoice) => sum + invoice.saldo, 0),
   }
-
-  useEffect(() => {
-    if (!selectedInvoice) return
-
-    const nextSelected = comprobantes.find((invoice) => invoice.id === selectedInvoice.id) ?? null
-
-    if (!nextSelected) {
-      setSelectedInvoice(null)
-      setIsDetailOpen(false)
-      setDetailInvoice(null)
-      return
-    }
-
-    if (nextSelected !== selectedInvoice) {
-      setSelectedInvoice(nextSelected)
-    }
-  }, [comprobantes, selectedInvoice])
 
   const highlightedInvoice =
     selectedInvoice && filtered.some((invoice) => invoice.id === selectedInvoice.id)
@@ -892,7 +969,7 @@ export default function FacturasComprasPage() {
     : []
 
   const loadDetail = async (invoice: Comprobante) => {
-    setSelectedInvoice(invoice)
+    setSelectedInvoiceId(invoice.id)
     setIsDetailOpen(true)
     setLoadingDetail(true)
     const detail = await getById(invoice.id)
@@ -909,7 +986,7 @@ export default function FacturasComprasPage() {
     if (!window.confirm(`¿Anular la factura ${invoice.nroComprobante ?? invoice.id}?`)) return
     await anular(invoice.id, false)
     await refetch()
-    if (selectedInvoice?.id === invoice.id) {
+    if (selectedInvoiceId === invoice.id) {
       const detail = await getById(invoice.id)
       setDetailInvoice(detail)
     }
@@ -1032,7 +1109,7 @@ export default function FacturasComprasPage() {
           <CardTitle>Filtros</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-[1fr_240px_220px_auto]">
+          <div className="grid gap-4 md:grid-cols-[1fr_240px_220px_220px_auto]">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -1066,6 +1143,15 @@ export default function FacturasComprasPage() {
                 <SelectItem value="PAGADO">Pagada</SelectItem>
                 <SelectItem value="PAGADO_PARCIAL">Pago parcial</SelectItem>
                 <SelectItem value="ANULADO">Anulada</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={dueFilter} onValueChange={setManualDueFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Vencimiento" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los vencimientos</SelectItem>
+                <SelectItem value="proximos">Próximos 7 días</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="outline" className="bg-transparent" onClick={() => refetch()}>
@@ -1264,7 +1350,16 @@ export default function FacturasComprasPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog
+        open={detailOpen}
+        onOpenChange={(open) => {
+          setIsDetailOpen(open)
+          if (!open) {
+            setSelectedInvoiceId(null)
+            setDetailInvoice(null)
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

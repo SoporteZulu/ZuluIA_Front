@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { AlertCircle, Clock, Star, TrendingDown, Users } from "lucide-react"
+import { AlertCircle, TrendingDown } from "lucide-react"
 import {
   Bar,
   BarChart,
@@ -45,12 +45,6 @@ function formatCurrency(value: number) {
 
 function formatDate(value?: Date | string) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"
-}
-
-function formatHour(value?: Date | string, hora?: string) {
-  if (hora) return hora.slice(0, 5)
-  if (!value) return "Sin hora"
-  return new Date(value).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
 }
 
 function getSatisfactionStars(satisfaction: number) {
@@ -112,25 +106,6 @@ export default function CajerosModule() {
       activeCajeros.length
     : 0
 
-  const occupancyData = React.useMemo(() => {
-    const grouped = cajerosMetricas.reduce<Record<string, Record<string, number | string>>>(
-      (accumulator, item) => {
-        const hour = formatHour(item.fecha, item.hora)
-        if (!accumulator[hour]) {
-          accumulator[hour] = { hora: hour }
-        }
-
-        accumulator[hour][`caja${item.cajero.numCaja}`] = Number(item.numeroClientesAtendidos ?? 0)
-        return accumulator
-      },
-      {}
-    )
-
-    return Object.values(grouped).sort((left, right) =>
-      String(left.hora).localeCompare(String(right.hora))
-    )
-  }, [cajerosMetricas])
-
   const scatterData = activeCajeros.map((item) => ({
     tiempoAtencion: Number(item.tiempoPromedioAtension ?? 0),
     satisfaccion: Number(item.satisfaccionCliente ?? 0),
@@ -138,26 +113,24 @@ export default function CajerosModule() {
     clientes: Number(item.numeroClientesAtendidos ?? 0),
   }))
 
-  const queueAlerts = React.useMemo(() => {
-    return activeCajeros
-      .map((item) => ({
-        id: item.cajeroId,
-        nombre: `${item.cajero.nombre} ${item.cajero.apellido}`,
-        estado:
-          Number(item.tasaErrores ?? 0) > averageErrors
-            ? "Errores sobre promedio"
-            : Number(item.tiempoPromedioAtension ?? 0) > averageTime
-              ? "Atención lenta"
-              : "Ritmo estable",
-        detalle:
-          Number(item.tasaErrores ?? 0) > averageErrors
-            ? `${Number(item.tasaErrores ?? 0).toFixed(1)}% de errores vs ${averageErrors.toFixed(1)}% del equipo.`
-            : Number(item.tiempoPromedioAtension ?? 0) > averageTime
-              ? `${Number(item.tiempoPromedioAtension ?? 0).toFixed(0)}s por cliente vs ${averageTime.toFixed(0)}s promedio.`
-              : `${Number(item.numeroClientesAtendidos ?? 0)} clientes atendidos con nivel estable.`,
-      }))
-      .slice(0, 4)
-  }, [activeCajeros, averageErrors, averageTime])
+  const queueAlerts = activeCajeros
+    .map((item) => ({
+      id: item.cajeroId,
+      nombre: `${item.cajero.nombre} ${item.cajero.apellido}`,
+      estado:
+        Number(item.tasaErrores ?? 0) > averageErrors
+          ? "Errores sobre promedio"
+          : Number(item.tiempoPromedioAtension ?? 0) > averageTime
+            ? "Atención lenta"
+            : "Ritmo estable",
+      detalle:
+        Number(item.tasaErrores ?? 0) > averageErrors
+          ? `${Number(item.tasaErrores ?? 0).toFixed(1)}% de errores vs ${averageErrors.toFixed(1)}% del equipo.`
+          : Number(item.tiempoPromedioAtension ?? 0) > averageTime
+            ? `${Number(item.tiempoPromedioAtension ?? 0).toFixed(0)}s por cliente vs ${averageTime.toFixed(0)}s promedio.`
+            : `${Number(item.numeroClientesAtendidos ?? 0)} clientes atendidos con nivel estable.`,
+    }))
+    .slice(0, 4)
 
   return (
     <div className="space-y-6 pb-6">
@@ -580,5 +553,3 @@ export default function CajerosModule() {
     </div>
   )
 }
-
-export default CajerosModule

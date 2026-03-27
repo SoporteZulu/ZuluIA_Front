@@ -1,7 +1,7 @@
-'use client'
+"use client"
 
-import React from 'react'
-import Link from 'next/link'
+import React from "react"
+import Link from "next/link"
 import {
   AlertCircle,
   Boxes,
@@ -12,57 +12,64 @@ import {
   TrendingUp,
   Users,
   Wallet,
-} from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+} from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import {
   useThorCajeros,
   useThorKpis,
   useThorProductos,
   useThorSugerencias,
   useThorVendedores,
-} from '@/lib/hooks/useThor'
-import type { AIRecommendation, KPI, ThorProduct } from '@/lib/thor-types'
+} from "@/lib/hooks/useThor"
+import type { AIRecommendation, KPI, ThorProduct } from "@/lib/thor-types"
 
 function formatCurrency(value: number | null) {
-  if (value === null) return 'Pendiente'
+  if (value === null) return "Pendiente"
 
-  return value.toLocaleString('es-AR', {
-    style: 'currency',
-    currency: 'ARS',
+  return value.toLocaleString("es-AR", {
+    style: "currency",
+    currency: "ARS",
     maximumFractionDigits: 0,
   })
 }
 
 function formatCompact(value: number | null) {
-  if (value === null) return 'Pendiente'
+  if (value === null) return "Pendiente"
 
-  return new Intl.NumberFormat('es-AR', {
-    notation: 'compact',
+  return new Intl.NumberFormat("es-AR", {
+    notation: "compact",
     maximumFractionDigits: 1,
   }).format(value)
 }
 
 function formatPercent(value: number | null) {
-  if (value === null) return 'Pendiente'
+  if (value === null) return "Pendiente"
   return `${value.toFixed(1)}%`
 }
 
 function formatDays(value: number | null) {
-  if (value === null) return 'Pendiente'
+  if (value === null) return "Pendiente"
   return `${value.toFixed(1)} días`
 }
 
 function formatDate(value?: Date) {
-  return value ? new Date(value).toLocaleDateString('es-AR') : '-'
+  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
 }
 
 function normalizeText(value: string) {
   return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
 }
 
@@ -92,7 +99,7 @@ function buildMetricState(kpi: KPI | null, fallbackValue: number | null, fallbac
 
   return {
     value: null,
-    source: 'Sin cobertura visible en el contrato actual',
+    source: "Sin cobertura visible en el contrato actual",
   }
 }
 
@@ -100,21 +107,21 @@ function SummaryCard({
   title,
   value,
   description,
-  tone = 'default',
+  tone = "default",
 }: {
   title: string
   value: string
   description: string
-  tone?: 'default' | 'positive' | 'warning' | 'destructive'
+  tone?: "default" | "positive" | "warning" | "destructive"
 }) {
   const toneClass =
-    tone === 'positive'
-      ? 'text-green-600'
-      : tone === 'warning'
-        ? 'text-orange-600'
-        : tone === 'destructive'
-          ? 'text-red-600'
-          : ''
+    tone === "positive"
+      ? "text-green-600"
+      : tone === "warning"
+        ? "text-orange-600"
+        : tone === "destructive"
+          ? "text-red-600"
+          : ""
 
   return (
     <Card>
@@ -131,10 +138,16 @@ function SummaryCard({
 
 export default function ThorDashboard() {
   const { kpis: kpisData, historico, loading: loadingKpis, error: errorKpis } = useThorKpis()
-  const { metricas: vendedoresMetricas, loading: loadingVendedores, error: errorVendedores } =
-    useThorVendedores()
-  const { metricas: cajerosMetricas, loading: loadingCajeros, error: errorCajeros } =
-    useThorCajeros()
+  const {
+    metricas: vendedoresMetricas,
+    loading: loadingVendedores,
+    error: errorVendedores,
+  } = useThorVendedores()
+  const {
+    metricas: cajerosMetricas,
+    loading: loadingCajeros,
+    error: errorCajeros,
+  } = useThorCajeros()
   const { productos, loading: loadingProductos, error: errorProductos } = useThorProductos()
   const { sugerencias, loading: loadingSugerencias, error: errorSugerencias } = useThorSugerencias()
 
@@ -149,9 +162,9 @@ export default function ThorDashboard() {
   const latestHistory = orderedHistory.at(-1) ?? null
   const previousHistory = orderedHistory.at(-2) ?? null
 
-  const marginKpi = React.useMemo(() => findKpiByAliases(kpisData, ['margen']), [kpisData])
+  const marginKpi = React.useMemo(() => findKpiByAliases(kpisData, ["margen"]), [kpisData])
   const rotationKpi = React.useMemo(
-    () => findKpiByAliases(kpisData, ['rotacion', 'rotaci']),
+    () => findKpiByAliases(kpisData, ["rotacion", "rotaci"]),
     [kpisData]
   )
 
@@ -178,7 +191,7 @@ export default function ThorDashboard() {
       buildMetricState(
         marginKpi,
         averageCatalogMargin,
-        'Fallback explícito: promedio del catálogo THOR visible'
+        "Fallback explícito: promedio del catálogo THOR visible"
       ),
     [averageCatalogMargin, marginKpi]
   )
@@ -188,7 +201,7 @@ export default function ThorDashboard() {
       buildMetricState(
         rotationKpi,
         averageCatalogRotation,
-        'Fallback explícito: rotación promedio del catálogo THOR visible'
+        "Fallback explícito: rotación promedio del catálogo THOR visible"
       ),
     [averageCatalogRotation, rotationKpi]
   )
@@ -212,12 +225,12 @@ export default function ThorDashboard() {
 
   const actionCounts = React.useMemo(
     () => ({
-      reabastecer: sugerencias.filter((sugerencia) => sugerencia.sugerenciaAccion === 'reabastecer')
+      reabastecer: sugerencias.filter((sugerencia) => sugerencia.sugerenciaAccion === "reabastecer")
         .length,
-      promocionar: sugerencias.filter((sugerencia) => sugerencia.sugerenciaAccion === 'promocionar')
+      promocionar: sugerencias.filter((sugerencia) => sugerencia.sugerenciaAccion === "promocionar")
         .length,
-      evaluar: sugerencias.filter((sugerencia) => sugerencia.sugerenciaAccion === 'evaluar').length,
-      alAlza: sugerencias.filter((sugerencia) => sugerencia.tendencia === 'al_alza').length,
+      evaluar: sugerencias.filter((sugerencia) => sugerencia.sugerenciaAccion === "evaluar").length,
+      alAlza: sugerencias.filter((sugerencia) => sugerencia.tendencia === "al_alza").length,
     }),
     [sugerencias]
   )
@@ -282,19 +295,23 @@ export default function ThorDashboard() {
     const gaps: string[] = []
 
     if (!latestHistory) {
-      gaps.push('No hay histórico de ventas visible para leer el último período.')
+      gaps.push("No hay histórico de ventas visible para leer el último período.")
     }
     if (!marginKpi) {
-      gaps.push('El KPI de margen no llegó por nombre explícito; se usa fallback del catálogo si existe.')
+      gaps.push(
+        "El KPI de margen no llegó por nombre explícito; se usa fallback del catálogo si existe."
+      )
     }
     if (!rotationKpi) {
-      gaps.push('La rotación promedio no llegó por KPI explícito; se usa fallback del catálogo si existe.')
+      gaps.push(
+        "La rotación promedio no llegó por KPI explícito; se usa fallback del catálogo si existe."
+      )
     }
     if (vendedoresMetricas.length === 0) {
-      gaps.push('No hay ranking visible de vendedores en el contrato actual.')
+      gaps.push("No hay ranking visible de vendedores en el contrato actual.")
     }
     if (cajerosMetricas.length === 0) {
-      gaps.push('No hay ranking visible de cajeros en el contrato actual.')
+      gaps.push("No hay ranking visible de cajeros en el contrato actual.")
     }
 
     return gaps
@@ -303,40 +320,40 @@ export default function ThorDashboard() {
   const moduleRadar = React.useMemo(
     () => [
       {
-        title: 'Sugerencias IA',
-        href: '/thor/sugerencias',
+        title: "Sugerencias IA",
+        href: "/thor/sugerencias",
         description: `${sugerencias.length} visibles; ${actionCounts.reabastecer} de reposición y ${actionCounts.promocionar} promocionales.`,
-        state: sugerencias.length > 0 ? 'Activo' : 'Pendiente',
+        state: sugerencias.length > 0 ? "Activo" : "Pendiente",
       },
       {
-        title: 'Márgenes',
-        href: '/thor/margenes',
+        title: "Márgenes",
+        href: "/thor/margenes",
         description: `${marginWinners.length} productos destacados con margen dólar positivo visible.`,
-        state: marginWinners.length > 0 ? 'Cubierto' : 'Sin datos',
+        state: marginWinners.length > 0 ? "Cubierto" : "Sin datos",
       },
       {
-        title: 'KPIs',
-        href: '/thor/kpis',
+        title: "KPIs",
+        href: "/thor/kpis",
         description: `${kpisData.length} KPIs y ${historico.length} puntos históricos cargados.`,
-        state: latestHistory ? 'Cubierto' : 'Pendiente',
+        state: latestHistory ? "Cubierto" : "Pendiente",
       },
       {
-        title: 'Vendedores',
-        href: '/thor/vendedores',
-        description: `${vendedoresMetricas.length} métricas visibles; ${topVendedor ? 'hay liderazgo comercial' : 'sin podio visible'}.`,
-        state: topVendedor ? 'Activo' : 'Sin datos',
+        title: "Vendedores",
+        href: "/thor/vendedores",
+        description: `${vendedoresMetricas.length} métricas visibles; ${topVendedor ? "hay liderazgo comercial" : "sin podio visible"}.`,
+        state: topVendedor ? "Activo" : "Sin datos",
       },
       {
-        title: 'Cajeros',
-        href: '/thor/cajeros',
-        description: `${cajerosMetricas.length} métricas visibles; ${topCajero ? 'hay eficiencia comparada' : 'sin frente destacado'}.`,
-        state: topCajero ? 'Activo' : 'Sin datos',
+        title: "Cajeros",
+        href: "/thor/cajeros",
+        description: `${cajerosMetricas.length} métricas visibles; ${topCajero ? "hay eficiencia comparada" : "sin frente destacado"}.`,
+        state: topCajero ? "Activo" : "Sin datos",
       },
       {
-        title: 'Competencia',
-        href: '/thor/competencia',
+        title: "Competencia",
+        href: "/thor/competencia",
         description: `${actionCounts.promocionar} sugerencias promocionales pueden cruzarse con pricing y competencia.`,
-        state: actionCounts.promocionar > 0 ? 'Oportunidad' : 'Normal',
+        state: actionCounts.promocionar > 0 ? "Oportunidad" : "Normal",
       },
     ],
     [
@@ -383,7 +400,7 @@ export default function ThorDashboard() {
       {coverageGaps.length > 0 && (
         <Alert>
           <ShieldAlert className="h-4 w-4" />
-          <AlertDescription>{coverageGaps.join(' ')}</AlertDescription>
+          <AlertDescription>{coverageGaps.join(" ")}</AlertDescription>
         </Alert>
       )}
 
@@ -393,28 +410,30 @@ export default function ThorDashboard() {
           value={formatCurrency(latestHistory ? Number(latestHistory.ventas ?? 0) : null)}
           description={
             latestHistory
-              ? `${formatDate(latestHistory.fecha)} · ${previousHistory ? `${Math.abs(((Number(latestHistory.ventas ?? 0) - Number(previousHistory.ventas ?? 0)) / Math.max(Number(previousHistory.ventas ?? 0), 1)) * 100).toFixed(1)}% vs período previo` : 'primer período visible'}`
-              : 'Sin histórico cargado para medir el último cierre visible'
+              ? `${formatDate(latestHistory.fecha)} · ${previousHistory ? `${Math.abs(((Number(latestHistory.ventas ?? 0) - Number(previousHistory.ventas ?? 0)) / Math.max(Number(previousHistory.ventas ?? 0), 1)) * 100).toFixed(1)}% vs período previo` : "primer período visible"}`
+              : "Sin histórico cargado para medir el último cierre visible"
           }
           tone={
-            latestHistory && previousHistory && Number(latestHistory.ventas ?? 0) < Number(previousHistory.ventas ?? 0)
-              ? 'warning'
-              : 'default'
+            latestHistory &&
+            previousHistory &&
+            Number(latestHistory.ventas ?? 0) < Number(previousHistory.ventas ?? 0)
+              ? "warning"
+              : "default"
           }
         />
         <SummaryCard
           title="Margen visible"
           value={formatPercent(marginState.value)}
           description={marginState.source}
-          tone={marginState.value !== null && marginState.value < 20 ? 'warning' : 'positive'}
+          tone={marginState.value !== null && marginState.value < 20 ? "warning" : "positive"}
         />
         <SummaryCard
           title="Ticket promedio"
           value={formatCurrency(latestHistory ? Number(latestHistory.ticketPromedio ?? 0) : null)}
           description={
             latestHistory
-              ? 'Derivado del último histórico visible de ventas THOR'
-              : 'Pendiente hasta que el histórico devuelva ticket promedio'
+              ? "Derivado del último histórico visible de ventas THOR"
+              : "Pendiente hasta que el histórico devuelva ticket promedio"
           }
         />
         <SummaryCard
@@ -422,21 +441,21 @@ export default function ThorDashboard() {
           value={formatCompact(latestHistory ? Number(latestHistory.transacciones ?? 0) : null)}
           description={
             latestHistory
-              ? 'Operaciones visibles en el último período informado'
-              : 'Sin volumen transaccional cargado todavía'
+              ? "Operaciones visibles en el último período informado"
+              : "Sin volumen transaccional cargado todavía"
           }
         />
         <SummaryCard
           title="Rotación visible"
           value={formatDays(rotationState.value)}
           description={rotationState.source}
-          tone={rotationState.value !== null && rotationState.value > 60 ? 'warning' : 'default'}
+          tone={rotationState.value !== null && rotationState.value > 60 ? "warning" : "default"}
         />
         <SummaryCard
           title="Cobertura módulo"
           value={`${coreCoverage}%`}
           description={`${kpisData.length} KPIs, ${historico.length} períodos, ${sugerencias.length} sugerencias y ${productos.length} productos visibles`}
-          tone={coreCoverage >= 80 ? 'positive' : coreCoverage >= 50 ? 'warning' : 'destructive'}
+          tone={coreCoverage >= 80 ? "positive" : coreCoverage >= 50 ? "warning" : "destructive"}
         />
       </div>
 
@@ -449,11 +468,13 @@ export default function ThorDashboard() {
                   <CardTitle className="text-base">{module.title}</CardTitle>
                   <Badge
                     variant={
-                      module.state === 'Activo' || module.state === 'Cubierto' || module.state === 'Normal'
-                        ? 'secondary'
-                        : module.state === 'Oportunidad'
-                          ? 'outline'
-                          : 'destructive'
+                      module.state === "Activo" ||
+                      module.state === "Cubierto" ||
+                      module.state === "Normal"
+                        ? "secondary"
+                        : module.state === "Oportunidad"
+                          ? "outline"
+                          : "destructive"
                     }
                   >
                     {module.state}
@@ -481,25 +502,29 @@ export default function ThorDashboard() {
                   <div>
                     <p className="font-semibold">{highlightedRecommendation.producto.nombre}</p>
                     <p className="text-sm text-muted-foreground">
-                      {highlightedRecommendation.producto.categoria} • {highlightedRecommendation.producto.marca}
+                      {highlightedRecommendation.producto.categoria} •{" "}
+                      {highlightedRecommendation.producto.marca}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Badge variant="default">{highlightedRecommendation.sugerenciaAccion}</Badge>
                     <Badge variant="outline">{highlightedRecommendation.tendencia}</Badge>
                     <Badge variant="secondary">
-                      {Number(highlightedRecommendation.puntuacionConfianza ?? 0).toFixed(0)}% confianza
+                      {Number(highlightedRecommendation.puntuacionConfianza ?? 0).toFixed(0)}%
+                      confianza
                     </Badge>
                   </div>
                   <div className="space-y-1 text-xs text-muted-foreground">
                     <p>{highlightedRecommendation.razon}</p>
                     <p>
-                      Impacto estimado: {formatCurrency(Number(highlightedRecommendation.impactoEstimado ?? 0))}
+                      Impacto estimado:{" "}
+                      {formatCurrency(Number(highlightedRecommendation.impactoEstimado ?? 0))}
                     </p>
                     <p>
-                      Correlacionados: {highlightedRecommendation.correlacionados.length > 0
-                        ? highlightedRecommendation.correlacionados.join(', ')
-                        : 'Sin correlacionados visibles'}
+                      Correlacionados:{" "}
+                      {highlightedRecommendation.correlacionados.length > 0
+                        ? highlightedRecommendation.correlacionados.join(", ")
+                        : "Sin correlacionados visibles"}
                     </p>
                   </div>
                 </>
@@ -533,7 +558,9 @@ export default function ThorDashboard() {
                     </div>
                   </>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Sin ranking visible de vendedores.</p>
+                  <p className="text-sm text-muted-foreground">
+                    Sin ranking visible de vendedores.
+                  </p>
                 )}
               </div>
 
@@ -550,7 +577,10 @@ export default function ThorDashboard() {
                       Caja {topCajero.cajero.numCaja} • {topCajero.cajero.estado}
                     </p>
                     <div className="grid gap-1 text-xs text-muted-foreground">
-                      <p>Atención promedio: {Number(topCajero.tiempoPromedioAtension ?? 0).toFixed(0)} s</p>
+                      <p>
+                        Atención promedio:{" "}
+                        {Number(topCajero.tiempoPromedioAtension ?? 0).toFixed(0)} s
+                      </p>
                       <p>Clientes atendidos: {topCajero.numeroClientesAtendidos}</p>
                       <p>Facturado: {formatCurrency(Number(topCajero.totalFacturado ?? 0))}</p>
                     </div>
@@ -572,7 +602,8 @@ export default function ThorDashboard() {
                 <div>
                   <p className="font-medium">{actionCounts.reabastecer} acciones de reposición</p>
                   <p className="text-xs text-muted-foreground">
-                    Sugerencias con acción explícita de reabastecer dentro del contrato de IA actual.
+                    Sugerencias con acción explícita de reabastecer dentro del contrato de IA
+                    actual.
                   </p>
                 </div>
               </div>
@@ -588,16 +619,23 @@ export default function ThorDashboard() {
               <div className="flex items-start gap-2">
                 <TrendingDown className="mt-0.5 h-4 w-4 text-orange-600" />
                 <div>
-                  <p className="font-medium">{productos.filter((producto) => Number(producto.rotacionDias ?? 0) > 60).length} productos de rotación lenta</p>
+                  <p className="font-medium">
+                    {productos.filter((producto) => Number(producto.rotacionDias ?? 0) > 60).length}{" "}
+                    productos de rotación lenta
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    Piden revisar pricing, surtido o estrategia promocional sin salir del catálogo visible.
+                    Piden revisar pricing, surtido o estrategia promocional sin salir del catálogo
+                    visible.
                   </p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
                 <ShoppingCart className="mt-0.5 h-4 w-4 text-red-600" />
                 <div>
-                  <p className="font-medium">{productAlerts.filter((producto) => Number(producto.stock ?? 0) <= 0).length} quiebres de stock</p>
+                  <p className="font-medium">
+                    {productAlerts.filter((producto) => Number(producto.stock ?? 0) <= 0).length}{" "}
+                    quiebres de stock
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Productos agotados con demanda o tensión de catálogo detectable desde THOR.
                   </p>
@@ -612,7 +650,8 @@ export default function ThorDashboard() {
             <CardHeader>
               <CardTitle>Radar de sugerencias</CardTitle>
               <CardDescription>
-                Lectura operativa de las recomendaciones visibles, sin simular forecast ni automatizaciones.
+                Lectura operativa de las recomendaciones visibles, sin simular forecast ni
+                automatizaciones.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
@@ -631,8 +670,8 @@ export default function ThorDashboard() {
                     <TableRow>
                       <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
                         {loading
-                          ? 'Cargando sugerencias THOR...'
-                          : 'No hay sugerencias visibles para el radar actual.'}
+                          ? "Cargando sugerencias THOR..."
+                          : "No hay sugerencias visibles para el radar actual."}
                       </TableCell>
                     </TableRow>
                   )}
@@ -648,11 +687,15 @@ export default function ThorDashboard() {
                         <Badge variant="outline">{sugerencia.sugerenciaAccion}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={sugerencia.tendencia === 'baja' ? 'destructive' : 'secondary'}>
+                        <Badge
+                          variant={sugerencia.tendencia === "baja" ? "destructive" : "secondary"}
+                        >
                           {sugerencia.tendencia}
                         </Badge>
                       </TableCell>
-                      <TableCell>{Number(sugerencia.puntuacionConfianza ?? 0).toFixed(0)}%</TableCell>
+                      <TableCell>
+                        {Number(sugerencia.puntuacionConfianza ?? 0).toFixed(0)}%
+                      </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatCurrency(Number(sugerencia.impactoEstimado ?? 0))}
                       </TableCell>
@@ -686,15 +729,20 @@ export default function ThorDashboard() {
                     <TableRow>
                       <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
                         {loading
-                          ? 'Cargando radar de productos...'
-                          : 'No hay alertas comerciales visibles en el catálogo THOR.'}
+                          ? "Cargando radar de productos..."
+                          : "No hay alertas comerciales visibles en el catálogo THOR."}
                       </TableCell>
                     </TableRow>
                   )}
                   {productAlerts.map((producto: ThorProduct) => {
                     const stock = Number(producto.stock ?? 0)
                     const rotacion = Number(producto.rotacionDias ?? 0)
-                    const signal = stock <= 0 ? 'Sin stock' : rotacion > 60 ? 'Rotación lenta' : 'Revisar reposición'
+                    const signal =
+                      stock <= 0
+                        ? "Sin stock"
+                        : rotacion > 60
+                          ? "Rotación lenta"
+                          : "Revisar reposición"
 
                     return (
                       <TableRow key={producto.id}>
@@ -708,7 +756,15 @@ export default function ThorDashboard() {
                         <TableCell>{stock}</TableCell>
                         <TableCell>{formatDays(rotacion)}</TableCell>
                         <TableCell>
-                          <Badge variant={stock <= 0 ? 'destructive' : signal === 'Rotación lenta' ? 'secondary' : 'outline'}>
+                          <Badge
+                            variant={
+                              stock <= 0
+                                ? "destructive"
+                                : signal === "Rotación lenta"
+                                  ? "secondary"
+                                  : "outline"
+                            }
+                          >
                             {signal}
                           </Badge>
                         </TableCell>
@@ -756,76 +812,3 @@ export default function ThorDashboard() {
     </div>
   )
 }
-            <CardDescription>Responsables con mayor volumen y mejor conversión en el período visible</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Vendedor</TableHead>
-                  <TableHead>Vendido</TableHead>
-                  <TableHead>Ticket</TableHead>
-                  <TableHead>Conversión</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {vendedoresMetricas.slice(0, 5).map((metrica) => (
-                  <TableRow key={`${metrica.vendedorId}-${metrica.periodo}`}>
-                    <TableCell>
-                      <div className="font-medium">{metrica.vendedor.nombre} {metrica.vendedor.apellido}</div>
-                      <div className="text-xs text-muted-foreground">Alta {formatDate(metrica.vendedor.fechaAlta)}</div>
-                    </TableCell>
-                    <TableCell>{formatCurrency(Number(metrica.totalVendido ?? 0))}</TableCell>
-                    <TableCell>{formatCurrency(Number(metrica.ticketPromedio ?? 0))}</TableCell>
-                    <TableCell>
-                      <Badge variant={Number(metrica.tasaConversion) >= 20 ? 'secondary' : 'outline'}>
-                        {Number(metrica.tasaConversion ?? 0).toFixed(1)}%
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Sugerencias Más Fuertes</CardTitle>
-            <CardDescription>Recomendaciones visibles con mayor confianza e impacto estimado</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {sugerencias.slice(0, 5).map((sugerencia) => (
-              <div key={sugerencia.id} className="rounded-lg border p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{sugerencia.producto.nombre}</p>
-                    <p className="text-xs text-muted-foreground">{sugerencia.producto.sku} • {sugerencia.razon}</p>
-                  </div>
-                  <Badge variant={sugerencia.sugerenciaAccion === 'reabastecer' ? 'outline' : 'secondary'}>
-                    {sugerencia.sugerenciaAccion}
-                  </Badge>
-                </div>
-                <div className="mt-2 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Confianza</span>
-                  <span className="font-medium">{Number(sugerencia.puntuacionConfianza ?? 0).toFixed(0)}%</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Impacto</span>
-                  <span>{formatCurrency(Number(sugerencia.impactoEstimado ?? 0))}</span>
-                </div>
-              </div>
-            ))}
-            {sugerencias.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                {loadingSugerencias ? 'Cargando sugerencias visibles...' : 'No hay sugerencias IA disponibles en este momento.'}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  )
-}
-
-export default ThorDashboard

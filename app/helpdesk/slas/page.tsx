@@ -67,7 +67,7 @@ function formatMinutes(minutes: number): string {
 }
 
 function SLAsContent() {
-  const { slas, loading, error, createSla, updateSla, deleteSla } = useHdSlas()
+  const { slas, createSla, updateSla, deleteSla } = useHdSlas()
   const { clientes } = useHdClientes()
   const { tickets } = useHdTickets()
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -754,8 +754,8 @@ function SLAsContent() {
                           <AlertDialogHeader>
                             <AlertDialogTitle>Eliminar SLA</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Esta accion eliminara permanentemente el SLA "{sla.nombre}". Los
-                              clientes asignados quedaran sin SLA.
+                              Esta accion eliminara permanentemente el SLA &quot;{sla.nombre}&quot;.
+                              Los clientes asignados quedaran sin SLA.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>

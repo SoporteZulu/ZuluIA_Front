@@ -87,18 +87,12 @@ function formatMinutes(minutes: number): string {
 }
 
 function AgentesContent() {
-  const { agentes, loading, error, createAgente, updateAgente, deleteAgente } = useHdAgentes()
+  const { agentes, createAgente, updateAgente, deleteAgente } = useHdAgentes()
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingAgente, setEditingAgente] = useState<HDAgente | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("all")
   const [filterRol, setFilterRol] = useState<string>("all")
-
-  const departmentOptions = useMemo(
-    () =>
-      buildHdDepartmentOptions(agentes, [editingAgente?.departamentoId, formData.departamentoId]),
-    [agentes, editingAgente?.departamentoId, formData.departamentoId]
-  )
 
   const [formData, setFormData] = useState<Partial<HDAgente>>({
     nombre: "",
@@ -114,6 +108,12 @@ function AgentesContent() {
     tiempoPromedioResolucion: 0,
     calificacionPromedio: 0,
   })
+
+  const departmentOptions = useMemo(
+    () =>
+      buildHdDepartmentOptions(agentes, [editingAgente?.departamentoId, formData.departamentoId]),
+    [agentes, editingAgente?.departamentoId, formData.departamentoId]
+  )
 
   const filteredAgentes = agentes.filter((agente) => {
     const matchesSearch =
@@ -507,7 +507,8 @@ function AgentesContent() {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Eliminar Agente</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Esta accion eliminara al agente "{agente.nombre} {agente.apellido}".
+                                Esta accion eliminara al agente &quot;{agente.nombre}{" "}
+                                {agente.apellido}&quot;.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>

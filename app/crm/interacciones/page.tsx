@@ -45,8 +45,6 @@ import {
   Trash2,
   Building2,
   ArrowRight,
-  AlertTriangle,
-  Clock,
   Eye,
   Target,
 } from "lucide-react"

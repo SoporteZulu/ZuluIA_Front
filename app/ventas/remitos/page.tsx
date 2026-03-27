@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import {
   Plus,
   Search,
@@ -718,7 +718,7 @@ export default function RemitosPage() {
   const [statusFilter, setStatusFilter] = useState("todos")
   const [typeFilter, setTypeFilter] = useState("todos")
   const [isFormOpen, setIsFormOpen] = useState(false)
-  const [selectedRemito, setSelectedRemito] = useState<Comprobante | null>(null)
+  const [selectedRemitoId, setSelectedRemitoId] = useState<number | null>(null)
   const [detailRemito, setDetailRemito] = useState<ComprobanteDetalle | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
@@ -779,6 +779,11 @@ export default function RemitosPage() {
     conCompromiso: visibleRemitos.filter((remito) => Boolean(remito.fechaVto)).length,
   }
 
+  const selectedRemito = useMemo(
+    () => comprobantes.find((remito) => remito.id === selectedRemitoId) ?? null,
+    [comprobantes, selectedRemitoId]
+  )
+
   const highlightedRemito =
     selectedRemito && filtered.some((remito) => remito.id === selectedRemito.id)
       ? selectedRemito
@@ -821,7 +826,7 @@ export default function RemitosPage() {
   }).length
 
   const loadDetail = async (remito: Comprobante) => {
-    setSelectedRemito(remito)
+    setSelectedRemitoId(remito.id)
     setIsDetailOpen(true)
     setLoadingDetail(true)
     const detail = await getById(remito.id)
@@ -838,28 +843,11 @@ export default function RemitosPage() {
     if (!window.confirm(`¿Anular el remito ${remito.nroComprobante ?? remito.id}?`)) return
     await anular(remito.id, true)
     await refetch()
-    if (selectedRemito?.id === remito.id) {
+    if (selectedRemitoId === remito.id) {
       const detail = await getById(remito.id)
       setDetailRemito(detail)
     }
   }
-
-  useEffect(() => {
-    if (!selectedRemito) return
-
-    const nextSelected = comprobantes.find((remito) => remito.id === selectedRemito.id) ?? null
-
-    if (!nextSelected) {
-      setSelectedRemito(null)
-      setIsDetailOpen(false)
-      setDetailRemito(null)
-      return
-    }
-
-    if (nextSelected !== selectedRemito) {
-      setSelectedRemito(nextSelected)
-    }
-  }, [comprobantes, selectedRemito])
 
   return (
     <div className="space-y-6 pb-6">
@@ -1184,7 +1172,16 @@ export default function RemitosPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog
+        open={isDetailOpen}
+        onOpenChange={(open) => {
+          setIsDetailOpen(open)
+          if (!open) {
+            setSelectedRemitoId(null)
+            setDetailRemito(null)
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

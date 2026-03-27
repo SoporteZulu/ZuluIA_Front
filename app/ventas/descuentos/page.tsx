@@ -1,12 +1,14 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogContent,
@@ -31,8 +33,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Search, Percent, AlertCircle, Plus, Eye, Tags, CalendarClock, Filter } from "lucide-react"
+import {
+  Search,
+  Percent,
+  AlertCircle,
+  Plus,
+  Eye,
+  Tags,
+  CalendarClock,
+  Filter,
+  Edit,
+  Layers3,
+  ShieldCheck,
+} from "lucide-react"
 import { useDescuentosComerciales } from "@/lib/hooks/useDescuentosComerciales"
+import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useTerceros } from "@/lib/hooks/useTerceros"
 import { useItems } from "@/lib/hooks/useItems"
 import type {
@@ -41,6 +56,11 @@ import type {
 } from "@/lib/types/descuentos-comerciales"
 import type { Item } from "@/lib/types/items"
 import type { Tercero } from "@/lib/types/terceros"
+import {
+  buildLegacyDiscountProfile,
+  type LegacyDiscountProfile,
+  type LegacyDiscountWindow,
+} from "@/lib/ventas-descuentos-legacy"
 
 const EMPTY_FORM: CreateDescuentoComercialDto = {
   terceroId: undefined,
@@ -114,6 +134,15 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
       ))}
     </div>
   )
+}
+
+function createLegacyDiscountWindow(): LegacyDiscountWindow {
+  return {
+    id: `window-${globalThis.crypto.randomUUID()}`,
+    descripcion: "",
+    desde: "",
+    hasta: "",
+  }
 }
 
 interface DiscountFormProps {
@@ -248,7 +277,8 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
             <CardContent className="pt-6 text-sm text-muted-foreground">
               El circuito legacy de descuentos contemplaba reglas por rubro, zona, listas
               especiales, promociones combinadas y aprobaciones. La nueva vista deja esos bloques
-              reservados para la siguiente fase sin forzar contratos inexistentes.
+              disponibles luego del alta mediante un overlay local, sin forzar contratos
+              inexistentes sobre la API actual.
             </CardContent>
           </Card>
         </TabsContent>
@@ -277,10 +307,12 @@ function DiscountDetail({
   descuento,
   customer,
   item,
+  legacyProfile,
 }: {
   descuento: DescuentoComercial
   customer?: Tercero | null
   item?: Item | null
+  legacyProfile: LegacyDiscountProfile
 }) {
   const today = new Date().toISOString().slice(0, 10)
   const vigente =
@@ -359,6 +391,42 @@ function DiscountDetail({
     },
   ]
 
+  const legacyScopeFields = [
+    { label: "Campaña", value: legacyProfile.campania || "Sin campaña específica" },
+    { label: "Zona", value: legacyProfile.zona || "Sin zona" },
+    { label: "Canal", value: legacyProfile.canal || "Sin canal" },
+    { label: "Sucursal", value: legacyProfile.sucursal || "Sin sucursal" },
+    { label: "Lista especial", value: legacyProfile.listaEspecial || "No aplica" },
+    { label: "Rubro", value: legacyProfile.rubro || "No definido" },
+    { label: "Subrubro", value: legacyProfile.subrubro || "No definido" },
+  ]
+
+  const legacyApprovalFields = [
+    {
+      label: "Requiere aprobación",
+      value: legacyProfile.requiereAprobacion ? "Sí" : "No",
+    },
+    { label: "Aprobado", value: legacyProfile.aprobado ? "Sí" : "No" },
+    { label: "Aprobado por", value: legacyProfile.aprobadoPor || "Pendiente" },
+    {
+      label: "Fecha aprobación",
+      value: legacyProfile.fechaAprobacion ? formatDate(legacyProfile.fechaAprobacion) : "-",
+    },
+  ]
+
+  const legacyStackingFields = [
+    { label: "Combinable", value: legacyProfile.combinable ? "Sí" : "No" },
+    { label: "Prioridad", value: String(legacyProfile.prioridad) },
+    { label: "Regla base", value: legacyProfile.reglaBase || "Sin regla base" },
+    {
+      label: "Franjas operativas",
+      value:
+        legacyProfile.franjas.length > 0
+          ? `${legacyProfile.franjas.length} configurada(s)`
+          : "Sin franjas",
+    },
+  ]
+
   return (
     <Tabs defaultValue="principal" className="w-full">
       <TabsList className="grid w-full grid-cols-4">
@@ -428,15 +496,49 @@ function DiscountDetail({
       <TabsContent value="legado" className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Bloques heredados reservados</CardTitle>
+            <CardTitle className="text-base">Segmentación heredada</CardTitle>
             <CardDescription>
-              Promociones por listas, familias, sucursal, canal y aprobaciones.
+              Rubro, zona, canal, sucursal y listas especiales visibles sin inventar backend.
             </CardDescription>
           </CardHeader>
+          <CardContent>
+            <DetailFieldGrid fields={legacyScopeFields} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Aprobación y encadenamiento</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <DetailFieldGrid fields={legacyApprovalFields} />
+            <DetailFieldGrid fields={legacyStackingFields} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Observaciones y franjas</CardTitle>
+          </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            La pantalla ya deja visible alcance, vigencia e intensidad de la regla. Descuentos
-            encadenados, exclusiones por cliente/producto y campañas por período quedan reservados
-            para la siguiente fase.
+            <p>{legacyProfile.observaciones || "Sin observaciones registradas."}</p>
+            <div className="mt-4 space-y-2">
+              {legacyProfile.franjas.length > 0 ? (
+                legacyProfile.franjas.map((franja) => (
+                  <div key={franja.id} className="rounded-lg border bg-muted/30 p-3">
+                    <p className="font-medium text-foreground">
+                      {franja.descripcion || "Franja sin descripción"}
+                    </p>
+                    <p>
+                      Desde: {formatDate(franja.desde || undefined)} · Hasta:{" "}
+                      {formatDate(franja.hasta || undefined)}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p>No hay franjas adicionales configuradas.</p>
+              )}
+            </div>
           </CardContent>
         </Card>
       </TabsContent>
@@ -444,25 +546,270 @@ function DiscountDetail({
   )
 }
 
+function LegacyDiscountDialog({
+  descuento,
+  initialProfile,
+  onClose,
+  onSave,
+}: {
+  descuento: DescuentoComercial
+  initialProfile: LegacyDiscountProfile
+  onClose: () => void
+  onSave: (profile: LegacyDiscountProfile) => void
+}) {
+  const [profile, setProfile] = useState<LegacyDiscountProfile>(initialProfile)
+
+  const set = (
+    key: keyof LegacyDiscountProfile,
+    value: string | number | boolean | LegacyDiscountWindow[]
+  ) => {
+    setProfile((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const updateWindow = (id: string, patch: Partial<LegacyDiscountWindow>) => {
+    setProfile((prev) => ({
+      ...prev,
+      franjas: prev.franjas.map((franja) => (franja.id === id ? { ...franja, ...patch } : franja)),
+    }))
+  }
+
+  const removeWindow = (id: string) => {
+    setProfile((prev) => ({
+      ...prev,
+      franjas: prev.franjas.filter((franja) => franja.id !== id),
+    }))
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>Campaña</Label>
+          <Input
+            value={profile.campania}
+            onChange={(event) => set("campania", event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Lista especial</Label>
+          <Input
+            value={profile.listaEspecial}
+            onChange={(event) => set("listaEspecial", event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Zona</Label>
+          <Input value={profile.zona} onChange={(event) => set("zona", event.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Canal</Label>
+          <Input value={profile.canal} onChange={(event) => set("canal", event.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Sucursal</Label>
+          <Input
+            value={profile.sucursal}
+            onChange={(event) => set("sucursal", event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Rubro / Subrubro</Label>
+          <div className="grid gap-2 md:grid-cols-2">
+            <Input
+              value={profile.rubro}
+              onChange={(event) => set("rubro", event.target.value)}
+              placeholder="Rubro"
+            />
+            <Input
+              value={profile.subrubro}
+              onChange={(event) => set("subrubro", event.target.value)}
+              placeholder="Subrubro"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="h-4 w-4" /> Aprobación
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="font-medium">Requiere aprobación</p>
+                <p className="text-sm text-muted-foreground">
+                  Para descuentos excepcionales fuera del circuito estándar.
+                </p>
+              </div>
+              <Switch
+                checked={profile.requiereAprobacion}
+                onCheckedChange={(value) => set("requiereAprobacion", value)}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="font-medium">Aprobado</p>
+                <p className="text-sm text-muted-foreground">
+                  Registrar aprobación formal del descuento heredado.
+                </p>
+              </div>
+              <Switch
+                checked={profile.aprobado}
+                onCheckedChange={(value) => set("aprobado", value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Aprobado por</Label>
+              <Input
+                value={profile.aprobadoPor}
+                onChange={(event) => set("aprobadoPor", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fecha de aprobación</Label>
+              <Input
+                type="date"
+                value={profile.fechaAprobacion}
+                onChange={(event) => set("fechaAprobacion", event.target.value)}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Layers3 className="h-4 w-4" /> Encadenamiento
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="font-medium">Combinable</p>
+                <p className="text-sm text-muted-foreground">
+                  Permite convivencia con otras reglas promocionales.
+                </p>
+              </div>
+              <Switch
+                checked={profile.combinable}
+                onCheckedChange={(value) => set("combinable", value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Prioridad</Label>
+              <Input
+                type="number"
+                min={1}
+                max={999}
+                value={profile.prioridad}
+                onChange={(event) => set("prioridad", Number(event.target.value) || 0)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Regla base</Label>
+              <Input
+                value={profile.reglaBase}
+                onChange={(event) => set("reglaBase", event.target.value)}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base">Franjas y ventanas</CardTitle>
+            <CardDescription>
+              Permite documentar campañas por período o ventana operativa del legado.
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="bg-transparent"
+            onClick={() => set("franjas", [...profile.franjas, createLegacyDiscountWindow()])}
+          >
+            <Plus className="mr-2 h-4 w-4" /> Agregar franja
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {profile.franjas.length > 0 ? (
+            profile.franjas.map((franja) => (
+              <div
+                key={franja.id}
+                className="grid gap-3 rounded-lg border p-3 md:grid-cols-[1.2fr_1fr_1fr_auto]"
+              >
+                <Input
+                  value={franja.descripcion}
+                  onChange={(event) => updateWindow(franja.id, { descripcion: event.target.value })}
+                  placeholder="Descripción"
+                />
+                <Input
+                  type="date"
+                  value={franja.desde}
+                  onChange={(event) => updateWindow(franja.id, { desde: event.target.value })}
+                />
+                <Input
+                  type="date"
+                  value={franja.hasta}
+                  onChange={(event) => updateWindow(franja.id, { hasta: event.target.value })}
+                />
+                <Button type="button" variant="ghost" onClick={() => removeWindow(franja.id)}>
+                  Quitar
+                </Button>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">Sin franjas configuradas.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="space-y-1.5">
+        <Label>Observaciones</Label>
+        <Textarea
+          value={profile.observaciones}
+          onChange={(event) => set("observaciones", event.target.value)}
+          placeholder={`Notas operativas para el descuento #${descuento.id}`}
+          rows={5}
+        />
+      </div>
+
+      <DialogFooter>
+        <Button variant="outline" className="bg-transparent" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button onClick={() => onSave(profile)}>Guardar bloque legacy</Button>
+      </DialogFooter>
+    </div>
+  )
+}
+
 export default function DescuentosComercialesPage() {
   const { descuentos, loading, error, refetch } = useDescuentosComerciales()
   const { terceros } = useTerceros()
   const { items } = useItems()
+  const { rows: legacyProfiles, setRows: setLegacyProfiles } =
+    useLegacyLocalCollection<LegacyDiscountProfile>("ventas-descuentos-legacy", [])
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState("todos")
   const [filterAlcance, setFilterAlcance] = useState("todos")
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [detailDiscount, setDetailDiscount] = useState<DescuentoComercial | null>(null)
+  const [legacyDiscount, setLegacyDiscount] = useState<DescuentoComercial | null>(null)
 
   const today = new Date().toISOString().slice(0, 10)
 
-  const customerNameById = useMemo(
-    () => new Map(terceros.map((tercero) => [tercero.id, tercero.razonSocial])),
-    [terceros]
+  const customerNameById = new Map(terceros.map((tercero) => [tercero.id, tercero.razonSocial]))
+  const itemNameById = new Map(
+    items.map((item) => [item.id, `${item.codigo} · ${item.descripcion}`])
   )
-  const itemNameById = useMemo(
-    () => new Map(items.map((item) => [item.id, `${item.codigo} · ${item.descripcion}`])),
-    [items]
+  const legacyProfileByDiscountId = new Map(
+    legacyProfiles.map((profile) => [profile.discountId, profile])
   )
 
   const getCustomerName = (terceroId?: number) => {
@@ -485,40 +832,60 @@ export default function DescuentosComercialesPage() {
     return items.find((item) => item.id === itemId) ?? null
   }
 
-  const filtered = useMemo(() => {
-    return descuentos.filter((discount) => {
-      const term = searchTerm.toLowerCase().trim()
-      const matchesSearch =
-        term === "" ||
-        discount.porcentaje.toString().includes(term) ||
-        getCustomerName(discount.terceroId).toLowerCase().includes(term) ||
-        getItemName(discount.itemId).toLowerCase().includes(term)
+  const getLegacyProfile = (discount: DescuentoComercial) => {
+    return legacyProfileByDiscountId.get(discount.id) ?? buildLegacyDiscountProfile(discount)
+  }
 
-      const matchesEstado =
-        filterEstado === "todos" ||
-        (filterEstado === "activos" && discount.activo) ||
-        (filterEstado === "inactivos" && !discount.activo) ||
-        (filterEstado === "vigentes" &&
-          discount.activo &&
-          (!discount.desde || discount.desde <= today) &&
-          (!discount.hasta || discount.hasta >= today)) ||
-        (filterEstado === "vencidos" && !!discount.hasta && discount.hasta < today)
-
-      const isGeneral = !discount.terceroId && !discount.itemId
-      const isCliente = !!discount.terceroId && !discount.itemId
-      const isProducto = !discount.terceroId && !!discount.itemId
-      const isMixto = !!discount.terceroId && !!discount.itemId
-
-      const matchesAlcance =
-        filterAlcance === "todos" ||
-        (filterAlcance === "general" && isGeneral) ||
-        (filterAlcance === "cliente" && isCliente) ||
-        (filterAlcance === "producto" && isProducto) ||
-        (filterAlcance === "mixto" && isMixto)
-
-      return matchesSearch && matchesEstado && matchesAlcance
+  const saveLegacyProfile = (profile: LegacyDiscountProfile) => {
+    setLegacyProfiles((prev) => {
+      const index = prev.findIndex((row) => row.discountId === profile.discountId)
+      if (index === -1) return [...prev, profile]
+      return prev.map((row) => (row.discountId === profile.discountId ? profile : row))
     })
-  }, [customerNameById, descuentos, filterAlcance, filterEstado, itemNameById, searchTerm, today])
+    setLegacyDiscount(null)
+  }
+
+  const normalizedSearchTerm = searchTerm.toLowerCase().trim()
+
+  const filtered = descuentos.filter((discount) => {
+    const matchesSearch =
+      normalizedSearchTerm === "" ||
+      discount.porcentaje.toString().includes(normalizedSearchTerm) ||
+      (discount.terceroId
+        ? (customerNameById.get(discount.terceroId) ?? `#${discount.terceroId}`)
+            .toLowerCase()
+            .includes(normalizedSearchTerm)
+        : "todos".includes(normalizedSearchTerm)) ||
+      (discount.itemId
+        ? (itemNameById.get(discount.itemId) ?? `#${discount.itemId}`)
+            .toLowerCase()
+            .includes(normalizedSearchTerm)
+        : "todos".includes(normalizedSearchTerm))
+
+    const matchesEstado =
+      filterEstado === "todos" ||
+      (filterEstado === "activos" && discount.activo) ||
+      (filterEstado === "inactivos" && !discount.activo) ||
+      (filterEstado === "vigentes" &&
+        discount.activo &&
+        (!discount.desde || discount.desde <= today) &&
+        (!discount.hasta || discount.hasta >= today)) ||
+      (filterEstado === "vencidos" && !!discount.hasta && discount.hasta < today)
+
+    const isGeneral = !discount.terceroId && !discount.itemId
+    const isCliente = !!discount.terceroId && !discount.itemId
+    const isProducto = !discount.terceroId && !!discount.itemId
+    const isMixto = !!discount.terceroId && !!discount.itemId
+
+    const matchesAlcance =
+      filterAlcance === "todos" ||
+      (filterAlcance === "general" && isGeneral) ||
+      (filterAlcance === "cliente" && isCliente) ||
+      (filterAlcance === "producto" && isProducto) ||
+      (filterAlcance === "mixto" && isMixto)
+
+    return matchesSearch && matchesEstado && matchesAlcance
+  })
 
   const activos = descuentos.filter((discount) => discount.activo).length
   const vigentes = descuentos.filter(
@@ -531,6 +898,11 @@ export default function DescuentosComercialesPage() {
   const segmentados = descuentos.filter(
     (discount) => !!discount.terceroId || !!discount.itemId
   ).length
+  const legacyConfigured = descuentos.filter((discount) =>
+    legacyProfileByDiscountId.has(discount.id)
+  ).length
+  const approvalsRequired = legacyProfiles.filter((profile) => profile.requiereAprobacion).length
+  const combinables = legacyProfiles.filter((profile) => profile.combinable).length
   const averagePct =
     descuentos.length > 0
       ? descuentos.reduce((acc, discount) => acc + discount.porcentaje, 0) / descuentos.length
@@ -543,6 +915,7 @@ export default function DescuentosComercialesPage() {
     ? getCustomer(highlightedDiscount.terceroId)
     : null
   const highlightedItem = highlightedDiscount ? getItem(highlightedDiscount.itemId) : null
+  const highlightedLegacy = highlightedDiscount ? getLegacyProfile(highlightedDiscount) : null
   const highlightedFields = highlightedDiscount
     ? [
         { label: "Alcance", value: getDiscountScope(highlightedDiscount) },
@@ -556,6 +929,22 @@ export default function DescuentosComercialesPage() {
         { label: "Estado de vigencia", value: getValidityStatus(highlightedDiscount) },
         { label: "Desde", value: formatDate(highlightedDiscount.desde) },
         { label: "Hasta", value: formatDate(highlightedDiscount.hasta) },
+        {
+          label: "Canal / zona",
+          value: highlightedLegacy
+            ? [highlightedLegacy.canal || "Sin canal", highlightedLegacy.zona || "Sin zona"].join(
+                " · "
+              )
+            : "Sin overlay",
+        },
+        {
+          label: "Aprobación",
+          value: highlightedLegacy?.requiereAprobacion
+            ? highlightedLegacy.aprobado
+              ? `Aprobado por ${highlightedLegacy.aprobadoPor || "usuario no informado"}`
+              : "Pendiente"
+            : "No requerida",
+        },
       ]
     : []
 
@@ -673,12 +1062,12 @@ export default function DescuentosComercialesPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <CalendarClock className="h-4 w-4" /> Segunda fase
+              <Layers3 className="h-4 w-4" /> Cobertura legacy
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Rubro, zona, listas especiales, promociones combinadas y aprobaciones siguen reservadas
-            para la etapa siguiente.
+            {legacyConfigured} reglas ya documentan zona, canal, listas o campañas;{" "}
+            {approvalsRequired} requieren aprobación y {combinables} permiten encadenamiento.
           </CardContent>
         </Card>
       </div>
@@ -747,20 +1136,21 @@ export default function DescuentosComercialesPage() {
                 <TableHead>Desde</TableHead>
                 <TableHead>Hasta</TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead>Legado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     Cargando...
                   </TableCell>
                 </TableRow>
               )}
               {!loading && filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     <Percent className="mx-auto mb-2 h-8 w-8 opacity-50" />
                     No hay descuentos registrados
                   </TableCell>
@@ -785,6 +1175,13 @@ export default function DescuentosComercialesPage() {
                       {descuento.activo ? "Activo" : "Inactivo"}
                     </Badge>
                   </TableCell>
+                  <TableCell>
+                    {legacyProfileByDiscountId.has(descuento.id) ? (
+                      <Badge variant="outline">Configurado</Badge>
+                    ) : (
+                      <Badge variant="secondary">Base</Badge>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
                     <Button
                       variant="ghost"
@@ -792,6 +1189,13 @@ export default function DescuentosComercialesPage() {
                       onClick={() => setDetailDiscount(descuento)}
                     >
                       <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setLegacyDiscount(descuento)}
+                    >
+                      <Edit className="h-4 w-4" />
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -838,9 +1242,19 @@ export default function DescuentosComercialesPage() {
               descuento={detailDiscount}
               customer={getCustomer(detailDiscount.terceroId)}
               item={getItem(detailDiscount.itemId)}
+              legacyProfile={getLegacyProfile(detailDiscount)}
             />
           )}
           <DialogFooter>
+            {detailDiscount ? (
+              <Button
+                variant="outline"
+                className="bg-transparent"
+                onClick={() => setLegacyDiscount(detailDiscount)}
+              >
+                Editar legado
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               className="bg-transparent"
@@ -849,6 +1263,31 @@ export default function DescuentosComercialesPage() {
               Cerrar
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={legacyDiscount !== null}
+        onOpenChange={(open) => {
+          if (!open) setLegacyDiscount(null)
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Bloques legacy del descuento</DialogTitle>
+            <DialogDescription>
+              Canal, zona, listas especiales, aprobación y encadenamiento persistidos sólo en el
+              frontend.
+            </DialogDescription>
+          </DialogHeader>
+          {legacyDiscount ? (
+            <LegacyDiscountDialog
+              descuento={legacyDiscount}
+              initialProfile={getLegacyProfile(legacyDiscount)}
+              onClose={() => setLegacyDiscount(null)}
+              onSave={saveLegacyProfile}
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import {
   AlertCircle,
   ArrowRightLeft,
@@ -93,9 +93,9 @@ export default function PlantasPage() {
 
   const [search, setSearch] = useState("")
   const [estadoFiltro, setEstadoFiltro] = useState<"todos" | "activos" | "inactivos">("todos")
-  const [selectedDeposito, setSelectedDeposito] = useState<Deposito | null>(null)
-  const [editingDeposito, setEditingDeposito] = useState<Deposito | null>(null)
-  const [depositoToDelete, setDepositoToDelete] = useState<Deposito | null>(null)
+  const [selectedDepositoId, setSelectedDepositoId] = useState<number | null>(null)
+  const [editingDepositoId, setEditingDepositoId] = useState<number | null>(null)
+  const [depositoToDeleteId, setDepositoToDeleteId] = useState<number | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
@@ -103,6 +103,19 @@ export default function PlantasPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+
+  const selectedDeposito = useMemo(
+    () => depositos.find((deposito) => deposito.id === selectedDepositoId) ?? null,
+    [depositos, selectedDepositoId]
+  )
+  const editingDeposito = useMemo(
+    () => depositos.find((deposito) => deposito.id === editingDepositoId) ?? null,
+    [depositos, editingDepositoId]
+  )
+  const depositoToDelete = useMemo(
+    () => depositos.find((deposito) => deposito.id === depositoToDeleteId) ?? null,
+    [depositos, depositoToDeleteId]
+  )
 
   const filteredDepositos = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -187,14 +200,14 @@ export default function PlantasPage() {
   ]
 
   const openCreate = () => {
-    setEditingDeposito(null)
+    setEditingDepositoId(null)
     setSaveError(null)
     setForm(emptyForm())
     setIsFormOpen(true)
   }
 
   const openEdit = (deposito: Deposito) => {
-    setEditingDeposito(deposito)
+    setEditingDepositoId(deposito.id)
     setSaveError(null)
     setForm({
       descripcion: deposito.descripcion,
@@ -204,12 +217,12 @@ export default function PlantasPage() {
   }
 
   const openDetail = (deposito: Deposito) => {
-    setSelectedDeposito(deposito)
+    setSelectedDepositoId(deposito.id)
     setIsDetailOpen(true)
   }
 
   const openDelete = (deposito: Deposito) => {
-    setDepositoToDelete(deposito)
+    setDepositoToDeleteId(deposito.id)
     setIsDeleteOpen(true)
   }
 
@@ -241,7 +254,7 @@ export default function PlantasPage() {
     await refetch()
     setSaving(false)
     setIsFormOpen(false)
-    setEditingDeposito(null)
+    setEditingDepositoId(null)
     setForm(emptyForm())
   }
 
@@ -262,46 +275,34 @@ export default function PlantasPage() {
     setDeleting(false)
     setIsDeleteOpen(false)
     if (selectedDeposito?.id === depositoToDelete.id) {
-      setSelectedDeposito(null)
+      setSelectedDepositoId(null)
       setIsDetailOpen(false)
     }
-    setDepositoToDelete(null)
+    setDepositoToDeleteId(null)
   }
 
-  useEffect(() => {
-    if (selectedDeposito) {
-      const nextSelected = depositos.find((deposito) => deposito.id === selectedDeposito.id)
-
-      if (!nextSelected) {
-        setSelectedDeposito(null)
-        setIsDetailOpen(false)
-      } else if (nextSelected !== selectedDeposito) {
-        setSelectedDeposito(nextSelected)
-      }
+  const handleDetailOpenChange = (open: boolean) => {
+    setIsDetailOpen(open)
+    if (!open) {
+      setSelectedDepositoId(null)
     }
+  }
 
-    if (editingDeposito) {
-      const nextEditing = depositos.find((deposito) => deposito.id === editingDeposito.id)
-
-      if (!nextEditing) {
-        setEditingDeposito(null)
-        setIsFormOpen(false)
-      } else if (nextEditing !== editingDeposito) {
-        setEditingDeposito(nextEditing)
-      }
+  const handleFormOpenChange = (open: boolean) => {
+    setIsFormOpen(open)
+    if (!open) {
+      setEditingDepositoId(null)
+      setSaveError(null)
+      setForm(emptyForm())
     }
+  }
 
-    if (depositoToDelete) {
-      const nextDeleteTarget = depositos.find((deposito) => deposito.id === depositoToDelete.id)
-
-      if (!nextDeleteTarget) {
-        setDepositoToDelete(null)
-        setIsDeleteOpen(false)
-      } else if (nextDeleteTarget !== depositoToDelete) {
-        setDepositoToDelete(nextDeleteTarget)
-      }
+  const handleDeleteOpenChange = (open: boolean) => {
+    setIsDeleteOpen(open)
+    if (!open) {
+      setDepositoToDeleteId(null)
     }
-  }, [depositoToDelete, depositos, editingDeposito, selectedDeposito])
+  }
 
   return (
     <div className="space-y-6">
@@ -635,7 +636,7 @@ export default function PlantasPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog open={isDetailOpen && !!selectedDeposito} onOpenChange={handleDetailOpenChange}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -678,14 +679,14 @@ export default function PlantasPage() {
                 Editar depósito
               </Button>
             )}
-            <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
+            <Button variant="outline" onClick={() => handleDetailOpenChange(false)}>
               Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+      <Dialog open={isFormOpen} onOpenChange={handleFormOpenChange}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingDeposito ? "Editar depósito" : "Nuevo depósito"}</DialogTitle>
@@ -721,7 +722,7 @@ export default function PlantasPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsFormOpen(false)}>
+            <Button variant="outline" onClick={() => handleFormOpenChange(false)}>
               Cancelar
             </Button>
             <Button disabled={saving} onClick={() => void handleSave()}>
@@ -736,7 +737,7 @@ export default function PlantasPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+      <Dialog open={isDeleteOpen && !!depositoToDelete} onOpenChange={handleDeleteOpenChange}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Desactivar depósito</DialogTitle>
@@ -753,7 +754,7 @@ export default function PlantasPage() {
           </p>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteOpen(false)}>
+            <Button variant="outline" onClick={() => handleDeleteOpenChange(false)}>
               Cancelar
             </Button>
             <Button disabled={deleting || !depositoToDelete} onClick={() => void handleDelete()}>

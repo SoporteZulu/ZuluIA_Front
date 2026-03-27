@@ -4,13 +4,11 @@ import Link from "next/link"
 import { useMemo } from "react"
 import { useParams, useRouter } from "next/navigation"
 import {
+  AlertCircle,
   ArrowLeft,
   Building2,
-  Calendar,
   CheckCircle2,
   Clock3,
-  Globe,
-  Mail,
   MapPin,
   MessageSquare,
   Phone,
@@ -122,6 +120,7 @@ export default function ClienteDetallePage() {
   const params = useParams()
   const router = useRouter()
   const id = params.id as string
+  const [todayTimestamp] = useState(() => Date.now())
 
   const { clientes, loading: loadingCliente, error: errorCliente } = useCrmClientes()
   const { contactos, loading: loadingContactos, error: errorContactos } = useCrmContactos(id)
@@ -177,12 +176,11 @@ export default function ClienteDetallePage() {
   }, [tareas])
 
   const overdueTasks = useMemo(() => {
-    const today = Date.now()
     return tareas.filter((task) => {
       if (task.estado === "completada") return false
-      return new Date(task.fechaVencimiento).getTime() < today || task.estado === "vencida"
+      return new Date(task.fechaVencimiento).getTime() < todayTimestamp || task.estado === "vencida"
     })
-  }, [tareas])
+  }, [tareas, todayTimestamp])
 
   const activeContacts = useMemo(() => {
     return contactos.filter((contact) => contact.estadoContacto === "activo")
@@ -195,11 +193,11 @@ export default function ClienteDetallePage() {
     const cierresProximos = abiertas.filter((oportunidad) => {
       if (!oportunidad.fechaEstimadaCierre) return false
       const daysToClose =
-        (new Date(oportunidad.fechaEstimadaCierre).getTime() - Date.now()) / 86400000
+        (new Date(oportunidad.fechaEstimadaCierre).getTime() - todayTimestamp) / 86400000
       return daysToClose >= 0 && daysToClose <= 30
     })
     return { abiertas, cierresProximos }
-  }, [oportunidades])
+  }, [oportunidades, todayTimestamp])
 
   const highlightedOpportunity = opportunitySummary.abiertas.sort(
     (left, right) =>

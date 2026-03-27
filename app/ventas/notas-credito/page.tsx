@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -161,6 +161,12 @@ const STATUS_CONFIG: Record<
 }
 
 type NoteKind = "credito" | "debito"
+
+interface VentasNotasPageProps {
+  defaultKind?: NoteKind
+  pageTitle?: string
+  pageDescription?: string
+}
 
 type NoteFormItem = {
   id: string
@@ -835,7 +841,11 @@ function NoteDetail({
   )
 }
 
-export default function NotasCreditoPage() {
+export function VentasNotasPage({
+  defaultKind = "credito",
+  pageTitle = "Notas de Crédito / Débito",
+  pageDescription = "Ajustes documentales sobre ventas con emisión real, detalle completo y preparación para la vinculación formal contra comprobantes origen.",
+}: VentasNotasPageProps) {
   const {
     comprobantes,
     loading,
@@ -851,12 +861,12 @@ export default function NotasCreditoPage() {
   const { tipos } = useComprobantesConfig()
   const { terceros: clientes } = useTerceros()
   const { sucursales } = useSucursales()
-  const [activeKind, setActiveKind] = useState<NoteKind>("credito")
+  const [activeKind, setActiveKind] = useState<NoteKind>(defaultKind)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("todos")
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [selectedNote, setSelectedNote] = useState<Comprobante | null>(null)
+  const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null)
   const [detailNote, setDetailNote] = useState<ComprobanteDetalle | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
 
@@ -945,7 +955,7 @@ export default function NotasCreditoPage() {
   )
 
   const openDetail = async (note: Comprobante) => {
-    setSelectedNote(note)
+    setSelectedNoteId(note.id)
     setIsDetailOpen(true)
     setLoadingDetail(true)
     const detail = await getById(note.id)
@@ -962,28 +972,16 @@ export default function NotasCreditoPage() {
     if (!window.confirm(`¿Anular la nota ${note.nroComprobante ?? note.id}?`)) return
     await anular(note.id, true)
     await refetch()
-    if (selectedNote?.id === note.id) {
+    if (selectedNoteId === note.id) {
       const detail = await getById(note.id)
       setDetailNote(detail)
     }
   }
 
-  useEffect(() => {
-    if (!selectedNote) return
-
-    const nextSelected = comprobantes.find((note) => note.id === selectedNote.id) ?? null
-
-    if (!nextSelected) {
-      setSelectedNote(null)
-      setIsDetailOpen(false)
-      setDetailNote(null)
-      return
-    }
-
-    if (nextSelected !== selectedNote) {
-      setSelectedNote(nextSelected)
-    }
-  }, [comprobantes, selectedNote])
+  const selectedNote = useMemo(
+    () => comprobantes.find((note) => note.id === selectedNoteId) ?? null,
+    [comprobantes, selectedNoteId]
+  )
 
   const highlightedNote =
     selectedNote && filtered.some((note) => note.id === selectedNote.id)
@@ -1020,11 +1018,8 @@ export default function NotasCreditoPage() {
     <div className="space-y-6 pb-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Notas de Crédito / Débito</h1>
-          <p className="text-muted-foreground">
-            Ajustes documentales sobre ventas con emisión real, detalle completo y preparación para
-            la vinculación formal contra comprobantes origen.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{pageTitle}</h1>
+          <p className="text-muted-foreground">{pageDescription}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -1313,7 +1308,16 @@ export default function NotasCreditoPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog
+        open={isDetailOpen}
+        onOpenChange={(open) => {
+          setIsDetailOpen(open)
+          if (!open) {
+            setSelectedNoteId(null)
+            setDetailNote(null)
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1365,6 +1369,16 @@ export default function NotasCreditoPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+export default function NotasCreditoPage() {
+  return (
+    <VentasNotasPage
+      defaultKind="credito"
+      pageTitle="Notas de Crédito"
+      pageDescription="Ajustes por devolución, bonificación o corrección comercial con emisión real sobre el circuito documental de ventas."
+    />
   )
 }
 

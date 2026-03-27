@@ -19,7 +19,6 @@ import {
   Target,
   Headset,
   Wallet,
-  ShieldAlert,
 } from "lucide-react"
 import { useMemo, useState } from "react"
 import {
@@ -126,7 +125,7 @@ export default function HelpDeskDashboard() {
       porVencer,
       conSla: activos.filter((contrato) => Boolean(contrato.slaId)).length,
     }
-  }, [ordenes])
+  }, [contratos, today])
 
   const billingStats = useMemo(() => {
     return facturas.reduce<Record<string, number>>((acc, factura) => {

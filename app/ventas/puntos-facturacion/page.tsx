@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -44,7 +44,7 @@ import {
   AlertCircle,
 } from "lucide-react"
 import { usePuntosFacturacion, useTiposPuntoFacturacion } from "@/lib/hooks/usePuntosFacturacion"
-import { useSucursales } from "@/lib/hooks/useSucursales"
+import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
 import type { CreatePuntoFacturacionDto, PuntoFacturacion } from "@/lib/types/puntos-facturacion"
 
 const EMPTY_FORM: CreatePuntoFacturacionDto = {
@@ -272,6 +272,7 @@ function PuntoForm({ punto, sucursalId, onClose, onSaved }: PuntoFormProps) {
 }
 
 export default function PuntosFacturacionPage() {
+  const defaultSucursalId = useDefaultSucursalId()
   const { sucursales } = useSucursales()
   const [sucursalId, setSucursalId] = useState<number | undefined>()
   const { puntos, loading, error, eliminar, getProximoNumero, refetch } =
@@ -296,6 +297,12 @@ export default function PuntosFacturacionPage() {
   const getSucursalDescripcion = (id?: number) =>
     sucursales.find((sucursal) => sucursal.id === id)?.descripcion ?? `#${id ?? "-"}`
 
+  useEffect(() => {
+    if (!sucursalId && defaultSucursalId) {
+      setSucursalId(defaultSucursalId)
+    }
+  }, [defaultSucursalId, sucursalId])
+
   const filtered = useMemo(() => {
     const term = searchTerm.toLowerCase().trim()
     return puntos.filter(
@@ -313,7 +320,18 @@ export default function PuntosFacturacionPage() {
   const sinTipo = puntos.length - conTipo
   const coverageLabel = sucursalId
     ? `${filtered.length} puntos visibles en ${getSucursalDescripcion(sucursalId)}`
-    : `${puntos.length} puntos relevados en el maestro completo`
+    : "Seleccione una sucursal para cargar el maestro operativo"
+
+  const highlightedPoint = useMemo(() => {
+    return [...filtered]
+      .sort((left, right) => {
+        if (Number(right.activo) !== Number(left.activo)) {
+          return Number(right.activo) - Number(left.activo)
+        }
+        return left.numero - right.numero
+      })
+      .at(0)
+  }, [filtered])
 
   const typeCoverage = useMemo(() => {
     return Array.from(
@@ -474,16 +492,16 @@ export default function PuntosFacturacionPage() {
         <CardContent>
           <div className="grid gap-4 md:grid-cols-[260px_1fr]">
             <Select
-              value={sucursalId ? String(sucursalId) : "todas"}
+              value={sucursalId ? String(sucursalId) : "__none__"}
               onValueChange={(value) =>
-                setSucursalId(value === "todas" ? undefined : Number(value))
+                setSucursalId(value === "__none__" ? undefined : Number(value))
               }
             >
               <SelectTrigger>
                 <SelectValue placeholder="Seleccionar sucursal" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todas">Todas las sucursales</SelectItem>
+                <SelectItem value="__none__">Seleccionar sucursal</SelectItem>
                 {sucursales.map((sucursal) => (
                   <SelectItem key={sucursal.id} value={String(sucursal.id)}>
                     {sucursal.descripcion}
@@ -624,6 +642,83 @@ export default function PuntosFacturacionPage() {
             {sinTipo > 0
               ? `${sinTipo} puntos todavía no tienen tipo explícito y son el principal hueco operativo visible.`
               : "Todos los puntos visibles tienen tipo asignado dentro del contrato actual."}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Punto destacado</CardTitle>
+            <CardDescription>
+              Referencia operativa priorizada dentro de la sucursal activa, alineada con el flujo de
+              selección obligatoria del legacy.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!sucursalId ? (
+              <p className="text-sm text-muted-foreground">
+                Seleccione una sucursal para identificar el punto operativo a usar en emisión.
+              </p>
+            ) : !highlightedPoint ? (
+              <p className="text-sm text-muted-foreground">
+                No hay puntos visibles en la sucursal seleccionada.
+              </p>
+            ) : (
+              <div className="rounded-xl border bg-muted/30 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Punto visible</p>
+                    <h3 className="mt-1 text-lg font-semibold">
+                      {String(highlightedPoint.numero).padStart(4, "0")} ·{" "}
+                      {highlightedPoint.descripcion}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {getTipoDescripcion(highlightedPoint.tipoPuntoFacturacionId)} ·{" "}
+                      {getSucursalDescripcion(highlightedPoint.sucursalId)}
+                    </p>
+                  </div>
+                  <Badge variant={highlightedPoint.activo ? "default" : "secondary"}>
+                    {highlightedPoint.activo ? "Activo" : "Inactivo"}
+                  </Badge>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border bg-background p-3 text-sm">
+                    <p className="text-muted-foreground">Estado operativo</p>
+                    <p className="mt-1 font-semibold">{getOperationalStatus(highlightedPoint)}</p>
+                  </div>
+                  <div className="rounded-lg border bg-background p-3 text-sm">
+                    <p className="text-muted-foreground">Cobertura</p>
+                    <p className="mt-1 font-semibold">
+                      {highlightedPoint.tipoPuntoFacturacionId ? "Tipificado" : "Sin tipo"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-background p-3 text-sm">
+                    <p className="text-muted-foreground">Contexto legacy</p>
+                    <p className="mt-1 font-semibold">Selección lista para emisión</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Regla operativa</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              La emisión legacy arranca desde sucursal y punto válidos; por eso esta consola ahora
+              toma la sucursal por defecto cuando existe.
+            </p>
+            <p>
+              La tipificación y la numeración siguen siendo los dos datos críticos ya visibles hoy.
+            </p>
+            <p>
+              CAE/CAI, restricciones fiscales ampliadas y caja asociada siguen dependiendo de
+              backend y no se simulan desde frontend.
+            </p>
           </CardContent>
         </Card>
       </div>

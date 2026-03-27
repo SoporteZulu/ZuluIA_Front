@@ -155,7 +155,6 @@ function ClientesContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const action = searchParams.get("action")
-  const editId = searchParams.get("id")
 
   const [today] = useState(() => {
     const baseDate = new Date()

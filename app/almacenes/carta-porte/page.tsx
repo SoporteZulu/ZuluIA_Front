@@ -34,16 +34,7 @@ import {
 import { useCartaPorte } from "@/lib/hooks/useCartaPorte"
 import { useTransportistas } from "@/lib/hooks/useTransportistas"
 import type { CartaPorte } from "@/lib/types/carta-porte"
-import {
-  AlertCircle,
-  Eye,
-  FileText,
-  Plus,
-  RefreshCcw,
-  Search,
-  ShieldCheck,
-  Ticket,
-} from "lucide-react"
+import { AlertCircle, Eye, Plus, RefreshCcw, Search, ShieldCheck, Ticket } from "lucide-react"
 
 function formatDate(value?: string) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"

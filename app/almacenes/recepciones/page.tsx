@@ -269,21 +269,34 @@ export default function RecepcionesPage() {
   const getComprobante = (comprobanteId: number) =>
     comprobantes.find((item) => item.id === comprobanteId) ?? null
 
+  const proveedorById = useMemo(
+    () => new Map(proveedores.map((item) => [item.id, item])),
+    [proveedores]
+  )
+  const comprobanteById = useMemo(
+    () => new Map(comprobantes.map((item) => [item.id, item])),
+    [comprobantes]
+  )
+
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase()
     return ordenes.filter((order) => {
       if (!term) return true
 
+      const proveedor = proveedorById.get(order.proveedorId) ?? null
+      const proveedorLabel = proveedor?.razonSocial ?? `Proveedor #${order.proveedorId}`
+      const comprobante = comprobanteById.get(order.comprobanteId) ?? null
+
       return (
         String(order.id).includes(term) ||
         String(order.comprobanteId).includes(term) ||
-        getProveedorLabel(order.proveedorId).toLowerCase().includes(term) ||
+        proveedorLabel.toLowerCase().includes(term) ||
         (order.condicionesEntrega ?? "").toLowerCase().includes(term) ||
-        (getProveedor(order.proveedorId)?.nroDocumento ?? "").toLowerCase().includes(term) ||
-        (getComprobante(order.comprobanteId)?.nroComprobante ?? "").toLowerCase().includes(term)
+        (proveedor?.nroDocumento ?? "").toLowerCase().includes(term) ||
+        (comprobante?.nroComprobante ?? "").toLowerCase().includes(term)
       )
     })
-  }, [ordenes, search, proveedores, comprobantes])
+  }, [comprobanteById, ordenes, proveedorById, search])
 
   const pendientes = ordenes.filter((order) => order.estadoOc === "PENDIENTE").length
   const recibidas = ordenes.filter((order) => order.estadoOc === "RECIBIDA").length

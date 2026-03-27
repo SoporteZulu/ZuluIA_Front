@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import {
   AlertCircle,
   CalendarClock,
@@ -778,7 +778,7 @@ export default function PedidosPage() {
   const [statusFilter, setStatusFilter] = useState("todos")
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [selectedOrder, setSelectedOrder] = useState<Comprobante | null>(null)
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null)
   const [detailOrder, setDetailOrder] = useState<ComprobanteDetalle | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
 
@@ -841,22 +841,10 @@ export default function PedidosPage() {
     [orders]
   )
 
-  useEffect(() => {
-    if (!selectedOrder) return
-
-    const nextSelected = comprobantes.find((order) => order.id === selectedOrder.id) ?? null
-
-    if (!nextSelected) {
-      setSelectedOrder(null)
-      setIsDetailOpen(false)
-      setDetailOrder(null)
-      return
-    }
-
-    if (nextSelected !== selectedOrder) {
-      setSelectedOrder(nextSelected)
-    }
-  }, [comprobantes, selectedOrder])
+  const selectedOrder = useMemo(
+    () => comprobantes.find((order) => order.id === selectedOrderId) ?? null,
+    [comprobantes, selectedOrderId]
+  )
 
   const highlightedOrder =
     selectedOrder && filtered.some((order) => order.id === selectedOrder.id)
@@ -890,7 +878,7 @@ export default function PedidosPage() {
     : []
 
   const openDetail = async (order: Comprobante) => {
-    setSelectedOrder(order)
+    setSelectedOrderId(order.id)
     setIsDetailOpen(true)
     setLoadingDetail(true)
     const detail = await getById(order.id)
@@ -1200,7 +1188,16 @@ export default function PedidosPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog
+        open={isDetailOpen}
+        onOpenChange={(open) => {
+          setIsDetailOpen(open)
+          if (!open) {
+            setSelectedOrderId(null)
+            setDetailOrder(null)
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

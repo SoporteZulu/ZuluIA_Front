@@ -92,14 +92,6 @@ function formatDate(value: Date | string | undefined) {
   return new Date(value).toLocaleDateString("es-AR")
 }
 
-function formatCurrency(value: number) {
-  return value.toLocaleString("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    maximumFractionDigits: 0,
-  })
-}
-
 function formatPipelineByCurrency(
   pipelineByCurrency: Partial<Record<"ARS" | "USD" | "EUR" | "MXN", number>>
 ) {

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React, { useState } from "react"
 import {
   Plus,
   Search,
@@ -47,6 +47,56 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Switch } from "@/components/ui/switch"
 import { useItems, useItemsConfig } from "@/lib/hooks/useItems"
 import type { Item, CreateItemDto } from "@/lib/types/items"
+
+function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {fields.map((field) => (
+        <div key={field.label} className="rounded-lg bg-muted/40 p-3">
+          <span className="mb-1 block text-xs text-muted-foreground">{field.label}</span>
+          <p className="text-sm font-medium wrap-break-word">{field.value}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function getLegacyCoverage(
+  item: Pick<
+    Item,
+    | "codigoBarras"
+    | "codigoAfip"
+    | "categoriaDescripcion"
+    | "unidadMedidaDescripcion"
+    | "precioVenta"
+    | "precioCosto"
+    | "manejaStock"
+    | "stockMinimo"
+    | "stockMaximo"
+  >
+) {
+  const available = [
+    item.categoriaDescripcion ? "Categoria visible" : null,
+    item.unidadMedidaDescripcion ? "Unidad visible" : null,
+    item.codigoBarras ? "Codigo de barras" : null,
+    item.codigoAfip ? "Codigo fiscal/AFIP" : null,
+    item.precioCosto > 0 ? "Costo operativo" : null,
+    item.precioVenta > 0 ? "Precio de venta" : null,
+    item.manejaStock ? "Control de stock" : "Item no stockeable",
+    item.stockMinimo >= 0 ? "Minimo operativo" : null,
+    item.stockMaximo !== null && item.stockMaximo !== undefined ? "Maximo visible" : null,
+  ].filter(Boolean) as string[]
+
+  const pending = [
+    "Atributos del articulo",
+    "Componentes y formulas",
+    "Importacion masiva a listas",
+    "Multiples unidades derivadas",
+    "Relacion proveedor-precio del legado",
+  ]
+
+  return { available, pending }
+}
 
 // --- Empty form ---
 
@@ -130,10 +180,12 @@ function ProductForm({ item, onClose, onSaved, createItem, updateItem }: Product
   return (
     <div className="space-y-4">
       <Tabs defaultValue="basicos" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid h-auto w-full grid-cols-5">
           <TabsTrigger value="basicos">Datos Basicos</TabsTrigger>
+          <TabsTrigger value="comercial">Comercial/Fiscal</TabsTrigger>
           <TabsTrigger value="precios">Precios</TabsTrigger>
           <TabsTrigger value="inventario">Inventario</TabsTrigger>
+          <TabsTrigger value="legado">Legado</TabsTrigger>
         </TabsList>
 
         <TabsContent value="basicos" className="space-y-4 mt-4">
@@ -277,6 +329,63 @@ function ProductForm({ item, onClose, onSaved, createItem, updateItem }: Product
           </div>
         </TabsContent>
 
+        <TabsContent value="comercial" className="space-y-4 mt-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Codigo AFIP</Label>
+              <Input
+                placeholder="Codigo fiscal o interno"
+                value={form.codigoAfip ?? ""}
+                onChange={(e) => set("codigoAfip", e.target.value || null)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Codigo de Barras</Label>
+              <Input
+                placeholder="7790000000000"
+                value={form.codigoBarras ?? ""}
+                onChange={(e) => set("codigoBarras", e.target.value || null)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Moneda</Label>
+              <Select
+                value={form.monedaId ? String(form.monedaId) : ""}
+                onValueChange={(v) => set("monedaId", v ? Number(v) : 0)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar moneda" />
+                </SelectTrigger>
+                <SelectContent>
+                  {monedas.map((m) => (
+                    <SelectItem key={m.id} value={String(m.id)}>
+                      {m.descripcion} ({m.simbolo})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Alicuota IVA</Label>
+              <Select
+                value={form.alicuotaIvaId ? String(form.alicuotaIvaId) : ""}
+                onValueChange={(v) => set("alicuotaIvaId", v ? Number(v) : 0)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar IVA" />
+                </SelectTrigger>
+                <SelectContent>
+                  {alicuotas.map((a) => (
+                    <SelectItem key={a.id} value={String(a.id)}>
+                      {a.descripcion} ({a.porcentaje}%)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </TabsContent>
+
         <TabsContent value="precios" className="space-y-4 mt-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -357,6 +466,45 @@ function ProductForm({ item, onClose, onSaved, createItem, updateItem }: Product
             </div>
           </div>
         </TabsContent>
+
+        <TabsContent value="legado" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Cobertura del maestro legacy</CardTitle>
+              <CardDescription>
+                La ficha ya cubre identificación, fiscalidad básica, precios y stock visibles hoy.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div>
+                <p className="font-medium">Disponible en el backend actual</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[
+                    "Categoria",
+                    "Unidad",
+                    "IVA",
+                    "Moneda",
+                    "Codigo de barras",
+                    "Codigo AFIP",
+                    "Costo/Venta",
+                    "Stock y minimos",
+                  ].map((item) => (
+                    <Badge key={item} variant="outline">
+                      {item}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  Atributos, componentes, unidades derivadas, importación de listas y relaciones
+                  proveedor-artículo del legacy siguen reservados para cuando exista backend.
+                </AlertDescription>
+              </Alert>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {formError && (
@@ -395,13 +543,38 @@ function ProductDetail({
     item.precioVenta > 0 && item.precioCosto > 0
       ? (((item.precioVenta - item.precioCosto) / item.precioVenta) * 100).toFixed(1)
       : "0"
+  const legacyCoverage = getLegacyCoverage(item)
+  const commercialFields = [
+    { label: "Categoria", value: item.categoriaDescripcion || "Sin categoría" },
+    { label: "Unidad", value: item.unidadMedidaDescripcion || "Sin unidad" },
+    { label: "Código AFIP", value: item.codigoAfip || "Sin código" },
+    { label: "Código de barras", value: item.codigoBarras || "Sin código" },
+    { label: "Moneda", value: item.monedaSimbolo || `#${item.monedaId}` },
+    { label: "IVA", value: item.alicuotaIvaDescripcion || `#${item.alicuotaIvaId}` },
+    {
+      label: "Circuito operativo",
+      value: item.esProducto
+        ? item.esServicio
+          ? "Producto y servicio"
+          : "Producto comercial"
+        : item.esServicio
+          ? "Servicio"
+          : "Otro artículo",
+    },
+    {
+      label: "Cobertura actual",
+      value: item.manejaStock ? "Controla stock y precios" : "Artículo no stockeable",
+    },
+  ]
 
   return (
     <Tabs defaultValue="general" className="w-full">
-      <TabsList className="grid w-full grid-cols-3">
+      <TabsList className="grid h-auto w-full grid-cols-5">
         <TabsTrigger value="general">General</TabsTrigger>
+        <TabsTrigger value="comercial">Comercial/Fiscal</TabsTrigger>
         <TabsTrigger value="precios">Precios y Costos</TabsTrigger>
         <TabsTrigger value="inventario">Inventario</TabsTrigger>
+        <TabsTrigger value="legado">Legado</TabsTrigger>
       </TabsList>
 
       <TabsContent value="general" className="space-y-4">
@@ -453,6 +626,17 @@ function ProductDetail({
                 </div>
               )}
             </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="comercial" className="space-y-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Lectura comercial y fiscal</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DetailFieldGrid fields={commercialFields} />
           </CardContent>
         </Card>
       </TabsContent>
@@ -562,6 +746,40 @@ function ProductDetail({
         </Card>
       </TabsContent>
 
+      <TabsContent value="legado" className="space-y-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Cobertura visible del legacy</CardTitle>
+            <CardDescription>
+              Se expone lo que hoy existe en el contrato del artículo sin simular catálogos o
+              relaciones no publicadas.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <p className="mb-2 text-sm font-medium">Cubierto hoy</p>
+              <div className="flex flex-wrap gap-2">
+                {legacyCoverage.available.map((entry) => (
+                  <Badge key={entry} variant="secondary">
+                    {entry}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-medium">Reservado para próxima fase</p>
+              <div className="flex flex-wrap gap-2">
+                {legacyCoverage.pending.map((entry) => (
+                  <Badge key={entry} variant="outline">
+                    {entry}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
       <DialogFooter className="gap-2 mt-4">
         <Button variant="outline" onClick={onClose}>
           Cerrar
@@ -586,7 +804,6 @@ const ProductosPage = () => {
     page,
     setPage,
     totalPages,
-    search,
     setSearch,
     createItem,
     updateItem,
@@ -598,10 +815,23 @@ const ProductosPage = () => {
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [detailItem, setDetailItem] = useState<Item | null>(null)
-  const [editingItem, setEditingItem] = useState<Item | null>(null)
-  const [itemToDelete, setItemToDelete] = useState<Item | null>(null)
+  const [detailItemId, setDetailItemId] = useState<number | null>(null)
+  const [editingItemId, setEditingItemId] = useState<number | null>(null)
+  const [itemToDeleteId, setItemToDeleteId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  const detailItem = React.useMemo(
+    () => items.find((item) => item.id === detailItemId) ?? null,
+    [detailItemId, items]
+  )
+  const editingItem = React.useMemo(
+    () => items.find((item) => item.id === editingItemId) ?? null,
+    [editingItemId, items]
+  )
+  const itemToDelete = React.useMemo(
+    () => items.find((item) => item.id === itemToDeleteId) ?? null,
+    [itemToDeleteId, items]
+  )
 
   const handleSearchChange = (val: string) => {
     setSearchTerm(val)
@@ -609,17 +839,17 @@ const ProductosPage = () => {
   }
 
   const handleViewDetail = (item: Item) => {
-    setDetailItem(item)
+    setDetailItemId(item.id)
     setIsDetailOpen(true)
   }
 
   const handleEdit = (item: Item) => {
-    setEditingItem(item)
+    setEditingItemId(item.id)
     setIsFormOpen(true)
   }
 
   const handleDelete = (item: Item) => {
-    setItemToDelete(item)
+    setItemToDeleteId(item.id)
     setIsDeleteDialogOpen(true)
   }
 
@@ -632,50 +862,15 @@ const ProductosPage = () => {
     if (!ok) return
 
     setIsDeleteDialogOpen(false)
-    setItemToDelete(null)
+    setItemToDeleteId(null)
     refetch()
   }
 
   const handleSaved = () => {
     setIsFormOpen(false)
-    setEditingItem(null)
+    setEditingItemId(null)
     refetch()
   }
-
-  useEffect(() => {
-    if (detailItem) {
-      const nextDetail = items.find((item) => item.id === detailItem.id)
-
-      if (!nextDetail) {
-        setDetailItem(null)
-        setIsDetailOpen(false)
-      } else if (nextDetail !== detailItem) {
-        setDetailItem(nextDetail)
-      }
-    }
-
-    if (editingItem) {
-      const nextEditing = items.find((item) => item.id === editingItem.id)
-
-      if (!nextEditing) {
-        setEditingItem(null)
-        setIsFormOpen(false)
-      } else if (nextEditing !== editingItem) {
-        setEditingItem(nextEditing)
-      }
-    }
-
-    if (itemToDelete) {
-      const nextDeleteTarget = items.find((item) => item.id === itemToDelete.id)
-
-      if (!nextDeleteTarget) {
-        setItemToDelete(null)
-        setIsDeleteDialogOpen(false)
-      } else if (nextDeleteTarget !== itemToDelete) {
-        setItemToDelete(nextDeleteTarget)
-      }
-    }
-  }, [detailItem, editingItem, itemToDelete, items])
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5065"
 
@@ -1098,7 +1293,13 @@ const ProductosPage = () => {
       </Card>
 
       {/* Detail Dialog */}
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog
+        open={isDetailOpen}
+        onOpenChange={(open) => {
+          setIsDetailOpen(open)
+          if (!open) setDetailItemId(null)
+        }}
+      >
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
@@ -1121,9 +1322,13 @@ const ProductosPage = () => {
           {detailItem && (
             <ProductDetail
               item={detailItem}
-              onClose={() => setIsDetailOpen(false)}
+              onClose={() => {
+                setIsDetailOpen(false)
+                setDetailItemId(null)
+              }}
               onEdit={() => {
                 setIsDetailOpen(false)
+                setDetailItemId(null)
                 handleEdit(detailItem)
               }}
             />
@@ -1137,7 +1342,7 @@ const ProductosPage = () => {
         onOpenChange={(open) => {
           if (!open) {
             setIsFormOpen(false)
-            setEditingItem(null)
+            setEditingItemId(null)
           }
         }}
       >
@@ -1155,7 +1360,7 @@ const ProductosPage = () => {
             item={editingItem}
             onClose={() => {
               setIsFormOpen(false)
-              setEditingItem(null)
+              setEditingItemId(null)
             }}
             onSaved={handleSaved}
             createItem={createItem}
@@ -1165,7 +1370,13 @@ const ProductosPage = () => {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <Dialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteDialogOpen(open)
+          if (!open) setItemToDeleteId(null)
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1205,7 +1416,7 @@ const ProductosPage = () => {
               variant="outline"
               onClick={() => {
                 setIsDeleteDialogOpen(false)
-                setItemToDelete(null)
+                setItemToDeleteId(null)
               }}
             >
               Cancelar

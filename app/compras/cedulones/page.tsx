@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import {
   AlertTriangle,
   CalendarClock,
@@ -383,66 +383,59 @@ function CedulonPaymentForm({
 
 export default function CedulonesPage() {
   const defaultSucursalId = useDefaultSucursalId()
+  const [todayTimestamp] = useState(() => Date.now())
   const [filterEstado, setFilterEstado] = useState("")
   const [searchText, setSearchText] = useState("")
-  const { cedulones, loading, error, page, setPage, totalCount, totalPages, getVencidos, refetch } =
+  const { cedulones, loading, error, page, setPage, totalCount, totalPages, refetch } =
     useCedulones({ estado: filterEstado || undefined })
   const { proveedores } = useProveedores()
-  const [selected, setSelected] = useState<Cedulon | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isPaymentOpen, setIsPaymentOpen] = useState(false)
-  const [vencidos, setVencidos] = useState<Cedulon[]>([])
-  const [loadingVencidos, setLoadingVencidos] = useState(true)
+  const proveedorById = useMemo(
+    () => new Map(proveedores.map((proveedor) => [proveedor.id, proveedor])),
+    [proveedores]
+  )
+  const selected = useMemo(
+    () => cedulones.find((cedulon) => cedulon.id === selectedId) ?? null,
+    [cedulones, selectedId]
+  )
+  const detailOpen = isDetailOpen && selected !== null
+  const paymentOpen = isPaymentOpen && selected !== null
 
-  const getProveedor = (id: number) => proveedores.find((proveedor) => proveedor.id === id) ?? null
+  const getProveedor = (id: number) => proveedorById.get(id) ?? null
 
   const getTerceroName = (id: number) => getProveedor(id)?.razonSocial ?? String(id)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoadingVencidos(true)
-    getVencidos(defaultSucursalId)
-      .then((items) => {
-        if (!cancelled) setVencidos(items)
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingVencidos(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [defaultSucursalId, getVencidos])
 
   const visible = useMemo(() => {
     const term = searchText.trim().toLowerCase()
     return term
-      ? cedulones.filter(
-          (cedulon) =>
+      ? cedulones.filter((cedulon) => {
+          const terceroName = (
+            proveedorById.get(cedulon.terceroId)?.razonSocial ?? String(cedulon.terceroId)
+          ).toLowerCase()
+          return (
             (cedulon.numero ?? "").toLowerCase().includes(term) ||
-            getTerceroName(cedulon.terceroId).toLowerCase().includes(term) ||
+            terceroName.includes(term) ||
             (cedulon.descripcion ?? "").toLowerCase().includes(term)
-        )
+          )
+        })
       : cedulones
-  }, [cedulones, proveedores, searchText])
+  }, [cedulones, proveedorById, searchText])
 
-  useEffect(() => {
-    if (!selected) return
+  const vencidos = useMemo(
+    () =>
+      cedulones.filter((cedulon) => {
+        if (!cedulon.fechaVencimiento || cedulon.saldo <= 0 || cedulon.estado === "ANULADO") {
+          return false
+        }
 
-    const nextSelected = cedulones.find((cedulon) => cedulon.id === selected.id) ?? null
-
-    if (!nextSelected) {
-      setSelected(null)
-      setIsDetailOpen(false)
-      setIsPaymentOpen(false)
-      return
-    }
-
-    if (nextSelected !== selected) {
-      setSelected(nextSelected)
-    }
-  }, [cedulones, selected])
+        return new Date(cedulon.fechaVencimiento).getTime() < todayTimestamp
+      }),
+    [cedulones, todayTimestamp]
+  )
+  const loadingVencidos = loading
 
   const pendientes = cedulones.filter((cedulon) => cedulon.estado === "PENDIENTE").length
   const pagados = cedulones.filter((cedulon) => cedulon.estado === "PAGADO").length
@@ -755,7 +748,7 @@ export default function CedulonesPage() {
                           variant="ghost"
                           size="icon"
                           onClick={() => {
-                            setSelected(cedulon)
+                            setSelectedId(cedulon.id)
                             setIsDetailOpen(true)
                           }}
                         >
@@ -764,10 +757,9 @@ export default function CedulonesPage() {
                         {cedulon.saldo > 0 && cedulon.estado !== "ANULADO" && (
                           <Button
                             variant="outline"
-                            size="sm"
                             className="bg-transparent"
                             onClick={() => {
-                              setSelected(cedulon)
+                              setSelectedId(cedulon.id)
                               setIsPaymentOpen(true)
                             }}
                           >
@@ -866,7 +858,12 @@ export default function CedulonesPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
+      <Dialog
+        open={paymentOpen}
+        onOpenChange={(open) => {
+          if (!open) setIsPaymentOpen(false)
+        }}
+      >
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>Registrar pago</DialogTitle>
@@ -891,7 +888,12 @@ export default function CedulonesPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog
+        open={detailOpen}
+        onOpenChange={(open) => {
+          if (!open) setIsDetailOpen(false)
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

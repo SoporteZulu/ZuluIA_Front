@@ -83,7 +83,7 @@ function ClientesHDContent() {
   const [filterTipo, setFilterTipo] = useState<string>("all")
   const [filterContrato, setFilterContrato] = useState<string>("all")
 
-  const { clientes: crmClients, loading } = useCrmClientes()
+  const { clientes: crmClients } = useCrmClientes()
   const { clientes: hdClientes } = useHdClientes()
   const { tickets } = useHdTickets()
   const { contratos } = useHdContratos()

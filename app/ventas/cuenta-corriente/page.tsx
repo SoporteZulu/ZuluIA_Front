@@ -15,6 +15,7 @@ import {
   Search,
   Users,
   Wallet,
+  ShieldAlert,
 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -127,6 +128,68 @@ function getPortfolioAlert(saldo: number) {
   return "Cuenta sin desvíos"
 }
 
+function getCreditRiskSummary(
+  deudor: Pick<Deudor, "saldo" | "monedaSimbolo">,
+  customer?: Tercero | null
+) {
+  if (deudor.saldo <= 0) {
+    return {
+      label: "Sin riesgo crediticio actual",
+      tone: "normal" as const,
+      detail: "La cuenta no presenta deuda exigible con la información visible.",
+    }
+  }
+
+  if (!customer) {
+    return {
+      label: "Riesgo a revisar",
+      tone: "warning" as const,
+      detail: "Falta cruce comercial completo del cliente para evaluar crédito.",
+    }
+  }
+
+  if (!customer.facturable) {
+    return {
+      label: "Riesgo alto",
+      tone: "high" as const,
+      detail: "La cuenta mantiene deuda y el cliente figura como no facturable.",
+    }
+  }
+
+  if (typeof customer.limiteCredito === "number" && customer.limiteCredito > 0) {
+    if (deudor.saldo > customer.limiteCredito) {
+      return {
+        label: "Excede límite",
+        tone: "high" as const,
+        detail: `Saldo ${formatMoney(deudor.saldo, deudor.monedaSimbolo)} por encima del límite visible.`,
+      }
+    }
+
+    const ratio = deudor.saldo / customer.limiteCredito
+    if (ratio >= 0.8) {
+      return {
+        label: "Límite comprometido",
+        tone: "warning" as const,
+        detail: "La deuda ya consume gran parte del crédito disponible.",
+      }
+    }
+  }
+
+  if (!customer.email && !customer.telefono && !customer.celular) {
+    return {
+      label: "Contacto débil",
+      tone: "warning" as const,
+      detail: "Hay deuda pendiente sin canal de contacto principal visible.",
+    }
+  }
+
+  return {
+    label: "Riesgo controlado",
+    tone: "normal" as const,
+    detail: "La deuda visible sigue dentro de parámetros comerciales razonables.",
+  }
+}
+
 function getLastMovementLabel(movimientos: MovimientoCuentaCorriente[]) {
   const lastMovement = movimientos[0]
   if (!lastMovement) return "Sin movimientos recientes"
@@ -158,6 +221,38 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
   )
 }
 
+function getCollectionAction(
+  deudor: Pick<Deudor, "saldo" | "monedaSimbolo">,
+  customer?: Tercero | null
+) {
+  const risk = getCreditRiskSummary(deudor, customer)
+
+  if (risk.tone === "high") {
+    return {
+      label: "Escalar revisión comercial",
+      detail: "Validar límite, condición de facturación y próximo paso antes de seguir entregando.",
+    }
+  }
+
+  if (risk.tone === "warning") {
+    return {
+      label: "Contactar y calendarizar seguimiento",
+      detail: "La cuenta requiere seguimiento preventivo con cobranzas o vendedor responsable.",
+    }
+  }
+
+  if (deudor.saldo > 0) {
+    return {
+      label: "Seguimiento normal",
+      detail: "Hay deuda visible, pero dentro de parámetros comerciales razonables.",
+    }
+  }
+
+  return {
+    label: "Sin gestión urgente",
+    detail: "La cuenta no muestra deuda exigible con los datos actuales.",
+  }
+}
 function SummaryCards({ deudores }: { deudores: Deudor[] }) {
   const kpis = useMemo(
     () => ({
@@ -259,6 +354,7 @@ function AccountDetailModal({
   } = useMovimientosCuentaCorriente(deudor.terceroId)
 
   const saldoPrincipal = saldos.find((saldo) => saldo.monedaId === deudor.monedaId) ?? null
+  const creditRisk = getCreditRiskSummary(deudor, customer)
   const movementSummary = useMemo(() => {
     const withVoucher = movimientos.filter((movimiento) => movimiento.comprobanteId !== null).length
     return {
@@ -291,6 +387,7 @@ function AccountDetailModal({
 
   const circuitFields = [
     { label: "Alerta de cartera", value: getPortfolioAlert(deudor.saldo) },
+    { label: "Riesgo crediticio", value: creditRisk.label },
     { label: "Último movimiento", value: movementSummary.lastMovement },
     { label: "Flujo neto", value: movementSummary.netFlow },
     { label: "Movimientos cargados", value: String(movementSummary.total) },
@@ -339,6 +436,7 @@ function AccountDetailModal({
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
         <TabsTrigger value="saldos">Saldos</TabsTrigger>
         <TabsTrigger value="movimientos">Movimientos</TabsTrigger>
+        <TabsTrigger value="cobranzas">Cobranzas</TabsTrigger>
         <TabsTrigger value="legado">Legado</TabsTrigger>
       </TabsList>
 
@@ -412,6 +510,10 @@ function AccountDetailModal({
           </CardHeader>
           <CardContent>
             <DetailFieldGrid fields={circuitFields} />
+            <div className="mt-4 rounded-lg border p-4 text-sm">
+              <p className="font-medium">{creditRisk.label}</p>
+              <p className="mt-1 text-muted-foreground">{creditRisk.detail}</p>
+            </div>
           </CardContent>
         </Card>
       </TabsContent>
@@ -693,6 +795,48 @@ function AccountDetailModal({
         </Card>
       </TabsContent>
 
+      <TabsContent value="cobranzas" className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldAlert className="h-4 w-4" /> Mesa de cobranzas
+            </CardTitle>
+            <CardDescription>
+              Recomendación operativa armada con saldo, riesgo crediticio y canales de contacto ya
+              visibles en backend.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <DetailFieldGrid
+              fields={[
+                { label: "Acción sugerida", value: getCollectionAction(deudor, customer).label },
+                { label: "Detalle", value: getCollectionAction(deudor, customer).detail },
+                {
+                  label: "Canal principal",
+                  value:
+                    customer?.email ??
+                    customer?.telefono ??
+                    customer?.celular ??
+                    "Sin canal visible",
+                },
+                {
+                  label: "Límite visible",
+                  value:
+                    typeof customer?.limiteCredito === "number"
+                      ? formatMoney(customer.limiteCredito)
+                      : "No informado",
+                },
+                {
+                  label: "Estado facturable",
+                  value: customer ? (customer.facturable ? "Sí" : "No") : "No disponible",
+                },
+                { label: "Cuenta consolidada", value: getPortfolioAlert(deudor.saldo) },
+              ]}
+            />
+          </CardContent>
+        </Card>
+      </TabsContent>
+
       <TabsContent value="legado" className="space-y-4">
         <Card>
           <CardHeader>
@@ -732,6 +876,7 @@ export default function CuentaCorrientePage() {
   )
   const [currencyFilter, setCurrencyFilter] = useState("todos")
   const [branchFilter, setBranchFilter] = useState("todos")
+  const [riskFilter, setRiskFilter] = useState<"todos" | "high" | "warning" | "normal">("todos")
   const [selectedDeudor, setSelectedDeudor] = useState<Deudor | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
 
@@ -741,29 +886,49 @@ export default function CuentaCorrientePage() {
     return Array.from(map.entries()).map(([id, simbolo]) => ({ id, simbolo }))
   }, [deudores])
 
+  const customerById = useMemo(
+    () => new Map(terceros.map((tercero) => [tercero.id, tercero])),
+    [terceros]
+  )
+
+  const debtorRows = useMemo(
+    () =>
+      deudores.map((deudor) => {
+        const customer = customerById.get(deudor.terceroId) ?? null
+        const risk = getCreditRiskSummary(deudor, customer)
+        const collection = getCollectionAction(deudor, customer)
+        return { deudor, customer, risk, collection }
+      }),
+    [customerById, deudores]
+  )
+
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
-    return deudores.filter((deudor) => {
-      const matchesSearch =
-        term === "" ||
-        deudor.terceroRazonSocial.toLowerCase().includes(term) ||
-        String(deudor.terceroId).includes(term)
+    return debtorRows
+      .filter(({ deudor, risk }) => {
+        const matchesSearch =
+          term === "" ||
+          deudor.terceroRazonSocial.toLowerCase().includes(term) ||
+          String(deudor.terceroId).includes(term)
 
-      const matchesBalance =
-        balanceFilter === "todos" ||
-        (balanceFilter === "deudor" && deudor.saldo > 0) ||
-        (balanceFilter === "acreedor" && deudor.saldo < 0) ||
-        (balanceFilter === "cero" && deudor.saldo === 0)
+        const matchesBalance =
+          balanceFilter === "todos" ||
+          (balanceFilter === "deudor" && deudor.saldo > 0) ||
+          (balanceFilter === "acreedor" && deudor.saldo < 0) ||
+          (balanceFilter === "cero" && deudor.saldo === 0)
 
-      const matchesCurrency =
-        currencyFilter === "todos" || String(deudor.monedaId) === currencyFilter
+        const matchesCurrency =
+          currencyFilter === "todos" || String(deudor.monedaId) === currencyFilter
 
-      const matchesBranch =
-        branchFilter === "todos" || String(deudor.sucursalId ?? "consolidado") === branchFilter
+        const matchesBranch =
+          branchFilter === "todos" || String(deudor.sucursalId ?? "consolidado") === branchFilter
 
-      return matchesSearch && matchesBalance && matchesCurrency && matchesBranch
-    })
-  }, [balanceFilter, branchFilter, currencyFilter, deudores, searchTerm])
+        const matchesRisk = riskFilter === "todos" || risk.tone === riskFilter
+
+        return matchesSearch && matchesBalance && matchesCurrency && matchesBranch && matchesRisk
+      })
+      .map((row) => row.deudor)
+  }, [balanceFilter, branchFilter, currencyFilter, debtorRows, riskFilter, searchTerm])
 
   const filteredKpis = useMemo(
     () => ({
@@ -778,16 +943,69 @@ export default function CuentaCorrientePage() {
     [filtered]
   )
 
-  const getCustomer = (terceroId: number) =>
-    terceros.find((tercero) => tercero.id === terceroId) ?? null
+  const portfolioRisk = useMemo(() => {
+    const rows = filtered.map((deudor) => {
+      const customer = customerById.get(deudor.terceroId) ?? null
+      const risk = getCreditRiskSummary(deudor, customer)
+      const collection = getCollectionAction(deudor, customer)
+      return { deudor, customer, risk, collection }
+    })
+
+    const high = rows.filter((row) => row.risk.tone === "high")
+    const warning = rows.filter((row) => row.risk.tone === "warning")
+
+    return {
+      high,
+      warning,
+      top: [...rows]
+        .sort((left, right) => {
+          const toneWeight = { high: 2, warning: 1, normal: 0 }
+          const toneDelta = toneWeight[right.risk.tone] - toneWeight[left.risk.tone]
+          if (toneDelta !== 0) return toneDelta
+          return right.deudor.saldo - left.deudor.saldo
+        })
+        .slice(0, 4),
+    }
+  }, [customerById, filtered])
+
+  const collectionDesk = useMemo(() => {
+    return filtered
+      .map((deudor) => {
+        const customer = customerById.get(deudor.terceroId) ?? null
+        const risk = getCreditRiskSummary(deudor, customer)
+        const collection = getCollectionAction(deudor, customer)
+        return { deudor, customer, risk, collection }
+      })
+      .filter(({ deudor }) => deudor.saldo > 0)
+      .sort((left, right) => right.deudor.saldo - left.deudor.saldo)
+      .slice(0, 6)
+  }, [customerById, filtered])
+
+  const collectionExposure = useMemo(() => {
+    const highAmount = filtered
+      .filter((deudor) => {
+        const customer = customerById.get(deudor.terceroId) ?? null
+        return getCreditRiskSummary(deudor, customer).tone === "high"
+      })
+      .reduce((acc, deudor) => acc + deudor.saldo, 0)
+    const weakContactCount = filtered.filter((deudor) => {
+      const customer = customerById.get(deudor.terceroId) ?? null
+      return deudor.saldo > 0 && !customer?.email && !customer?.telefono && !customer?.celular
+    }).length
+
+    return {
+      highAmount,
+      weakContactCount,
+    }
+  }, [customerById, filtered])
 
   const currentSelectedDeudor = selectedDeudor
-    ? deudores.find(
+    ? (deudores.find(
         (deudor) =>
           deudor.terceroId === selectedDeudor.terceroId &&
           deudor.monedaId === selectedDeudor.monedaId &&
           (deudor.sucursalId ?? null) === (selectedDeudor.sucursalId ?? null)
-      ) ?? null
+      ) ?? null)
     : null
 
   const highlightedDebtor =
@@ -799,8 +1017,10 @@ export default function CuentaCorrientePage() {
         (deudor.sucursalId ?? null) === (currentSelectedDeudor.sucursalId ?? null)
     )
       ? currentSelectedDeudor
-      : filtered[0] ?? null
-  const highlightedCustomer = highlightedDebtor ? getCustomer(highlightedDebtor.terceroId) : null
+      : (filtered[0] ?? null)
+  const highlightedCustomer = highlightedDebtor
+    ? (customerById.get(highlightedDebtor.terceroId) ?? null)
+    : null
   const highlightedFields = highlightedDebtor
     ? [
         {
@@ -862,6 +1082,42 @@ export default function CuentaCorrientePage() {
 
       <SummaryCards deudores={deudores} />
 
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Riesgo alto</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-red-600">{portfolioRisk.high.length}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Cuentas con deuda sobre límite visible o condición comercial comprometida.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Riesgo medio</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-amber-600">{portfolioRisk.warning.length}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Cuentas cercanas al límite o con contacto principal insuficiente.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Cobertura comercial</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-primary">{filteredKpis.total}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Posiciones filtradas para priorizar gestión de cartera.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       {highlightedDebtor ? (
         <Card className="border-primary/20 bg-primary/5">
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -895,6 +1151,108 @@ export default function CuentaCorrientePage() {
         </Card>
       ) : null}
 
+      {portfolioRisk.top.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Radar de prioridad comercial</CardTitle>
+            <CardDescription>
+              Cruza saldo, límite de crédito y canales de contacto visibles para priorizar
+              seguimiento.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {portfolioRisk.top.map(({ deudor, customer, risk }) => (
+              <div
+                key={`${deudor.terceroId}-${deudor.monedaId}-${deudor.sucursalId ?? "consolidado"}`}
+                className="rounded-lg border p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium">
+                      {customer?.razonSocial ?? deudor.terceroRazonSocial}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {formatMoney(deudor.saldo, deudor.monedaSimbolo)} · {risk.detail}
+                    </p>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={
+                      risk.tone === "high"
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : risk.tone === "warning"
+                          ? "border-amber-200 bg-amber-50 text-amber-700"
+                          : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }
+                  >
+                    {risk.label}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {collectionDesk.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Mesa de cobranzas</CardTitle>
+            <CardDescription>
+              Prioriza seguimiento con saldo, riesgo y canal de contacto visible sin salir de cuenta
+              corriente.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {collectionDesk.map(({ deudor, customer, risk, collection }) => (
+              <div
+                key={`${deudor.terceroId}-${deudor.monedaId}-${deudor.sucursalId ?? "consolidado"}`}
+                className="rounded-lg border p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium">
+                      {customer?.razonSocial ?? deudor.terceroRazonSocial}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {formatMoney(deudor.saldo, deudor.monedaSimbolo)} · {collection.detail}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Contacto:{" "}
+                      {customer?.email ??
+                        customer?.telefono ??
+                        customer?.celular ??
+                        "Sin canal visible"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge
+                      variant="outline"
+                      className={
+                        risk.tone === "high"
+                          ? "border-red-200 bg-red-50 text-red-700"
+                          : risk.tone === "warning"
+                            ? "border-amber-200 bg-amber-50 text-amber-700"
+                            : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      }
+                    >
+                      {risk.label}
+                    </Badge>
+                    <Button
+                      variant="outline"
+                      className="bg-transparent"
+                      onClick={() => openDetail(deudor)}
+                    >
+                      Ver cuenta
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
@@ -904,7 +1262,7 @@ export default function CuentaCorrientePage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-[1fr_220px_180px_220px]">
+          <div className="grid gap-4 md:grid-cols-[1fr_220px_180px_220px_220px]">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -953,6 +1311,20 @@ export default function CuentaCorrientePage() {
                     {sucursal.descripcion}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={riskFilter}
+              onValueChange={(value) => setRiskFilter(value as typeof riskFilter)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Riesgo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los riesgos</SelectItem>
+                <SelectItem value="high">Riesgo alto</SelectItem>
+                <SelectItem value="warning">Riesgo medio</SelectItem>
+                <SelectItem value="normal">Riesgo controlado</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1067,8 +1439,9 @@ export default function CuentaCorrientePage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {filteredKpis.creditors} clientes a favor y {filteredKpis.zero} con saldo cero permiten
-            depurar la cartera sin salir del circuito actual.
+            {filteredKpis.creditors} clientes a favor, {filteredKpis.zero} con saldo cero y{" "}
+            {collectionExposure.weakContactCount} sin canal visible permiten segmentar mejor la
+            gestión.
           </CardContent>
         </Card>
         <Card>
@@ -1092,14 +1465,16 @@ export default function CuentaCorrientePage() {
               {currentSelectedDeudor?.terceroRazonSocial ?? "Detalle de cuenta corriente"}
             </DialogTitle>
             <DialogDescription>
-              {currentSelectedDeudor ? `Tercero #${currentSelectedDeudor.terceroId}` : "Cargando..."}
+              {currentSelectedDeudor
+                ? `Tercero #${currentSelectedDeudor.terceroId}`
+                : "Cargando..."}
             </DialogDescription>
           </DialogHeader>
-          {selectedDeudor && (
           {currentSelectedDeudor && (
-              deudor={selectedDeudor}
+            <AccountDetailModal
               deudor={currentSelectedDeudor}
-              customer={getCustomer(currentSelectedDeudor.terceroId)}
+              customer={customerById.get(currentSelectedDeudor.terceroId) ?? null}
+              onClose={() => setIsDetailOpen(false)}
             />
           )}
         </DialogContent>

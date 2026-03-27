@@ -10,6 +10,7 @@ import {
   Boxes,
   FolderTree,
   Layers3,
+  Ruler,
   Tags,
   Warehouse,
 } from "lucide-react"
@@ -228,6 +229,28 @@ export default function InventarioPage() {
       icon: ArrowLeftRight,
       href: "/inventario/movimientos",
       stats: `${movementStats.entradas} entradas, ${movementStats.salidas} salidas, ${movementStats.transferencias} transferencias`,
+    },
+    {
+      title: "Marcas",
+      description:
+        "Maestro visible de marcas y lineas comerciales mientras no exista endpoint dedicado.",
+      icon: Layers3,
+      href: "/inventario/marcas",
+      stats: "Cobertura local de marcas legacy para completar la ficha comercial",
+    },
+    {
+      title: "Unidades",
+      description: "Unidades de medida con uso real del catalogo y overlay operativo.",
+      icon: Ruler,
+      href: "/inventario/unidades",
+      stats: `${items.filter((item) => item.unidadMedidaId).length} items ya usan una unidad publicada`,
+    },
+    {
+      title: "Atributos",
+      description: "Bloques de validacion y atributos heredados para catalogo, logistica y fiscal.",
+      icon: FolderTree,
+      href: "/inventario/atributos",
+      stats: "Paridad visible del maestro extendido sin inventar backend dinamico",
     },
   ]
 

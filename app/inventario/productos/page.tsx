@@ -470,7 +470,6 @@ function ItemDetail({
   const [loadingStock, setLoadingStock] = useState(true)
 
   useEffect(() => {
-    setLoadingStock(true)
     apiGet<StockItem[] | { depositos: StockItem[] }>(`/api/stock/item/${item.id}`)
       .then((res) => {
         if (Array.isArray(res)) setStock(res)
@@ -635,7 +634,6 @@ export default function ProductosPage() {
     totalPages,
     page,
     setPage,
-    search,
     setSearch,
     createItem,
     updateItem,
@@ -654,8 +652,8 @@ export default function ProductosPage() {
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
-  const [selectedItem, setSelectedItem] = useState<Item | null>(null)
-  const [editingItem, setEditingItem] = useState<Item | null>(null)
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
+  const [editingItemId, setEditingItemId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [typeFilter, setTypeFilter] = useState("todos")
   const [catalogFilter, setCatalogFilter] = useState("todos")
@@ -685,6 +683,16 @@ export default function ProductosPage() {
     })
   }, [catalogFilter, items, typeFilter])
 
+  const selectedItem = useMemo(
+    () => visibleItems.find((item) => item.id === selectedItemId) ?? null,
+    [selectedItemId, visibleItems]
+  )
+
+  const editingItem = useMemo(
+    () => items.find((item) => item.id === editingItemId) ?? null,
+    [editingItemId, items]
+  )
+
   const catalogStats = {
     conCategoria: items.filter((item) => Boolean(item.categoriaId)).length,
     sinCategoria: items.filter((item) => !item.categoriaId).length,
@@ -699,15 +707,15 @@ export default function ProductosPage() {
   }
 
   const handleViewDetail = (item: Item) => {
-    setSelectedItem(item)
+    setSelectedItemId(item.id)
     setIsDetailOpen(true)
   }
   const handleEdit = (item: Item) => {
-    setEditingItem(item)
+    setEditingItemId(item.id)
     setIsFormOpen(true)
   }
   const handleDeleteConfirm = (item: Item) => {
-    setSelectedItem(item)
+    setSelectedItemId(item.id)
     setIsDeleteOpen(true)
   }
 
@@ -728,30 +736,26 @@ export default function ProductosPage() {
     refetch()
   }
 
-  useEffect(() => {
-    if (selectedItem) {
-      const nextSelected = items.find((item) => item.id === selectedItem.id)
-
-      if (!nextSelected || !visibleItems.some((item) => item.id === nextSelected.id)) {
-        setSelectedItem(null)
-        setIsDetailOpen(false)
-        setIsDeleteOpen(false)
-      } else if (nextSelected !== selectedItem) {
-        setSelectedItem(nextSelected)
-      }
+  const handleFormOpenChange = (open: boolean) => {
+    setIsFormOpen(open)
+    if (!open) {
+      setEditingItemId(null)
     }
+  }
 
-    if (editingItem) {
-      const nextEditing = items.find((item) => item.id === editingItem.id)
-
-      if (!nextEditing) {
-        setEditingItem(null)
-        setIsFormOpen(false)
-      } else if (nextEditing !== editingItem) {
-        setEditingItem(nextEditing)
-      }
+  const handleDetailOpenChange = (open: boolean) => {
+    setIsDetailOpen(open)
+    if (!open) {
+      setSelectedItemId(null)
     }
-  }, [editingItem, items, selectedItem, visibleItems])
+  }
+
+  const handleDeleteOpenChange = (open: boolean) => {
+    setIsDeleteOpen(open)
+    if (!open) {
+      setSelectedItemId(null)
+    }
+  }
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000"
 
@@ -764,7 +768,7 @@ export default function ProductosPage() {
         </div>
         <Button
           onClick={() => {
-            setEditingItem(null)
+            setEditingItemId(null)
             setIsFormOpen(true)
           }}
         >
@@ -1037,7 +1041,7 @@ export default function ProductosPage() {
       </Card>
 
       {/* Form Dialog */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+      <Dialog open={isFormOpen} onOpenChange={handleFormOpenChange}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -1047,7 +1051,7 @@ export default function ProductosPage() {
           <ItemForm
             key={`${editingItem?.id ?? "new-item"}-${isFormOpen ? "open" : "closed"}`}
             item={editingItem}
-            onClose={() => setIsFormOpen(false)}
+            onClose={() => handleFormOpenChange(false)}
             onSaved={handleSaved}
             createItem={createItem}
             updateItem={updateItem}
@@ -1056,17 +1060,18 @@ export default function ProductosPage() {
       </Dialog>
 
       {/* Detail Dialog */}
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog open={isDetailOpen && !!selectedItem} onOpenChange={handleDetailOpenChange}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedItem?.descripcion}</DialogTitle>
           </DialogHeader>
           {selectedItem && (
             <ItemDetail
+              key={selectedItem.id}
               item={selectedItem}
-              onClose={() => setIsDetailOpen(false)}
+              onClose={() => handleDetailOpenChange(false)}
               onEdit={() => {
-                setIsDetailOpen(false)
+                handleDetailOpenChange(false)
                 handleEdit(selectedItem)
               }}
             />
@@ -1075,7 +1080,7 @@ export default function ProductosPage() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+      <Dialog open={isDeleteOpen && !!selectedItem} onOpenChange={handleDeleteOpenChange}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>¿Desactivar este producto?</DialogTitle>
@@ -1087,7 +1092,7 @@ export default function ProductosPage() {
           <DialogFooter className="gap-2 mt-2">
             <Button
               variant="outline"
-              onClick={() => setIsDeleteOpen(false)}
+              onClick={() => handleDeleteOpenChange(false)}
               className="bg-transparent"
             >
               Cancelar

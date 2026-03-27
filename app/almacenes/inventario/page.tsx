@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import {
   AlertCircle,
   ArrowRightLeft,
@@ -198,24 +198,13 @@ export default function InventarioPage() {
   const [filterStock, setFilterStock] = useState<
     "todos" | "sin-stock" | "bajo-minimo" | "con-stock"
   >("todos")
-  const [selectedItem, setSelectedItem] = useState<Item | null>(null)
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isAjusteOpen, setIsAjusteOpen] = useState(false)
   const [isTransferOpen, setIsTransferOpen] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [ajusteForm, setAjusteForm] = useState<AjusteFormState>(emptyAjuste)
   const [transferForm, setTransferForm] = useState<TransferFormState>(emptyTransfer)
-
-  const { stock, loading: loadingStock } = useStockItem(selectedItem?.id)
-  const {
-    movimientos,
-    loading: loadingMovimientos,
-    desde,
-    hasta,
-    setDesde,
-    setHasta,
-    refetch: refetchMovimientos,
-  } = useStockMovimientos(selectedItem?.id)
 
   const filteredProducts = useMemo(() => {
     return items.filter((item) => {
@@ -235,28 +224,21 @@ export default function InventarioPage() {
     })
   }, [filterCategory, filterStock, items])
 
-  useEffect(() => {
-    if (!selectedItem) {
-      return
-    }
+  const selectedItem = useMemo(
+    () => filteredProducts.find((item) => item.id === selectedItemId) ?? null,
+    [filteredProducts, selectedItemId]
+  )
 
-    const nextSelected = items.find((item) => item.id === selectedItem.id)
-
-    if (!nextSelected || !filteredProducts.some((item) => item.id === nextSelected.id)) {
-      setSelectedItem(null)
-      setIsDetailOpen(false)
-      setIsAjusteOpen(false)
-      setIsTransferOpen(false)
-      setActionError(null)
-      setAjusteForm(emptyAjuste())
-      setTransferForm(emptyTransfer())
-      return
-    }
-
-    if (nextSelected !== selectedItem) {
-      setSelectedItem(nextSelected)
-    }
-  }, [filteredProducts, items, selectedItem])
+  const { stock, loading: loadingStock } = useStockItem(selectedItem?.id)
+  const {
+    movimientos,
+    loading: loadingMovimientos,
+    desde,
+    hasta,
+    setDesde,
+    setHasta,
+    refetch: refetchMovimientos,
+  } = useStockMovimientos(selectedItem?.id)
 
   const valorInventario = useMemo(() => {
     return items.reduce((acc, item) => acc + (item.stock ?? 0) * Number(item.precioCosto ?? 0), 0)
@@ -286,13 +268,13 @@ export default function InventarioPage() {
     .at(-1)
 
   const openDetail = (item: Item) => {
-    setSelectedItem(item)
+    setSelectedItemId(item.id)
     setActionError(null)
     setIsDetailOpen(true)
   }
 
   const openAjuste = (item: Item) => {
-    setSelectedItem(item)
+    setSelectedItemId(item.id)
     setActionError(null)
     setAjusteForm({
       depositoId: stock?.depositos?.[0] ? String(stock.depositos[0].depositoId) : "",
@@ -303,10 +285,35 @@ export default function InventarioPage() {
   }
 
   const openTransfer = (item: Item) => {
-    setSelectedItem(item)
+    setSelectedItemId(item.id)
     setActionError(null)
     setTransferForm(emptyTransfer())
     setIsTransferOpen(true)
+  }
+
+  const handleDetailOpenChange = (open: boolean) => {
+    setIsDetailOpen(open)
+    if (!open) {
+      setSelectedItemId(null)
+    }
+  }
+
+  const handleAjusteOpenChange = (open: boolean) => {
+    setIsAjusteOpen(open)
+    if (!open) {
+      setSelectedItemId(null)
+      setActionError(null)
+      setAjusteForm(emptyAjuste())
+    }
+  }
+
+  const handleTransferOpenChange = (open: boolean) => {
+    setIsTransferOpen(open)
+    if (!open) {
+      setSelectedItemId(null)
+      setActionError(null)
+      setTransferForm(emptyTransfer())
+    }
   }
 
   const refreshAll = async () => {
@@ -825,7 +832,7 @@ export default function InventarioPage() {
         </div>
       </div>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog open={isDetailOpen && !!selectedItem} onOpenChange={handleDetailOpenChange}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
@@ -924,14 +931,14 @@ export default function InventarioPage() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
+            <Button variant="outline" onClick={() => handleDetailOpenChange(false)}>
               Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isAjusteOpen} onOpenChange={setIsAjusteOpen}>
+      <Dialog open={isAjusteOpen && !!selectedItem} onOpenChange={handleAjusteOpenChange}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Ajuste de stock</DialogTitle>
@@ -986,7 +993,7 @@ export default function InventarioPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAjusteOpen(false)}>
+            <Button variant="outline" onClick={() => handleAjusteOpenChange(false)}>
               Cancelar
             </Button>
             <Button disabled={actionLoading} onClick={() => void handleAjuste()}>
@@ -1001,7 +1008,7 @@ export default function InventarioPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
+      <Dialog open={isTransferOpen && !!selectedItem} onOpenChange={handleTransferOpenChange}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Transferencia entre depósitos</DialogTitle>
@@ -1078,7 +1085,7 @@ export default function InventarioPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsTransferOpen(false)}>
+            <Button variant="outline" onClick={() => handleTransferOpenChange(false)}>
               Cancelar
             </Button>
             <Button disabled={actionLoading} onClick={() => void handleTransfer()}>

@@ -48,6 +48,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
+import { usePuntosFacturacion } from "@/lib/hooks/usePuntosFacturacion"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
 import { useTerceros } from "@/lib/hooks/useTerceros"
 import { useItems } from "@/lib/hooks/useItems"
@@ -181,17 +182,65 @@ function InvoiceForm({ onClose, onSaved, emitir }: InvoiceFormProps) {
   const { sucursales } = useSucursales()
   const { terceros: clientes } = useTerceros()
   const { items } = useItems()
+  const {
+    puntos,
+    getProximoNumero,
+    loading: loadingPuntos,
+  } = usePuntosFacturacion(effectiveSucursalId || undefined)
   const [tab, setTab] = useState("principal")
   const [form, setForm] = useState<EmitirComprobanteDto>(() =>
     createInvoiceFormState(defaultSucursalId)
   )
   const [lineItems, setLineItems] = useState<InvoiceFormItem[]>([])
+  const [selectedPuntoId, setSelectedPuntoId] = useState<number | null>(null)
+  const [nextNumberPreview, setNextNumberPreview] = useState<number | null>(null)
+  const [loadingNextNumber, setLoadingNextNumber] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const ventaTypes = tipos.filter((tipo) => tipo.esVenta)
   const effectiveSucursalId = form.sucursalId || defaultSucursalId || 0
   const effectiveTipoComprobanteId = form.tipoComprobanteId || ventaTypes[0]?.id || 0
+
+  const puntoOptions = useMemo(
+    () => puntos.filter((punto) => punto.activo).sort((left, right) => left.numero - right.numero),
+    [puntos]
+  )
+
+  const selectedPunto = useMemo(
+    () => puntoOptions.find((punto) => punto.id === selectedPuntoId) ?? puntoOptions[0] ?? null,
+    [puntoOptions, selectedPuntoId]
+  )
+
+  useEffect(() => {
+    if (selectedPuntoId && puntoOptions.some((punto) => punto.id === selectedPuntoId)) return
+    setSelectedPuntoId(puntoOptions[0]?.id ?? null)
+  }, [puntoOptions, selectedPuntoId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadNextNumber() {
+      if (!selectedPunto || !effectiveTipoComprobanteId) {
+        setNextNumberPreview(null)
+        setLoadingNextNumber(false)
+        return
+      }
+
+      setLoadingNextNumber(true)
+      const value = await getProximoNumero(selectedPunto.id, effectiveTipoComprobanteId)
+      if (!cancelled) {
+        setNextNumberPreview(value)
+        setLoadingNextNumber(false)
+      }
+    }
+
+    void loadNextNumber()
+
+    return () => {
+      cancelled = true
+    }
+  }, [effectiveTipoComprobanteId, getProximoNumero, selectedPunto])
 
   const addItem = (itemId: string) => {
     const item = items.find((current) => current.id === Number(itemId))
@@ -340,6 +389,52 @@ function InvoiceForm({ onClose, onSaved, emitir }: InvoiceFormProps) {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Punto de facturación de referencia</Label>
+              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                <Select
+                  value={selectedPunto ? String(selectedPunto.id) : "__none__"}
+                  onValueChange={(value) =>
+                    setSelectedPuntoId(value === "__none__" ? null : Number(value))
+                  }
+                  disabled={!effectiveSucursalId || puntoOptions.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        !effectiveSucursalId
+                          ? "Seleccione sucursal"
+                          : loadingPuntos
+                            ? "Cargando puntos..."
+                            : "Sin puntos activos"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin punto de referencia</SelectItem>
+                    {puntoOptions.map((punto) => (
+                      <SelectItem key={punto.id} value={String(punto.id)}>
+                        {String(punto.numero).padStart(4, "0")} · {punto.descripcion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="rounded-lg border px-3 py-2 text-sm">
+                  <p className="text-xs text-muted-foreground">Próximo número</p>
+                  <p className="font-semibold">
+                    {loadingNextNumber
+                      ? "Consultando..."
+                      : nextNumberPreview !== null
+                        ? `#${nextNumberPreview}`
+                        : "Sin vista previa"}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Referencia operativa del legacy. La emisión sigue usando el contrato actual por
+                sucursal y tipo de comprobante, sin enviar un punto explícito al backend.
+              </p>
             </div>
             <div className="space-y-1.5 md:col-span-2">
               <Label>Cliente</Label>
@@ -516,7 +611,8 @@ function InvoiceForm({ onClose, onSaved, emitir }: InvoiceFormProps) {
             <CardContent className="pt-6 text-sm text-muted-foreground">
               El circuito legado contemplaba emisión masiva, facturación automática, vínculos con
               remitos y condiciones fiscales avanzadas. Esta primera migración deja estable la
-              emisión manual real y reserva los bloques para esa segunda etapa.
+              emisión manual real, suma referencia visible de punto y próximo número por sucursal, y
+              reserva los bloques más profundos para esa segunda etapa.
             </CardContent>
           </Card>
         </TabsContent>
@@ -741,7 +837,7 @@ export default function FacturasPage() {
   const [statusFilter, setStatusFilter] = useState("todos")
   const [typeFilter, setTypeFilter] = useState("todos")
   const [isFormOpen, setIsFormOpen] = useState(false)
-  const [selectedInvoice, setSelectedInvoice] = useState<Comprobante | null>(null)
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null)
   const [detailInvoice, setDetailInvoice] = useState<ComprobanteDetalle | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
@@ -796,6 +892,11 @@ export default function FacturasPage() {
     })
   }, [comprobantes, searchTerm, statusFilter, typeFilter, getCustomerName, getTypeName])
 
+  const selectedInvoice = useMemo(
+    () => comprobantes.find((invoice) => invoice.id === selectedInvoiceId) ?? null,
+    [comprobantes, selectedInvoiceId]
+  )
+
   const kpis = {
     total: comprobantes.length,
     emitidas: comprobantes.filter((invoice) => invoice.estado === "EMITIDO").length,
@@ -830,7 +931,7 @@ export default function FacturasPage() {
     : []
 
   const loadDetail = async (invoice: Comprobante) => {
-    setSelectedInvoice(invoice)
+    setSelectedInvoiceId(invoice.id)
     setIsDetailOpen(true)
     setLoadingDetail(true)
     const detail = await getById(invoice.id)
@@ -847,7 +948,7 @@ export default function FacturasPage() {
     if (!window.confirm(`¿Anular el comprobante ${invoice.nroComprobante ?? invoice.id}?`)) return
     await anular(invoice.id, true)
     await refetch()
-    if (selectedInvoice?.id === invoice.id) {
+    if (selectedInvoiceId === invoice.id) {
       const detail = await getById(invoice.id)
       setDetailInvoice(detail)
     }
@@ -858,28 +959,11 @@ export default function FacturasPage() {
     await asignarCae(caeState.id, caeState.cae, caeState.fechaVto, caeState.qrData || undefined)
     setCaeState({ open: false, id: 0, cae: "", fechaVto: "", qrData: "" })
     await refetch()
-    if (selectedInvoice?.id === caeState.id) {
+    if (selectedInvoiceId === caeState.id) {
       const detail = await getById(caeState.id)
       setDetailInvoice(detail)
     }
   }
-
-  useEffect(() => {
-    if (!selectedInvoice) return
-
-    const nextSelected = comprobantes.find((invoice) => invoice.id === selectedInvoice.id) ?? null
-
-    if (!nextSelected) {
-      setSelectedInvoice(null)
-      setIsDetailOpen(false)
-      setDetailInvoice(null)
-      return
-    }
-
-    if (nextSelected !== selectedInvoice) {
-      setSelectedInvoice(nextSelected)
-    }
-  }, [comprobantes, selectedInvoice])
 
   return (
     <div className="space-y-6 pb-6">
@@ -1246,7 +1330,16 @@ export default function FacturasPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog
+        open={isDetailOpen}
+        onOpenChange={(open) => {
+          setIsDetailOpen(open)
+          if (!open) {
+            setSelectedInvoiceId(null)
+            setDetailInvoice(null)
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

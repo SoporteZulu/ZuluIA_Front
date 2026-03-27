@@ -296,6 +296,45 @@ export default function SolicitudesCompraPage() {
         </AlertDescription>
       </Alert>
 
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card className="border-dashed">
+          <CardHeader>
+            <CardTitle className="text-base">Solicitudes automáticas</CardTitle>
+            <CardDescription>
+              Esta vista sigue concentrada en reposición por stock mínimo y abastecimiento real.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="outline" className="bg-transparent">
+              <Link href="/compras/ordenes">
+                <ArrowRight className="mr-2 h-4 w-4" />
+                Continuar a órdenes de compra
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+        <Card className="border-dashed">
+          <CardHeader>
+            <CardTitle className="text-base">Requisiciones legacy</CardTitle>
+            <CardDescription>
+              El circuito manual de requisición por área u obra ahora vive separado para no
+              mezclarlo con la reposición automática.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href="/compras/requisiciones">
+                <ArrowRight className="mr-2 h-4 w-4" />
+                Ver requisiciones
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="bg-transparent">
+              <Link href="/compras/cotizaciones">Ir a cotizaciones</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="pt-4 pb-4">

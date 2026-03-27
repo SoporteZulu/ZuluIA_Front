@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -206,31 +206,20 @@ function LibroIvaTab({
   tipo,
   sucursalId,
   recentPeriodos,
-  periodosReady,
 }: {
   tipo: "ventas" | "compras"
   sucursalId: number
   recentPeriodos: PeriodoIvaDto[]
-  periodosReady: boolean
 }) {
   const { libroVentas, libroCompras, loading, error, fetchVentas, fetchCompras } = useLibroIva()
-  const [desde, setDesde] = useState("")
-  const [hasta, setHasta] = useState("")
-  const [defaultsApplied, setDefaultsApplied] = useState(false)
+  const initialRange = recentPeriodos[0]
+    ? buildRangeFromPeriodo(recentPeriodos[0].periodo)
+    : buildMonthRange(0)
+  const [desde, setDesde] = useState(initialRange.desde)
+  const [hasta, setHasta] = useState(initialRange.hasta)
 
   const libro = tipo === "ventas" ? libroVentas : libroCompras
   const title = tipo === "ventas" ? "Libro IVA Ventas" : "Libro IVA Compras"
-
-  useEffect(() => {
-    if (defaultsApplied || !periodosReady) return
-
-    const preset = recentPeriodos[0]
-    const range = preset ? buildRangeFromPeriodo(preset.periodo) : buildMonthRange(0)
-
-    setDesde(range.desde)
-    setHasta(range.hasta)
-    setDefaultsApplied(true)
-  }, [defaultsApplied, periodosReady, recentPeriodos])
 
   const selectedPeriodo = useMemo(
     () =>
@@ -507,7 +496,6 @@ type LibroDiarioResult = {
 
 function LibroDiarioTab({
   ejercicio,
-  periodosReady,
   recentPeriodos,
   asientos,
   loading,
@@ -516,7 +504,6 @@ function LibroDiarioTab({
   sucursalId,
 }: {
   ejercicio: Ejercicio | null
-  periodosReady: boolean
   recentPeriodos: PeriodoIvaDto[]
   asientos: Asiento[]
   loading: boolean
@@ -529,21 +516,12 @@ function LibroDiarioTab({
   ) => Promise<unknown | null>
   sucursalId: number
 }) {
-  const [desde, setDesde] = useState("")
-  const [hasta, setHasta] = useState("")
-  const [defaultsApplied, setDefaultsApplied] = useState(false)
+  const initialRange = recentPeriodos[0]
+    ? buildRangeFromPeriodo(recentPeriodos[0].periodo)
+    : buildMonthRange(0)
+  const [desde, setDesde] = useState(initialRange.desde)
+  const [hasta, setHasta] = useState(initialRange.hasta)
   const [libroDiario, setLibroDiario] = useState<LibroDiarioResult | null>(null)
-
-  useEffect(() => {
-    if (defaultsApplied || !periodosReady) return
-
-    const preset = recentPeriodos[0]
-    const range = preset ? buildRangeFromPeriodo(preset.periodo) : buildMonthRange(0)
-
-    setDesde(range.desde)
-    setHasta(range.hasta)
-    setDefaultsApplied(true)
-  }, [defaultsApplied, periodosReady, recentPeriodos])
 
   const handleBuscar = async () => {
     if (!ejercicio?.id || !desde || !hasta) return
@@ -1006,26 +984,26 @@ export default function ReportesContablesPage() {
 
         <TabsContent value="iva-ventas" className="mt-6">
           <LibroIvaTab
+            key={`iva-ventas-${!loadingPeriodos}-${recentPeriodos[0]?.id ?? recentPeriodos[0]?.periodo ?? "manual"}`}
             tipo="ventas"
             sucursalId={sucursalId}
             recentPeriodos={recentPeriodos}
-            periodosReady={!loadingPeriodos}
           />
         </TabsContent>
 
         <TabsContent value="iva-compras" className="mt-6">
           <LibroIvaTab
+            key={`iva-compras-${!loadingPeriodos}-${recentPeriodos[0]?.id ?? recentPeriodos[0]?.periodo ?? "manual"}`}
             tipo="compras"
             sucursalId={sucursalId}
             recentPeriodos={recentPeriodos}
-            periodosReady={!loadingPeriodos}
           />
         </TabsContent>
 
         <TabsContent value="diario" className="mt-6">
           <LibroDiarioTab
+            key={`libro-diario-${!loadingPeriodos}-${recentPeriodos[0]?.id ?? recentPeriodos[0]?.periodo ?? "manual"}`}
             ejercicio={ejercicio}
-            periodosReady={!loadingPeriodos}
             recentPeriodos={recentPeriodos}
             asientos={asientos}
             loading={loadingAsientos}

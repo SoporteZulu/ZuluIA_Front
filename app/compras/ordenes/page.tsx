@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { useMemo, useState } from "react"
 import {
   AlertCircle,
   Ban,
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { buildLegacyOrderOverlay } from "@/lib/compras-legacy-data"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
 import { useProveedores } from "@/lib/hooks/useTerceros"
@@ -221,6 +223,15 @@ function PurchaseOrderForm({
       availableComprobantes.find((comprobante) => comprobante.id === effectiveComprobanteId) ??
       null,
     [availableComprobantes, effectiveComprobanteId]
+  )
+
+  const legacyPreview = buildLegacyOrderOverlay(
+    {
+      id: effectiveComprobanteId || effectiveProveedorId || 0,
+      condicionesEntrega: form.condicionesEntrega,
+      fechaEntregaReq: form.fechaEntregaReq,
+    },
+    proveedores.find((provider) => provider.id === effectiveProveedorId)?.razonSocial ?? null
   )
 
   const handleSave = async () => {
@@ -406,11 +417,29 @@ function PurchaseOrderForm({
 
         <TabsContent value="legado" className="mt-4 space-y-4">
           <Card>
-            <CardContent className="pt-6 text-sm text-muted-foreground">
-              Esta alta cubre el contrato actual del backend: una orden básica vinculada a un
-              comprobante existente. El legado además resolvía renglones, aprobación, impresión,
-              recepción parcial y negociación comercial avanzada, que siguen reservados para la
-              siguiente etapa.
+            <CardHeader>
+              <CardTitle className="text-base">Preview del circuito legado</CardTitle>
+              <CardDescription>
+                Datos operativos visibles aunque el DTO actual siga siendo mínimo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <DetailFieldGrid
+                fields={[
+                  { label: "Depósito destino", value: legacyPreview.depositoDestino },
+                  { label: "Sector solicitante", value: legacyPreview.sectorSolicitante },
+                  { label: "Condición de compra", value: legacyPreview.condicionCompra },
+                  { label: "Plazo de pago", value: legacyPreview.plazoPago },
+                  { label: "Moneda", value: legacyPreview.moneda },
+                  { label: "Comprador", value: legacyPreview.comprador },
+                  { label: "Autorización", value: legacyPreview.autorizacion },
+                  { label: "Circuito de recepción", value: legacyPreview.circuitoRecepcion },
+                  { label: "Remito esperado", value: legacyPreview.remitoEsperado },
+                ]}
+              />
+              <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+                {legacyPreview.observacionInterna}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -446,6 +475,8 @@ function PurchaseOrderDetail({
   provider?: Tercero | null
   relatedInvoice: Comprobante | null
 }) {
+  const legacyFields = buildLegacyOrderOverlay(order, providerName)
+
   const mainFields = [
     { label: "Orden", value: `OC-${order.id}` },
     { label: "Proveedor", value: providerName },
@@ -607,17 +638,25 @@ function PurchaseOrderDetail({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Landmark className="h-4 w-4" /> Bloques pendientes del legado
+              <Landmark className="h-4 w-4" /> Circuito heredado ampliado
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 text-sm text-muted-foreground md:grid-cols-2">
-            <div className="rounded-lg border p-4">
-              Esta etapa ya deja visible disponibilidad para recepción, fecha requerida y
-              trazabilidad; alta completa por renglón, aprobación y autorización siguen reservadas.
-            </div>
-            <div className="rounded-lg border p-4">
-              Condiciones comerciales avanzadas, impresión formal, remitos enlazados y recepción
-              parcial por ítem quedan reservados para la siguiente fase.
+          <CardContent className="space-y-4">
+            <DetailFieldGrid
+              fields={[
+                { label: "Depósito destino", value: legacyFields.depositoDestino },
+                { label: "Sector solicitante", value: legacyFields.sectorSolicitante },
+                { label: "Condición de compra", value: legacyFields.condicionCompra },
+                { label: "Plazo de pago", value: legacyFields.plazoPago },
+                { label: "Moneda", value: legacyFields.moneda },
+                { label: "Comprador", value: legacyFields.comprador },
+                { label: "Autorización", value: legacyFields.autorizacion },
+                { label: "Circuito recepción", value: legacyFields.circuitoRecepcion },
+                { label: "Remito esperado", value: legacyFields.remitoEsperado },
+              ]}
+            />
+            <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+              {legacyFields.observacionInterna}
             </div>
           </CardContent>
         </Card>
@@ -627,17 +666,21 @@ function PurchaseOrderDetail({
 }
 
 export default function OrdenesCompraPage() {
+  const searchParams = useSearchParams()
   const { ordenes, loading, error, getById, crear, recibir, cancelar, refetch } = useOrdenesCompra()
   const { comprobantes } = useComprobantes({ esCompra: true })
   const { terceros: proveedores } = useProveedores()
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("todos")
   const [enabledFilter, setEnabledFilter] = useState("todos")
+  const [manualDeliveryFilter, setManualDeliveryFilter] = useState<string | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [selectedOrder, setSelectedOrder] = useState<OrdenCompra | null>(null)
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null)
   const [detailOrder, setDetailOrder] = useState<OrdenCompra | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const routeDeliveryFilter = searchParams.get("filtro") === "retrasadas" ? "retrasadas" : "todos"
+  const deliveryFilter = manualDeliveryFilter ?? routeDeliveryFilter
 
   const linkedComprobanteIds = useMemo(
     () => new Set(ordenes.map((order) => order.comprobanteId)),
@@ -647,9 +690,18 @@ export default function OrdenesCompraPage() {
     () => comprobantes.filter((comprobante) => !linkedComprobanteIds.has(comprobante.id)),
     [comprobantes, linkedComprobanteIds]
   )
+  const providerNameById = useMemo(
+    () => new Map(proveedores.map((provider) => [provider.id, provider.razonSocial])),
+    [proveedores]
+  )
+  const selectedOrder = useMemo(
+    () => ordenes.find((order) => order.id === selectedOrderId) ?? null,
+    [ordenes, selectedOrderId]
+  )
+  const detailOpen = isDetailOpen && selectedOrder !== null
 
   const getProviderName = (providerId: number) =>
-    proveedores.find((provider) => provider.id === providerId)?.razonSocial ?? `#${providerId}`
+    providerNameById.get(providerId) ?? `#${providerId}`
 
   const getRelatedInvoice = (comprobanteId: number) =>
     comprobantes.find((comprobante) => comprobante.id === comprobanteId) ?? null
@@ -657,7 +709,9 @@ export default function OrdenesCompraPage() {
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
     return ordenes.filter((order) => {
-      const providerName = getProviderName(order.proveedorId).toLowerCase()
+      const providerName = (
+        providerNameById.get(order.proveedorId) ?? `#${order.proveedorId}`
+      ).toLowerCase()
       const matchesSearch =
         term === "" ||
         String(order.id).includes(term) ||
@@ -669,10 +723,17 @@ export default function OrdenesCompraPage() {
         enabledFilter === "todos" ||
         (enabledFilter === "si" && order.habilitada) ||
         (enabledFilter === "no" && !order.habilitada)
+      const deliveryOffset = getDaysOffset(order.fechaEntregaReq)
+      const matchesDelivery =
+        deliveryFilter === "todos" ||
+        (deliveryFilter === "retrasadas" &&
+          order.estadoOc === "PENDIENTE" &&
+          deliveryOffset !== null &&
+          deliveryOffset < 0)
 
-      return matchesSearch && matchesStatus && matchesEnabled
+      return matchesSearch && matchesStatus && matchesEnabled && matchesDelivery
     })
-  }, [enabledFilter, ordenes, searchTerm, statusFilter, proveedores])
+  }, [deliveryFilter, enabledFilter, ordenes, providerNameById, searchTerm, statusFilter])
 
   const kpis = useMemo(
     () => ({
@@ -685,23 +746,6 @@ export default function OrdenesCompraPage() {
     }),
     [ordenes]
   )
-
-  useEffect(() => {
-    if (!selectedOrder) return
-
-    const nextSelected = ordenes.find((order) => order.id === selectedOrder.id) ?? null
-
-    if (!nextSelected) {
-      setSelectedOrder(null)
-      setDetailOrder(null)
-      setIsDetailOpen(false)
-      return
-    }
-
-    if (nextSelected !== selectedOrder) {
-      setSelectedOrder(nextSelected)
-    }
-  }, [ordenes, selectedOrder])
 
   const highlightedOrder =
     selectedOrder && filtered.some((order) => order.id === selectedOrder.id)
@@ -742,7 +786,7 @@ export default function OrdenesCompraPage() {
     : []
 
   const openDetail = async (order: OrdenCompra) => {
-    setSelectedOrder(order)
+    setSelectedOrderId(order.id)
     setIsDetailOpen(true)
     setLoadingDetail(true)
     const detail = await getById(order.id)
@@ -754,7 +798,6 @@ export default function OrdenesCompraPage() {
     const updated = await getById(orderId)
     if (updated) {
       setDetailOrder(updated)
-      setSelectedOrder(updated)
     }
   }
 
@@ -816,6 +859,49 @@ export default function OrdenesCompraPage() {
           pendientes del contrato ampliado del backend.
         </AlertDescription>
       </Alert>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="border-dashed">
+          <CardContent className="flex h-full flex-col justify-between gap-3 pt-6">
+            <div>
+              <p className="text-sm font-medium">Cotizaciones</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Ya hay un módulo separado para el circuito comercial previo a la orden.
+              </p>
+            </div>
+            <Button asChild variant="outline" className="bg-transparent">
+              <a href="/compras/cotizaciones">Abrir cotizaciones</a>
+            </Button>
+          </CardContent>
+        </Card>
+        <Card className="border-dashed">
+          <CardContent className="flex h-full flex-col justify-between gap-3 pt-6">
+            <div>
+              <p className="text-sm font-medium">Requisiciones</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                El pedido interno por área u obra quedó separado del abastecimiento automático.
+              </p>
+            </div>
+            <Button asChild variant="outline" className="bg-transparent">
+              <a href="/compras/requisiciones">Abrir requisiciones</a>
+            </Button>
+          </CardContent>
+        </Card>
+        <Card className="border-dashed">
+          <CardContent className="flex h-full flex-col justify-between gap-3 pt-6">
+            <div>
+              <p className="text-sm font-medium">Recepción e imputación</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                El lote actual ya expone remitos, devoluciones, ajustes e imputaciones en rutas
+                propias.
+              </p>
+            </div>
+            <Button asChild variant="outline" className="bg-transparent">
+              <a href="/compras/imputaciones">Ver imputaciones</a>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
 
       {availableBaseComprobantes.length === 0 && (
         <Alert>
@@ -914,7 +1000,7 @@ export default function OrdenesCompraPage() {
           <CardTitle>Filtros</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-[1fr_220px_180px]">
+          <div className="grid gap-4 md:grid-cols-[1fr_220px_180px_200px]">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -943,6 +1029,15 @@ export default function OrdenesCompraPage() {
                 <SelectItem value="todos">Todas</SelectItem>
                 <SelectItem value="si">Habilitadas</SelectItem>
                 <SelectItem value="no">No habilitadas</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={deliveryFilter} onValueChange={setManualDeliveryFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Entrega" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todas las entregas</SelectItem>
+                <SelectItem value="retrasadas">Solo retrasadas</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1103,7 +1198,16 @@ export default function OrdenesCompraPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog
+        open={detailOpen}
+        onOpenChange={(open) => {
+          setIsDetailOpen(open)
+          if (!open) {
+            setSelectedOrderId(null)
+            setDetailOrder(null)
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

@@ -2,9 +2,20 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api"
-import type { Tercero, CreateTerceroDto, CondicionIva } from "@/lib/types/terceros"
+import type {
+  Tercero,
+  CreateTerceroDto,
+  UpdateTerceroDto,
+  CondicionIva,
+  TerceroPerfilComercial,
+  TerceroContacto,
+  TerceroSucursalEntrega,
+  TerceroTransporte,
+  TerceroVentanaCobranza,
+} from "@/lib/types/terceros"
 import type { PagedResult } from "@/lib/types/items"
 import type { Moneda } from "@/lib/types/items"
+import type { TipoDocumento } from "@/lib/types/configuracion"
 
 interface UseTercerosOptions {
   soloActivos?: boolean
@@ -64,7 +75,7 @@ export function useTerceros(options: UseTercerosOptions = {}) {
     }
   }
 
-  const updateTercero = async (id: number, dto: Partial<CreateTerceroDto>): Promise<boolean> => {
+  const updateTercero = async (id: number, dto: UpdateTerceroDto): Promise<boolean> => {
     try {
       await apiPut<Tercero>(`/api/terceros/${id}`, dto)
       return true
@@ -84,6 +95,83 @@ export function useTerceros(options: UseTercerosOptions = {}) {
     }
   }
 
+  const getTerceroById = useCallback(async (id: number) => {
+    return apiGet<Tercero>(`/api/terceros/${id}`)
+  }, [])
+
+  const getPerfilComercial = useCallback(async (id: number) => {
+    return apiGet<TerceroPerfilComercial>(`/api/terceros/${id}/perfil-comercial`)
+  }, [])
+
+  const updatePerfilComercial = useCallback(
+    async (id: number, dto: TerceroPerfilComercial): Promise<boolean> => {
+      try {
+        await apiPut<TerceroPerfilComercial>(`/api/terceros/${id}/perfil-comercial`, dto)
+        return true
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Error al actualizar perfil comercial")
+        return false
+      }
+    },
+    []
+  )
+
+  const getContactos = useCallback(async (id: number) => {
+    return apiGet<TerceroContacto[]>(`/api/terceros/${id}/contactos`)
+  }, [])
+
+  const updateContactos = useCallback(async (id: number, dto: TerceroContacto[]) => {
+    try {
+      await apiPut<TerceroContacto[]>(`/api/terceros/${id}/contactos`, dto)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al actualizar contactos")
+      return false
+    }
+  }, [])
+
+  const getSucursalesEntrega = useCallback(async (id: number) => {
+    return apiGet<TerceroSucursalEntrega[]>(`/api/terceros/${id}/sucursales-entrega`)
+  }, [])
+
+  const updateSucursalesEntrega = useCallback(async (id: number, dto: TerceroSucursalEntrega[]) => {
+    try {
+      await apiPut<TerceroSucursalEntrega[]>(`/api/terceros/${id}/sucursales-entrega`, dto)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al actualizar sucursales de entrega")
+      return false
+    }
+  }, [])
+
+  const getTransportes = useCallback(async (id: number) => {
+    return apiGet<TerceroTransporte[]>(`/api/terceros/${id}/transportes`)
+  }, [])
+
+  const updateTransportes = useCallback(async (id: number, dto: TerceroTransporte[]) => {
+    try {
+      await apiPut<TerceroTransporte[]>(`/api/terceros/${id}/transportes`, dto)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al actualizar transportes")
+      return false
+    }
+  }, [])
+
+  const getVentanasCobranza = useCallback(async (id: number) => {
+    return apiGet<TerceroVentanaCobranza[]>(`/api/terceros/${id}/ventanas-cobranza`)
+  }, [])
+
+  const updateVentanasCobranza = useCallback(async (id: number, dto: TerceroVentanaCobranza[]) => {
+    try {
+      await apiPut<TerceroVentanaCobranza[]>(`/api/terceros/${id}/ventanas-cobranza`, dto)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al actualizar ventanas de cobranza")
+      return false
+    }
+  }, [])
+
   return {
     terceros,
     loading,
@@ -97,6 +185,17 @@ export function useTerceros(options: UseTercerosOptions = {}) {
     createTercero,
     updateTercero,
     deleteTercero,
+    getTerceroById,
+    getPerfilComercial,
+    updatePerfilComercial,
+    getContactos,
+    updateContactos,
+    getSucursalesEntrega,
+    updateSucursalesEntrega,
+    getTransportes,
+    updateTransportes,
+    getVentanasCobranza,
+    updateVentanasCobranza,
     refetch: fetchTerceros,
   }
 }
@@ -104,18 +203,21 @@ export function useTerceros(options: UseTercerosOptions = {}) {
 export function useTercerosConfig() {
   const [condicionesIva, setCondicionesIva] = useState<CondicionIva[]>([])
   const [monedas, setMonedas] = useState<Moneda[]>([])
+  const [tiposDocumento, setTiposDocumento] = useState<TipoDocumento[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     Promise.all([
       apiGet<CondicionIva[] | PagedResult<CondicionIva>>("/api/configuracion/condiciones-iva"),
       apiGet<Moneda[] | PagedResult<Moneda>>("/api/configuracion/monedas"),
+      apiGet<TipoDocumento[] | PagedResult<TipoDocumento>>("/api/configuracion/tipos-documento"),
     ])
-      .then(([conds, mons]) => {
+      .then(([conds, mons, docs]) => {
         const toArray = <T>(r: T[] | PagedResult<T>): T[] => (Array.isArray(r) ? r : r.items)
 
         setCondicionesIva(toArray(conds))
         setMonedas(toArray(mons))
+        setTiposDocumento(toArray(docs))
       })
       .catch((e) => {
         console.error("Error cargando datos de configuración de terceros:", e)
@@ -123,7 +225,7 @@ export function useTercerosConfig() {
       .finally(() => setLoading(false))
   }, [])
 
-  return { condicionesIva, monedas, loading }
+  return { condicionesIva, monedas, tiposDocumento, loading }
 }
 
 export function useProveedores(options: UseTercerosOptions = {}) {

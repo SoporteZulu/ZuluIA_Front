@@ -20,7 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
-import { login } from "@/lib/auth"
+import { isAuthConfigured, login } from "@/lib/auth"
 
 const accessHighlights = [
   {
@@ -35,29 +35,27 @@ const accessHighlights = [
   {
     title: "Acceso seguro",
     description:
-      "La autenticación usa el flujo vigente de Supabase con token local para la sesión activa.",
+      "La autenticación usa tu backend local con token persistido para la sesión activa.",
   },
 ]
 
 export default function LoginPage() {
   const router = useRouter()
-  const [email, setEmail] = useState("")
+  const [userName, setUserName] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const trimmedEmail = email.trim()
-  const hasCredentials = trimmedEmail.length > 0 && password.length > 0
-  const envConfigured = Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  )
+  const trimmedUserName = userName.trim()
+  const hasCredentials = trimmedUserName.length > 0 && password.length > 0
+  const envConfigured = isAuthConfigured()
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
 
     if (!hasCredentials) {
-      setError("Completá email y contraseña para iniciar sesión.")
+      setError("Completá usuario y contraseña para iniciar sesión.")
       return
     }
 
@@ -65,7 +63,7 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      await login(trimmedEmail, password)
+      await login(trimmedUserName, password)
       router.replace("/")
     } catch (submissionError) {
       setError(
@@ -138,9 +136,9 @@ export default function LoginPage() {
               </Badge>
             </div>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-              El inicio de sesión depende únicamente de las variables públicas de Supabase y del
-              flujo vigente de contraseña. Si el entorno no está configurado, la autenticación no
-              puede completarse desde esta pantalla.
+              El inicio de sesión depende de la API local y del flujo vigente de contraseña. Si el
+              entorno no está configurado, la autenticación no puede completarse desde esta
+              pantalla.
             </p>
           </div>
         </section>
@@ -180,7 +178,7 @@ export default function LoginPage() {
                   Requisitos mínimos
                 </div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Email válido, contraseña y variables públicas de Supabase configuradas.
+                  Usuario local, contraseña y backend configurado.
                 </p>
               </div>
             </div>
@@ -193,22 +191,22 @@ export default function LoginPage() {
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>Configuración incompleta</AlertTitle>
                   <AlertDescription>
-                    Faltan `NEXT_PUBLIC_SUPABASE_URL` o `NEXT_PUBLIC_SUPABASE_ANON_KEY`. El acceso
-                    va a fallar hasta que estén disponibles.
+                    Falta `NEXT_PUBLIC_API_URL`. El acceso va a fallar hasta que la URL del backend
+                    esté disponible.
                   </AlertDescription>
                 </Alert>
               ) : null}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email corporativo</Label>
+                <Label htmlFor="userName">Usuario</Label>
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="usuario@empresa.com"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  id="userName"
+                  type="text"
+                  placeholder="admin.local"
+                  value={userName}
+                  onChange={(event) => setUserName(event.target.value)}
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                   autoFocus
                   disabled={loading}
                   className="h-11"
@@ -276,8 +274,8 @@ export default function LoginPage() {
 
               <div className="space-y-2 text-sm text-muted-foreground">
                 <p>
-                  Si recibís un error de credenciales, verificá tu usuario activo. Si recibís un
-                  error de configuración, revisá las variables públicas del entorno.
+                  Si recibís un error de credenciales, verificá tu usuario local activo. Si recibís
+                  un error de configuración, revisá la URL pública del backend local.
                 </p>
                 <p>
                   Esta pantalla no expone recuperación, SSO ni selección de tenant porque esos

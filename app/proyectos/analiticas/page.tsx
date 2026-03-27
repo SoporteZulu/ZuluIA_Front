@@ -156,6 +156,7 @@ function SummaryCard({
 }
 
 export default function AnaliticasPage() {
+  const [currentTimestamp] = useState(() => Date.now())
   const [timeRange, setTimeRange] = useState<TimeRange>("trimestre")
   const { proyectos, loading: loadingProyectos, error: errorProyectos } = useProyectos()
   const { tareas, loading: loadingTareas, error: errorTareas } = useTareasProyecto()
@@ -218,7 +219,7 @@ export default function AnaliticasPage() {
       : 0
     const tareasVencidas = tareasFiltradas.filter((tarea) => {
       if (!tarea.fechaVencimiento || tarea.estado === "Hecho") return false
-      return new Date(tarea.fechaVencimiento).getTime() < Date.now()
+      return new Date(tarea.fechaVencimiento).getTime() < currentTimestamp
     }).length
 
     return {
@@ -232,7 +233,7 @@ export default function AnaliticasPage() {
         (miembro) => miembro.estado === "Disponible" || miembro.estado === "Online"
       ).length,
     }
-  }, [clientes, miembros, proyectosFiltrados, tareasFiltradas])
+  }, [clientes, currentTimestamp, miembros, proyectosFiltrados, tareasFiltradas])
 
   const evolucionProyectos = useMemo(() => {
     return periods.map((period) => {
@@ -311,14 +312,16 @@ export default function AnaliticasPage() {
         const tareasAbiertas = projectTasks.filter((tarea) => tarea.estado !== "Hecho").length
         const tareasVencidas = projectTasks.filter((tarea) => {
           if (!tarea.fechaVencimiento || tarea.estado === "Hecho") return false
-          return new Date(tarea.fechaVencimiento).getTime() < Date.now()
+          return new Date(tarea.fechaVencimiento).getTime() < currentTimestamp
         }).length
         const client = clientesByName.get(proyecto.cliente.toLowerCase())
         const startDate = new Date(proyecto.fechaInicio)
         const endDate = new Date(proyecto.fechaFin)
-        const today = Date.now()
         const totalRange = Math.max(endDate.getTime() - startDate.getTime(), 1)
-        const elapsed = Math.min(Math.max((today - startDate.getTime()) / totalRange, 0), 1)
+        const elapsed = Math.min(
+          Math.max((currentTimestamp - startDate.getTime()) / totalRange, 0),
+          1
+        )
         const expectedAdvance = Math.round(elapsed * 100)
         const desvio = expectedAdvance - Number(proyecto.avance ?? 0)
         const criticidad =
@@ -351,7 +354,7 @@ export default function AnaliticasPage() {
       })
       .sort((a, b) => b.criticidad - a.criticidad || b.tareasVencidas - a.tareasVencidas)
       .slice(0, 8)
-  }, [clientesByName, proyectosFiltrados, tasksByProject])
+  }, [clientesByName, currentTimestamp, proyectosFiltrados, tasksByProject])
 
   const riesgos = useMemo(() => {
     return radarOperativo

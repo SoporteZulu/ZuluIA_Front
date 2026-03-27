@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
@@ -46,6 +47,7 @@ import {
 import Loading from "./loading"
 import { useAsientos, usePlanCuentas } from "@/lib/hooks/useAsientos"
 import { useEjercicioVigente } from "@/lib/hooks/useEjercicios"
+import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 import type { Asiento, AsientoDetalle } from "@/lib/types/asientos"
 
@@ -220,7 +222,60 @@ function emptyLine(): DraftLine {
   }
 }
 
+type EntryTrackerStage =
+  | "relevado"
+  | "pendiente_autorizacion"
+  | "pendiente_distribucion"
+  | "cerrado"
+
+type LocalEntryTracker = {
+  entryId: number
+  stage: EntryTrackerStage
+  owner: string
+  authorizationNote: string
+  costCenterNote: string
+  nextStep: string
+  updatedAt: string
+}
+
+const ENTRY_TRACKER_STORAGE_KEY = "zuluia_contabilidad_asientos_trackers"
+
+const ENTRY_STAGE_CONFIG: Record<
+  EntryTrackerStage,
+  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
+> = {
+  relevado: { label: "Relevado", variant: "outline" },
+  pendiente_autorizacion: { label: "Pendiente autorizacion", variant: "secondary" },
+  pendiente_distribucion: { label: "Pendiente distribucion", variant: "destructive" },
+  cerrado: { label: "Cerrado", variant: "default" },
+}
+
+function buildDefaultEntryTracker(entry: Asiento): LocalEntryTracker {
+  return {
+    entryId: entry.id,
+    stage: entry.estado.toLowerCase() === "publicado" ? "cerrado" : "relevado",
+    owner: "Contaduria",
+    authorizationNote: "Sin autorizacion ampliada registrada localmente.",
+    costCenterNote: "Sin distribucion adicional de centro de costo documentada.",
+    nextStep:
+      entry.estado.toLowerCase() === "publicado"
+        ? "Mantener trazabilidad y soporte documental del asiento."
+        : "Validar autorizacion y distribucion antes del cierre operativo.",
+    updatedAt: entry.createdAt || new Date().toISOString(),
+  }
+}
+
+function getEntryTrackerHealth(tracker: LocalEntryTracker) {
+  if (tracker.stage === "cerrado") return "Asiento cerrado y documentado localmente"
+  if (tracker.stage === "pendiente_distribucion")
+    return "Falta documentar distribucion por centro de costo"
+  if (tracker.stage === "pendiente_autorizacion")
+    return "Falta autorizacion o firma operativa del circuito"
+  return "Asiento relevado con seguimiento operativo pendiente"
+}
+
 function AsientosContent() {
+  const [todayTimestamp] = useState(() => Date.now())
   const sucursalId = useDefaultSucursalId() ?? 1
   const { ejercicio } = useEjercicioVigente()
   const { cuentas, loading: loadingCuentas } = usePlanCuentas(ejercicio?.id)
@@ -262,6 +317,11 @@ function AsientosContent() {
   const [fecha, setFecha] = useState(todayInputValue())
   const [descripcion, setDescripcion] = useState("")
   const [lineas, setLineas] = useState<DraftLine[]>([emptyLine(), emptyLine()])
+  const {
+    rows: trackers,
+    setRows: setTrackers,
+    reset: resetTrackers,
+  } = useLegacyLocalCollection<LocalEntryTracker>(ENTRY_TRACKER_STORAGE_KEY, [])
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -300,12 +360,23 @@ function AsientosContent() {
   const activeEntryCircuit = activeEntry ? getAsientoCircuit(activeEntry) : null
   const activeEntryBalance = activeEntry ? getBalanceReading(activeEntry) : null
   const activeEntryCoverage = activeEntry ? getLegacyCoverage(activeEntry) : null
+  const trackerMap = useMemo(
+    () => new Map(trackers.map((tracker) => [tracker.entryId, tracker])),
+    [trackers]
+  )
   const recentCreatedCount = filtered.filter((entry) => {
     if (!entry.createdAt) return false
-    const diff = Date.now() - new Date(entry.createdAt).getTime()
+    const diff = todayTimestamp - new Date(entry.createdAt).getTime()
     return diff <= 7 * 86400000
   }).length
   const averageEntryAmount = filtered.length ? stats.totalDebe / filtered.length : 0
+  const pendingEntryTracking = useMemo(
+    () =>
+      filtered
+        .map((entry) => trackerMap.get(entry.id) ?? buildDefaultEntryTracker(entry))
+        .filter((tracker) => tracker.stage !== "cerrado").length,
+    [filtered, trackerMap]
+  )
 
   const draftTotals = useMemo(() => {
     const totalDebe = lineas.reduce((acc, linea) => acc + Number(linea.debe || 0), 0)
@@ -317,18 +388,6 @@ function AsientosContent() {
       diferencia: Math.abs(totalDebe - totalHaber),
     }
   }, [lineas])
-
-  useEffect(() => {
-    if (!createOpen) {
-      setCreateError(null)
-    }
-  }, [createOpen])
-
-  useEffect(() => {
-    if (!originOpen) {
-      setOriginError(null)
-    }
-  }, [originOpen])
 
   const resetCreateForm = () => {
     setFecha(todayInputValue())
@@ -402,6 +461,20 @@ function AsientosContent() {
     }
 
     setOriginResults(result)
+  }
+
+  const handleOriginOpenChange = (open: boolean) => {
+    setOriginOpen(open)
+    if (!open) {
+      setOriginError(null)
+    }
+  }
+
+  const handleCreateOpenChange = (open: boolean) => {
+    setCreateOpen(open)
+    if (!open) {
+      setCreateError(null)
+    }
   }
 
   const handleCreate = async () => {
@@ -482,6 +555,10 @@ function AsientosContent() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => resetTrackers()}>
+            <RefreshCcw className="h-4 w-4" />
+            Reiniciar seguimiento local
+          </Button>
           <Button variant="outline" onClick={() => refetch()} disabled={loading}>
             <RefreshCcw className="h-4 w-4" />
             Actualizar
@@ -490,13 +567,16 @@ function AsientosContent() {
             variant="outline"
             onClick={() => {
               resetOriginLookup()
-              setOriginOpen(true)
+              handleOriginOpenChange(true)
             }}
           >
             <GitBranch className="h-4 w-4" />
             Buscar por origen
           </Button>
-          <Button onClick={() => setCreateOpen(true)} disabled={!ejercicio?.id || loadingCuentas}>
+          <Button
+            onClick={() => handleCreateOpenChange(true)}
+            disabled={!ejercicio?.id || loadingCuentas}
+          >
             <Plus className="h-4 w-4" />
             Nuevo Asiento
           </Button>
@@ -547,6 +627,11 @@ function AsientosContent() {
           title="Diferencia"
           value={`$${fmtARS(Math.abs(stats.totalDebe - stats.totalHaber))}`}
           description="Control rápido entre debe y haber del conjunto consultado."
+        />
+        <SummaryCard
+          title="Pendientes locales"
+          value={String(pendingEntryTracking)}
+          description="Asientos con autorizacion o distribucion ampliada pendiente de documentar."
         />
       </div>
 
@@ -839,36 +924,203 @@ function AsientosContent() {
                 />
               </div>
 
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Cuenta</TableHead>
-                    <TableHead>Denominación</TableHead>
-                    <TableHead className="text-right">Debe</TableHead>
-                    <TableHead className="text-right">Haber</TableHead>
-                    <TableHead>Observación</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {selectedAsiento.lineas.map((linea) => (
-                    <TableRow key={linea.id}>
-                      <TableCell className="font-mono text-sm">{linea.codigoCuenta}</TableCell>
-                      <TableCell className="text-sm">{linea.denominacion}</TableCell>
-                      <TableCell className="text-right text-sm">${fmtARS(linea.debe)}</TableCell>
-                      <TableCell className="text-right text-sm">${fmtARS(linea.haber)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {linea.observacion || "-"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <Tabs defaultValue="lineas" className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="lineas">Lineas</TabsTrigger>
+                  <TabsTrigger value="circuito">Circuito</TabsTrigger>
+                  <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="lineas" className="pt-4">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Cuenta</TableHead>
+                        <TableHead>Denominación</TableHead>
+                        <TableHead className="text-right">Debe</TableHead>
+                        <TableHead className="text-right">Haber</TableHead>
+                        <TableHead>Observación</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedAsiento.lineas.map((linea) => (
+                        <TableRow key={linea.id}>
+                          <TableCell className="font-mono text-sm">{linea.codigoCuenta}</TableCell>
+                          <TableCell className="text-sm">{linea.denominacion}</TableCell>
+                          <TableCell className="text-right text-sm">
+                            ${fmtARS(linea.debe)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm">
+                            ${fmtARS(linea.haber)}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {linea.observacion || "-"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TabsContent>
+
+                <TabsContent value="circuito" className="space-y-4 pt-4">
+                  <DetailFieldGrid
+                    fields={[
+                      { label: "Circuito", value: getAsientoCircuit(selectedAsiento).label },
+                      { label: "Balance", value: getBalanceReading(selectedAsiento).label },
+                      {
+                        label: "Cobertura legacy",
+                        value: getLegacyCoverage(selectedAsiento).label,
+                      },
+                      { label: "Alta", value: formatDateTime(selectedAsiento.createdAt) },
+                      { label: "Antiguedad", value: getEntryAgeLabel(selectedAsiento.createdAt) },
+                      { label: "Lineas", value: String(selectedAsiento.lineas.length) },
+                    ]}
+                  />
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      El backend actual expone libro diario y alta manual balanceada, pero no
+                      autorizaciones ampliadas ni distribucion de centros de costo del legado.
+                    </AlertDescription>
+                  </Alert>
+                </TabsContent>
+
+                <TabsContent value="seguimiento" className="space-y-4 pt-4">
+                  {(() => {
+                    const fallback = buildDefaultEntryTracker(selectedAsiento)
+                    const tracker = trackerMap.get(selectedAsiento.id) ?? fallback
+
+                    const updateTracker = (patch: Partial<LocalEntryTracker>) => {
+                      setTrackers((current) => {
+                        const index = current.findIndex((row) => row.entryId === selectedAsiento.id)
+                        const base = index >= 0 ? current[index] : fallback
+                        const nextRow = { ...base, ...patch, updatedAt: new Date().toISOString() }
+
+                        return index >= 0
+                          ? current.map((row, rowIndex) => (rowIndex === index ? nextRow : row))
+                          : [...current, nextRow]
+                      })
+                    }
+
+                    return (
+                      <>
+                        <Alert>
+                          <AlertCircle className="h-4 w-4" />
+                          <AlertDescription>
+                            Este seguimiento se guarda solo en el navegador actual y cubre
+                            autorizaciones, centros de costo y notas operativas del legado.
+                          </AlertDescription>
+                        </Alert>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <Card>
+                            <CardHeader>
+                              <CardTitle className="text-base">Seguimiento local</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                              <div className="space-y-2">
+                                <Label>Estado operativo</Label>
+                                <Select
+                                  value={tracker.stage}
+                                  onValueChange={(value) =>
+                                    updateTracker({ stage: value as EntryTrackerStage })
+                                  }
+                                >
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Seleccionar estado" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="relevado">Relevado</SelectItem>
+                                    <SelectItem value="pendiente_autorizacion">
+                                      Pendiente autorizacion
+                                    </SelectItem>
+                                    <SelectItem value="pendiente_distribucion">
+                                      Pendiente distribucion
+                                    </SelectItem>
+                                    <SelectItem value="cerrado">Cerrado</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Responsable</Label>
+                                <Input
+                                  value={tracker.owner}
+                                  onChange={(e) => updateTracker({ owner: e.target.value })}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Nota de autorizacion</Label>
+                                <Textarea
+                                  rows={4}
+                                  value={tracker.authorizationNote}
+                                  onChange={(e) =>
+                                    updateTracker({ authorizationNote: e.target.value })
+                                  }
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Nota de centro de costo</Label>
+                                <Textarea
+                                  rows={4}
+                                  value={tracker.costCenterNote}
+                                  onChange={(e) =>
+                                    updateTracker({ costCenterNote: e.target.value })
+                                  }
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Proximo paso</Label>
+                                <Textarea
+                                  rows={4}
+                                  value={tracker.nextStep}
+                                  onChange={(e) => updateTracker({ nextStep: e.target.value })}
+                                />
+                              </div>
+                            </CardContent>
+                          </Card>
+                          <Card>
+                            <CardHeader>
+                              <CardTitle className="text-base">Continuidad</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-3 text-sm">
+                              <div className="rounded-lg bg-muted/40 p-3">
+                                <p className="text-xs text-muted-foreground">Estado actual</p>
+                                <div className="mt-1 flex items-center gap-2">
+                                  <Badge variant={ENTRY_STAGE_CONFIG[tracker.stage].variant}>
+                                    {ENTRY_STAGE_CONFIG[tracker.stage].label}
+                                  </Badge>
+                                </div>
+                                <p className="mt-2 font-medium">{getEntryTrackerHealth(tracker)}</p>
+                              </div>
+                              <div className="rounded-lg bg-muted/40 p-3">
+                                <p className="text-xs text-muted-foreground">
+                                  Ultima actualizacion local
+                                </p>
+                                <p className="mt-1 font-medium">
+                                  {formatDateTime(tracker.updatedAt)}
+                                </p>
+                              </div>
+                              <div className="rounded-lg bg-muted/40 p-3">
+                                <p className="text-xs text-muted-foreground">Autorizacion</p>
+                                <p className="mt-1 font-medium">{tracker.authorizationNote}</p>
+                              </div>
+                              <div className="rounded-lg bg-muted/40 p-3">
+                                <p className="text-xs text-muted-foreground">Centro de costo</p>
+                                <p className="mt-1 font-medium">{tracker.costCenterNote}</p>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </>
+                    )
+                  })()}
+                </TabsContent>
+              </Tabs>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      <Dialog open={originOpen} onOpenChange={setOriginOpen}>
+      <Dialog open={originOpen} onOpenChange={handleOriginOpenChange}>
         <DialogContent className="max-w-5xl">
           <DialogHeader>
             <DialogTitle>Asientos por origen</DialogTitle>
@@ -987,7 +1239,7 @@ function AsientosContent() {
                             variant="outline"
                             size="sm"
                             onClick={async () => {
-                              setOriginOpen(false)
+                              handleOriginOpenChange(false)
                               await handleViewDetail(entry.id)
                             }}
                           >
@@ -1007,7 +1259,7 @@ function AsientosContent() {
                 type="button"
                 variant="outline"
                 onClick={() => {
-                  setOriginOpen(false)
+                  handleOriginOpenChange(false)
                   resetOriginLookup()
                 }}
               >
@@ -1018,7 +1270,7 @@ function AsientosContent() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
         <DialogContent className="max-w-5xl">
           <DialogHeader>
             <DialogTitle>Nuevo asiento manual</DialogTitle>
@@ -1174,12 +1426,21 @@ function AsientosContent() {
               />
             </div>
 
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                La distribucion por centros de costo y las autorizaciones ampliadas del legado se
+                documentan en el seguimiento local posterior del asiento; no forman parte del DTO
+                backend actual.
+              </AlertDescription>
+            </Alert>
+
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => {
-                  setCreateOpen(false)
+                  handleCreateOpenChange(false)
                   resetCreateForm()
                 }}
               >

@@ -1,7 +1,6 @@
 "use client"
 
 import React, { Suspense, useMemo, useState } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -39,7 +38,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -95,11 +93,8 @@ function getDaysToEnd(value: Date) {
 }
 
 function ContratosContent() {
-  const [today] = useState(() => new Date())
   const {
     contratos: contratosList,
-    loading,
-    error,
     createContrato,
     updateContrato,
     deleteContrato,

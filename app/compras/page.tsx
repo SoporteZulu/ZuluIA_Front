@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -110,6 +110,7 @@ function buildSupplierScore(orderStats: {
 }
 
 export default function ComprasDashboard() {
+  const [todayTimestamp] = useState(() => Date.now())
   const { ordenes } = useOrdenesCompra()
   const { terceros } = useProveedores()
   const { comprobantes: facturasCompra } = useComprobantes({ esCompra: true })
@@ -264,19 +265,19 @@ export default function ComprasDashboard() {
     () =>
       comprasActivas.filter((invoice) => {
         if (!invoice.fechaVto || invoice.saldo <= 0) return false
-        const diff = new Date(invoice.fechaVto).getTime() - Date.now()
+        const diff = new Date(invoice.fechaVto).getTime() - todayTimestamp
         return diff > 0 && diff <= 7 * 24 * 60 * 60 * 1000
       }),
-    [comprasActivas]
+    [comprasActivas, todayTimestamp]
   )
 
   const overdueInvoices = useMemo(
     () =>
       comprasActivas.filter((invoice) => {
         if (!invoice.fechaVto || invoice.saldo <= 0) return false
-        return new Date(invoice.fechaVto).getTime() < Date.now()
+        return new Date(invoice.fechaVto).getTime() < todayTimestamp
       }),
-    [comprasActivas]
+    [comprasActivas, todayTimestamp]
   )
 
   const proveedoresRadar = useMemo(
@@ -600,7 +601,7 @@ export default function ComprasDashboard() {
                 productos por debajo del punto de reorden
               </p>
               <Link
-                href="/compras/solicitudes?tipo=automatico"
+                href="/compras/solicitudes"
                 className="text-sm text-primary hover:underline mt-2 inline-block"
               >
                 Ver solicitudes →
@@ -621,7 +622,7 @@ export default function ComprasDashboard() {
                 necesidades de compra detectadas desde stock real
               </p>
               <Link
-                href="/compras/solicitudes?estado=pendiente"
+                href="/compras/solicitudes"
                 className="text-sm text-primary hover:underline mt-2 inline-block"
               >
                 Revisar →

@@ -59,8 +59,10 @@ const EMPTY_FORM: CreateCajaDto = {
   monedaId: undefined,
 }
 
-function buildForm(caja?: Caja | null): CreateCajaDto {
-  if (!caja) return { ...EMPTY_FORM }
+function buildForm(caja?: Caja | null, selectedSucursalId?: number): CreateCajaDto {
+  if (!caja) {
+    return { ...EMPTY_FORM, sucursalId: selectedSucursalId ?? EMPTY_FORM.sucursalId }
+  }
 
   return {
     sucursalId: caja.sucursalId,
@@ -220,22 +222,13 @@ function CajaForm({ caja, selectedSucursalId, onClose, onSaved }: CajaFormProps)
   const { monedas } = useTercerosConfig()
   const [tipos, setTipos] = useState<TipoCaja[]>([])
   const [tab, setTab] = useState("principal")
-  const [form, setForm] = useState<CreateCajaDto>(buildForm(caja))
+  const [form, setForm] = useState<CreateCajaDto>(() => buildForm(caja, selectedSucursalId))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     getTipos().then(setTipos)
   }, [getTipos])
-
-  useEffect(() => {
-    if (caja) {
-      setForm(buildForm(caja))
-      return
-    }
-
-    setForm({ ...EMPTY_FORM, sucursalId: selectedSucursalId ?? 0 })
-  }, [caja, selectedSucursalId])
 
   const set = (key: keyof CreateCajaDto, value: string | number | undefined) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -529,21 +522,21 @@ export default function CajasPage() {
   const [selectedSucursalId, setSelectedSucursalId] = useState<number | undefined>(
     defaultSucursalId
   )
-  const { cajas, loading, error, refetch, getTipos } = useCajas(selectedSucursalId)
+  const effectiveSucursalId = selectedSucursalId ?? defaultSucursalId
+  const { cajas, loading, error, refetch, getTipos } = useCajas(effectiveSucursalId)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [selectedCaja, setSelectedCaja] = useState<Caja | null>(null)
-  const [detailCaja, setDetailCaja] = useState<Caja | null>(null)
+  const [selectedCajaId, setSelectedCajaId] = useState<number | null>(null)
+  const [detailCajaId, setDetailCajaId] = useState<number | null>(null)
   const [tipos, setTipos] = useState<TipoCaja[]>([])
 
-  useEffect(() => {
-    if (defaultSucursalId && !selectedSucursalId) {
-      setSelectedSucursalId(defaultSucursalId)
-    }
-  }, [defaultSucursalId, selectedSucursalId])
+  const selectedCaja = useMemo(
+    () => cajas.find((caja) => caja.id === selectedCajaId) ?? null,
+    [cajas, selectedCajaId]
+  )
 
   useEffect(() => {
     getTipos().then(setTipos)
@@ -572,26 +565,37 @@ export default function CajasPage() {
     })
   }, [cajas, searchTerm, statusFilter, typeFilter])
 
-  useEffect(() => {
+  const detailCaja = useMemo(() => {
     if (!filtered.length) {
-      setDetailCaja(null)
-      return
+      return null
     }
 
-    if (!detailCaja || !filtered.some((caja) => caja.id === detailCaja.id)) {
-      setDetailCaja(filtered[0])
-    }
-  }, [detailCaja, filtered])
+    return filtered.find((caja) => caja.id === detailCajaId) ?? filtered[0]
+  }, [detailCajaId, filtered])
 
   const totalVisibleBalance = filtered.reduce((sum, caja) => sum + Number(caja.saldoActual ?? 0), 0)
   const activeCount = filtered.filter((caja) => caja.activa).length
   const negativeBalanceCount = filtered.filter((caja) => Number(caja.saldoActual ?? 0) < 0).length
   const withCurrencyCount = filtered.filter((caja) => caja.monedaId).length
-  const selectedSucursal = sucursales.find((sucursal) => sucursal.id === selectedSucursalId)
+  const selectedSucursal = sucursales.find((sucursal) => sucursal.id === effectiveSucursalId)
   const selectedTipo = tipos.find((tipo) => String(tipo.id) === typeFilter)
   const selectedCajaStatus = detailCaja ? getCajaStatus(detailCaja) : null
   const selectedCajaCircuit = detailCaja ? getCajaCircuit(detailCaja) : null
   const selectedCajaCoverage = detailCaja ? getLegacyCoverage(detailCaja) : null
+
+  const handleFormOpenChange = (open: boolean) => {
+    setIsFormOpen(open)
+    if (!open) {
+      setSelectedCajaId(null)
+    }
+  }
+
+  const handleDetailOpenChange = (open: boolean) => {
+    setIsDetailOpen(open)
+    if (!open) {
+      setDetailCajaId(null)
+    }
+  }
 
   const getMonedaLabel = (monedaId?: number) => {
     if (!monedaId) return "Sin moneda asociada"
@@ -621,10 +625,10 @@ export default function CajasPage() {
           </Button>
           <Button
             onClick={() => {
-              setSelectedCaja(null)
+              setSelectedCajaId(null)
               setIsFormOpen(true)
             }}
-            disabled={!selectedSucursalId}
+            disabled={!effectiveSucursalId}
           >
             <Plus className="mr-2 h-4 w-4" />
             Nueva Caja
@@ -645,7 +649,7 @@ export default function CajasPage() {
             <div className="space-y-1.5">
               <Label>Sucursal</Label>
               <Select
-                value={selectedSucursalId ? String(selectedSucursalId) : ""}
+                value={effectiveSucursalId ? String(effectiveSucursalId) : ""}
                 onValueChange={(value) => setSelectedSucursalId(Number(value))}
               >
                 <SelectTrigger>
@@ -871,7 +875,7 @@ export default function CajasPage() {
                     key={caja.id}
                     className="cursor-pointer hover:bg-muted/40"
                     onClick={() => {
-                      setDetailCaja(caja)
+                      setDetailCajaId(caja.id)
                       setIsDetailOpen(true)
                     }}
                   >
@@ -897,7 +901,7 @@ export default function CajasPage() {
                           variant="ghost"
                           size="icon"
                           onClick={() => {
-                            setDetailCaja(caja)
+                            setDetailCajaId(caja.id)
                             setIsDetailOpen(true)
                           }}
                         >
@@ -907,7 +911,7 @@ export default function CajasPage() {
                           variant="ghost"
                           size="icon"
                           onClick={() => {
-                            setSelectedCaja(caja)
+                            setSelectedCajaId(caja.id)
                             setIsFormOpen(true)
                           }}
                         >
@@ -923,7 +927,7 @@ export default function CajasPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+      <Dialog open={isFormOpen} onOpenChange={handleFormOpenChange}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedCaja ? "Editar Caja" : "Nueva Caja"}</DialogTitle>
@@ -933,18 +937,21 @@ export default function CajasPage() {
             </DialogDescription>
           </DialogHeader>
           <CajaForm
+            key={
+              selectedCaja ? `edit-${selectedCaja.id}` : `create-${effectiveSucursalId ?? "none"}`
+            }
             caja={selectedCaja}
-            selectedSucursalId={selectedSucursalId}
-            onClose={() => setIsFormOpen(false)}
+            selectedSucursalId={effectiveSucursalId}
+            onClose={() => handleFormOpenChange(false)}
             onSaved={() => {
-              setIsFormOpen(false)
+              handleFormOpenChange(false)
               refetch()
             }}
           />
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog open={isDetailOpen && !!detailCaja} onOpenChange={handleDetailOpenChange}>
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{detailCaja?.nombre ?? "Detalle de caja"}</DialogTitle>
@@ -968,7 +975,7 @@ export default function CajasPage() {
             <Button
               variant="outline"
               className="bg-transparent"
-              onClick={() => setIsDetailOpen(false)}
+              onClick={() => handleDetailOpenChange(false)}
             >
               Cerrar
             </Button>

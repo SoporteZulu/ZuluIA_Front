@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import React, { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,16 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  Package,
-  AlertTriangle,
-  Boxes,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  Eye,
-  Plus,
-} from "lucide-react"
+import { AlertTriangle, Boxes, CheckCircle, Clock, AlertCircle, Eye, Plus } from "lucide-react"
 import { useDepositos } from "@/lib/hooks/useDepositos"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
@@ -240,6 +232,46 @@ export default function AlmacenesPage() {
             </p>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        {[
+          {
+            title: "Regiones",
+            description:
+              "Mapa funcional por planta y responsable para cerrar la estructura visible del WMS.",
+            href: "/almacenes/regiones",
+          },
+          {
+            title: "Zonas",
+            description: "Zonas fisicas, criticidad y capacidad visible por deposito.",
+            href: "/almacenes/zonas",
+          },
+          {
+            title: "Conteos",
+            description: "Planes de conteo ciclico y divergencias de auditoria en modo lectura.",
+            href: "/almacenes/conteos",
+          },
+          {
+            title: "Reportes WMS",
+            description: "Consolidado de movimientos, alertas y cobertura operacional.",
+            href: "/almacenes/reportes",
+          },
+          {
+            title: "Producción",
+            description: "Consumos, ingresos y ajustes productivos vinculados a órdenes reales.",
+            href: "/almacenes/produccion",
+          },
+        ].map((section) => (
+          <Link key={section.href} href={section.href}>
+            <Card className="h-full transition-colors hover:border-primary/40 hover:bg-primary/5">
+              <CardHeader>
+                <CardTitle className="text-base">{section.title}</CardTitle>
+                <CardDescription>{section.description}</CardDescription>
+              </CardHeader>
+            </Card>
+          </Link>
+        ))}
       </div>
 
       {highlightedAlert ? (

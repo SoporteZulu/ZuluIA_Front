@@ -575,5 +575,3 @@ export default function SugerenciasModule() {
     </div>
   )
 }
-
-export default SugerenciasModule

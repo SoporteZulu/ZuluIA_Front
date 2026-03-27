@@ -141,6 +141,10 @@ export default function PickingPage() {
     fecha: new Date().toISOString().slice(0, 10),
     observacion: "",
   })
+  const terceroNameById = useMemo(
+    () => new Map(terceros.map((tercero) => [tercero.id, tercero.razonSocial])),
+    [terceros]
+  )
 
   const getTerceroName = (id?: number) =>
     id ? (terceros.find((tercero) => tercero.id === id)?.razonSocial ?? `#${id}`) : "-"
@@ -148,15 +152,18 @@ export default function PickingPage() {
   const filteredOrdenes = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
     return ordenes.filter((orden) => {
+      const terceroName = orden.terceroId
+        ? (terceroNameById.get(orden.terceroId) ?? `#${orden.terceroId}`).toLowerCase()
+        : "-"
       if (!term) return true
       return (
         String(orden.id).includes(term) ||
-        getTerceroName(orden.terceroId).toLowerCase().includes(term) ||
+        terceroName.includes(term) ||
         (orden.estado ?? "").toLowerCase().includes(term) ||
         (orden.observacion ?? "").toLowerCase().includes(term)
       )
     })
-  }, [ordenes, searchTerm, terceros])
+  }, [ordenes, searchTerm, terceroNameById])
 
   const pendientes = ordenes.filter((orden) => orden.estado === "PENDIENTE").length
   const enProceso = ordenes.filter((orden) => orden.estado === "EN_PROCESO").length

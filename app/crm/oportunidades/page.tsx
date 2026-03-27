@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import {
   Table,
   TableBody,
@@ -61,10 +60,8 @@ import {
   TrendingUp,
   Building2,
   Calendar,
-  AlertTriangle,
   ArrowRight,
   Clock,
-  Users,
 } from "lucide-react"
 import {
   useCrmOportunidades,
@@ -924,7 +921,7 @@ function OportunidadesContent() {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar oportunidad?</AlertDialogTitle>
             <AlertDialogDescription>
-              Estás a punto de eliminar "{selectedOpp?.titulo}".
+              Estás a punto de eliminar &quot;{selectedOpp?.titulo}&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

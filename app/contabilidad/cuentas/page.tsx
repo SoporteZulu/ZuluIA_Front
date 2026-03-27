@@ -27,7 +27,6 @@ import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 import type { PlanCuenta } from "@/lib/types/asientos"
 import {
   AlertCircle,
-  CalendarClock,
   ClipboardList,
   FolderTree,
   Plus,

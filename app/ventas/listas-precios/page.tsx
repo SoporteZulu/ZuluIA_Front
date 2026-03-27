@@ -62,6 +62,15 @@ function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"
 }
 
+function getDaysUntil(value?: string | null) {
+  if (!value) return null
+  const targetDate = new Date(value)
+  const today = new Date()
+  targetDate.setHours(0, 0, 0, 0)
+  today.setHours(0, 0, 0, 0)
+  return Math.floor((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+}
+
 function isCurrentList(list: ListaPrecios) {
   const today = new Date().toISOString().slice(0, 10)
   const startsOk = !list.vigenciaDesde || list.vigenciaDesde <= today
@@ -651,6 +660,61 @@ export default function ListasPreciosPage() {
     defaults: listas.filter((list) => list.esDefault).length,
     conVencimiento: listas.filter((list) => Boolean(list.vigenciaHasta)).length,
   }
+  const activeByCurrency = useMemo(() => {
+    const counts = new Map<string, number>()
+
+    listas
+      .filter((list) => list.activa)
+      .forEach((list) => {
+        const key = list.monedaSimbolo ?? `#${list.monedaId}`
+        counts.set(key, (counts.get(key) ?? 0) + 1)
+      })
+
+    return Array.from(counts.entries())
+      .map(([currency, count]) => ({ currency, count }))
+      .sort((left, right) => right.count - left.count)
+  }, [listas])
+  const defaultPortfolioList = useMemo(
+    () => listas.find((list) => list.esDefault) ?? null,
+    [listas]
+  )
+  const nextPortfolioChange = useMemo(() => {
+    const upcomingChanges = listas.flatMap((list) => {
+      const candidates: Array<{
+        listId: number
+        listName: string
+        type: "desde" | "hasta"
+        date: string
+        days: number
+      }> = []
+
+      const startsIn = getDaysUntil(list.vigenciaDesde)
+      if (list.vigenciaDesde && startsIn !== null && startsIn >= 0) {
+        candidates.push({
+          listId: list.id,
+          listName: list.nombre,
+          type: "desde",
+          date: list.vigenciaDesde,
+          days: startsIn,
+        })
+      }
+
+      const endsIn = getDaysUntil(list.vigenciaHasta)
+      if (list.vigenciaHasta && endsIn !== null && endsIn >= 0) {
+        candidates.push({
+          listId: list.id,
+          listName: list.nombre,
+          type: "hasta",
+          date: list.vigenciaHasta,
+          days: endsIn,
+        })
+      }
+
+      return candidates
+    })
+
+    return upcomingChanges.sort((left, right) => left.days - right.days)[0] ?? null
+  }, [listas])
   const highlightedList =
     detailList && filtered.some((list) => list.id === detailList.id)
       ? detailList
@@ -786,6 +850,91 @@ export default function ListasPreciosPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Radar de cartera</CardTitle>
+            <CardDescription>Distribucion operativa de listas activas por moneda.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            {activeByCurrency.length > 0 ? (
+              activeByCurrency.slice(0, 3).map((entry) => (
+                <div
+                  key={entry.currency}
+                  className="flex items-center justify-between rounded-lg border p-3"
+                >
+                  <span className="font-medium text-foreground">{entry.currency}</span>
+                  <Badge variant="outline">{entry.count} activas</Badge>
+                </div>
+              ))
+            ) : (
+              <p>No hay listas activas para resumir.</p>
+            )}
+            <p>
+              {activeByCurrency.length > 0
+                ? `La cartera activa se concentra en ${activeByCurrency[0].currency} con ${activeByCurrency[0].count} listas.`
+                : "La cartera todavia no muestra una moneda dominante en operacion."}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Proximo hito de vigencia</CardTitle>
+            <CardDescription>
+              Lectura rapida del siguiente cambio operativo del maestro.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            {nextPortfolioChange ? (
+              <>
+                <div className="rounded-lg border p-3">
+                  <p className="font-medium text-foreground">{nextPortfolioChange.listName}</p>
+                  <p>
+                    {nextPortfolioChange.type === "desde" ? "Comienza" : "Vence"} el{" "}
+                    {formatDate(nextPortfolioChange.date)}
+                  </p>
+                </div>
+                <p>
+                  {nextPortfolioChange.days === 0
+                    ? "El siguiente cambio ocurre hoy."
+                    : `Faltan ${nextPortfolioChange.days} dias para el siguiente movimiento de vigencia.`}
+                </p>
+              </>
+            ) : (
+              <p>No hay nuevas vigencias ni vencimientos futuros cargados.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Lista default operativa</CardTitle>
+            <CardDescription>Referencia principal del circuito comercial base.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            {defaultPortfolioList ? (
+              <>
+                <div className="rounded-lg border p-3">
+                  <p className="font-medium text-foreground">{defaultPortfolioList.nombre}</p>
+                  <p>{getCommercialPriority(defaultPortfolioList)}</p>
+                </div>
+                <p>
+                  {isCurrentList(defaultPortfolioList)
+                    ? "La lista predeterminada ya esta lista para cotizacion y venta inmediata."
+                    : "La lista predeterminada existe, pero su vigencia requiere seguimiento operativo."}
+                </p>
+              </>
+            ) : (
+              <p>
+                No hay una lista predeterminada visible; conviene revisarlo antes de cerrar el
+                circuito.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>

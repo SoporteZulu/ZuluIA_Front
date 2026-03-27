@@ -56,13 +56,9 @@ import {
   Pencil,
   Trash2,
   User,
-  Phone,
   Mail,
   Building2,
-  AlertTriangle,
   ArrowRight,
-  MessageSquare,
-  Users,
   BriefcaseBusiness,
 } from "lucide-react"
 import {

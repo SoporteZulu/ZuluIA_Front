@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -42,20 +42,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Plus,
-  Search,
-  Filter,
-  MoreHorizontal,
-  Edit,
-  Trash2,
-  Eye,
-  Clock,
-  MessageSquare,
-  Paperclip,
-  Send,
-  X,
-} from "lucide-react"
+import { Plus, Search, MoreHorizontal, Edit, Trash2, Eye, Send, X } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -112,8 +99,6 @@ function TicketsContent() {
   const router = useRouter()
   const {
     tickets: ticketsList,
-    loading,
-    error,
     createTicket,
     updateTicket,
     deleteTicket,

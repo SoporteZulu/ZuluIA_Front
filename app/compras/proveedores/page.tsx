@@ -52,6 +52,7 @@ import {
   Landmark,
   Wallet,
 } from "lucide-react"
+import { buildLegacySupplierOverlay } from "@/lib/compras-legacy-data"
 import { useProveedores, useTercerosConfig } from "@/lib/hooks/useTerceros"
 import { useGeografia } from "@/lib/hooks/useGeografia"
 import type { Tercero, CreateTerceroDto } from "@/lib/types/terceros"
@@ -175,6 +176,7 @@ function SupplierForm({
   const { condicionesIva, monedas } = useTercerosConfig()
   const [tab, setTab] = useState("principales")
   const [form, setForm] = useState<CreateTerceroDto>(() => buildSupplierForm(supplier))
+  const legacyPreview = buildLegacySupplierOverlay(supplier)
   const { localidades, barrios } = useGeografia({
     autoFetchLocalidades: true,
     localidadId: form.localidadId,
@@ -536,10 +538,29 @@ function SupplierForm({
             />
           </div>
           <Card>
-            <CardContent className="pt-6 text-sm text-muted-foreground">
-              La estructura del legado incluía retenciones por régimen, cuenta corriente avanzada,
-              CBU y datos documentales. Esta pantalla ya reserva la organización por bloques para
-              conectarla a esos endpoints a medida que se expongan en la API.
+            <CardHeader>
+              <CardTitle className="text-base">Overlay heredado visible</CardTitle>
+              <CardDescription>
+                Datos históricos en lectura mientras la API publica estos contratos.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Retenciones</p>
+                <p className="mt-2 text-sm font-medium">{legacyPreview.retenciones.join(" · ")}</p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">CBU</p>
+                <p className="mt-2 text-sm font-medium">{legacyPreview.cbu}</p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Cuenta contable</p>
+                <p className="mt-2 text-sm font-medium">{legacyPreview.cuentaContable}</p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Condición de pago</p>
+                <p className="mt-2 text-sm font-medium">{legacyPreview.condicionPago}</p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -565,6 +586,8 @@ function SupplierForm({
 }
 
 function SupplierDetail({ supplier }: { supplier: Tercero }) {
+  const legacyFields = buildLegacySupplierOverlay(supplier)
+
   const principalFields = [
     { label: "Razón Social", value: supplier.razonSocial },
     { label: "Nombre Comercial", value: supplier.nombreFantasia ?? "-" },
@@ -680,22 +703,34 @@ function SupplierDetail({ supplier }: { supplier: Tercero }) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <CreditCard className="h-4 w-4" /> Bloques heredados reservados
+              <CreditCard className="h-4 w-4" /> Circuito heredado visible
             </CardTitle>
             <CardDescription>
-              Secciones del VB6 ya ubicadas en la UI para futuras integraciones.
+              Campos históricos visibles sin inventar escrituras nuevas.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-lg border p-4 text-sm text-muted-foreground">
-              Retenciones por régimen: IVA, Ganancias, IIBB, SUSS, AGIP, SIRCAR y Misiones.
-            </div>
-            <div className="rounded-lg border p-4 text-sm text-muted-foreground">
-              Cuenta corriente, CBU, CAI, vencimientos documentales y catálogo extendido de
-              proveedor.
-            </div>
-            <div className="rounded-lg border p-4 text-sm text-muted-foreground md:col-span-2">
-              Observaciones: {supplier.observacion ?? "Sin observaciones"}
+          <CardContent className="space-y-4">
+            <DetailFieldGrid
+              fields={[
+                { label: "Tipo de persona", value: legacyFields.tipoPersona },
+                { label: "Personería", value: legacyFields.personeria },
+                { label: "Condición de pago", value: legacyFields.condicionPago },
+                { label: "Categoría de riesgo", value: legacyFields.categoriaRiesgo },
+                { label: "Cuenta contable", value: legacyFields.cuentaContable },
+                { label: "CBU", value: legacyFields.cbu },
+                { label: "Fecha de alta", value: legacyFields.fechaAlta },
+                { label: "Última actualización", value: legacyFields.ultimaActualizacion },
+                { label: "Usuario alta", value: legacyFields.usuarioAlta },
+              ]}
+            />
+            <div className="grid gap-4 md:grid-cols-2 text-sm">
+              <div className="rounded-lg border p-4">
+                <p className="font-medium">Retenciones activas</p>
+                <p className="mt-2 text-muted-foreground">{legacyFields.retenciones.join(" · ")}</p>
+              </div>
+              <div className="rounded-lg border p-4 text-muted-foreground">
+                {legacyFields.observacionExtendida}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -723,9 +758,9 @@ export default function ProveedoresPage() {
 
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [isFormOpen, setIsFormOpen] = useState(false)
-  const [selectedSupplier, setSelectedSupplier] = useState<Tercero | null>(null)
+  const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [detailSupplier, setDetailSupplier] = useState<Tercero | null>(null)
+  const [detailSupplierId, setDetailSupplierId] = useState<number | null>(null)
 
   const filteredSuppliers = useMemo(() => {
     return terceros.filter((supplier) => {
@@ -807,23 +842,34 @@ export default function ProveedoresPage() {
       .slice(0, 6)
   }, [filteredSuppliers])
 
+  const selectedSupplier = useMemo(
+    () => terceros.find((supplier) => supplier.id === selectedSupplierId) ?? null,
+    [selectedSupplierId, terceros]
+  )
+  const detailSupplier = useMemo(
+    () => terceros.find((supplier) => supplier.id === detailSupplierId) ?? null,
+    [detailSupplierId, terceros]
+  )
+  const formOpen = isFormOpen && (selectedSupplierId === null || selectedSupplier !== null)
+  const detailOpen = isDetailOpen && detailSupplier !== null
+
   const highlightedSupplier =
     detailSupplier && filteredSuppliers.some((supplier) => supplier.id === detailSupplier.id)
       ? detailSupplier
       : (filteredSuppliers[0] ?? null)
 
   const handleNew = () => {
-    setSelectedSupplier(null)
+    setSelectedSupplierId(null)
     setIsFormOpen(true)
   }
 
   const handleEdit = (supplier: Tercero) => {
-    setSelectedSupplier(supplier)
+    setSelectedSupplierId(supplier.id)
     setIsFormOpen(true)
   }
 
   const handleViewDetail = (supplier: Tercero) => {
-    setDetailSupplier(supplier)
+    setDetailSupplierId(supplier.id)
     setIsDetailOpen(true)
   }
 
@@ -832,13 +878,13 @@ export default function ProveedoresPage() {
       const ok = await deleteProveedor(id)
       if (!ok) return
 
-      if (detailSupplier?.id === id) {
-        setDetailSupplier(null)
+      if (detailSupplierId === id) {
+        setDetailSupplierId(null)
         setIsDetailOpen(false)
       }
 
-      if (selectedSupplier?.id === id) {
-        setSelectedSupplier(null)
+      if (selectedSupplierId === id) {
+        setSelectedSupplierId(null)
         setIsFormOpen(false)
       }
 
@@ -848,32 +894,9 @@ export default function ProveedoresPage() {
 
   const handleSaved = () => {
     setIsFormOpen(false)
+    setSelectedSupplierId(null)
     refetch()
   }
-
-  useEffect(() => {
-    if (selectedSupplier) {
-      const nextSelected = terceros.find((supplier) => supplier.id === selectedSupplier.id)
-
-      if (!nextSelected) {
-        setSelectedSupplier(null)
-        setIsFormOpen(false)
-      } else if (nextSelected !== selectedSupplier) {
-        setSelectedSupplier(nextSelected)
-      }
-    }
-
-    if (detailSupplier) {
-      const nextDetail = terceros.find((supplier) => supplier.id === detailSupplier.id)
-
-      if (!nextDetail) {
-        setDetailSupplier(null)
-        setIsDetailOpen(false)
-      } else if (nextDetail !== detailSupplier) {
-        setDetailSupplier(nextDetail)
-      }
-    }
-  }, [detailSupplier, selectedSupplier, terceros])
 
   return (
     <div className="flex-1 space-y-6 p-6">
@@ -1269,7 +1292,13 @@ export default function ProveedoresPage() {
         </div>
       )}
 
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+      <Dialog
+        open={formOpen}
+        onOpenChange={(open) => {
+          setIsFormOpen(open)
+          if (!open) setSelectedSupplierId(null)
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedSupplier ? "Editar Proveedor" : "Nuevo Proveedor"}</DialogTitle>
@@ -1280,7 +1309,10 @@ export default function ProveedoresPage() {
           <SupplierForm
             key={`${selectedSupplier ? `edit-${selectedSupplier.id}` : "new-supplier"}-${isFormOpen ? "open" : "closed"}`}
             supplier={selectedSupplier}
-            onClose={() => setIsFormOpen(false)}
+            onClose={() => {
+              setIsFormOpen(false)
+              setSelectedSupplierId(null)
+            }}
             onSaved={handleSaved}
             createProveedor={createProveedor}
             updateProveedor={updateProveedor}
@@ -1288,7 +1320,13 @@ export default function ProveedoresPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <Dialog
+        open={detailOpen}
+        onOpenChange={(open) => {
+          setIsDetailOpen(open)
+          if (!open) setDetailSupplierId(null)
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3 text-2xl">
@@ -1318,6 +1356,7 @@ export default function ProveedoresPage() {
               <Button
                 onClick={() => {
                   setIsDetailOpen(false)
+                  setDetailSupplierId(null)
                   handleEdit(detailSupplier)
                 }}
               >

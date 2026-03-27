@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -37,7 +37,6 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Ban,
-  Building2,
   CalendarClock,
   ClipboardList,
   Eye,
@@ -53,6 +52,7 @@ import {
 import { useConfiguracion } from "@/lib/hooks/useConfiguracion"
 import { useCobros } from "@/lib/hooks/useCobros"
 import { useCajas } from "@/lib/hooks/useCajas"
+import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { usePagos } from "@/lib/hooks/usePagos"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 import { useProveedores, useTerceros, useTercerosConfig } from "@/lib/hooks/useTerceros"
@@ -205,6 +205,86 @@ type MovimientoFormState = {
   observacion: string
 }
 
+type MovementTrackerStage =
+  | "registrado"
+  | "pendiente_imputacion"
+  | "pendiente_retencion"
+  | "cerrado"
+
+type LocalMovementTracker = {
+  movementKey: string
+  stage: MovementTrackerStage
+  owner: string
+  expectedImputation: string
+  retentionNote: string
+  nextStep: string
+  updatedAt: string
+}
+
+const MOVEMENT_TRACKER_STORAGE_KEY = "zuluia_contabilidad_pagos_trackers"
+
+const MOVEMENT_STAGE_CONFIG: Record<
+  MovementTrackerStage,
+  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
+> = {
+  registrado: { label: "Registrado", variant: "outline" },
+  pendiente_imputacion: { label: "Pendiente imputacion", variant: "secondary" },
+  pendiente_retencion: { label: "Pendiente retencion", variant: "destructive" },
+  cerrado: { label: "Cerrado", variant: "default" },
+}
+
+function getMovementKey(kind: MovimientoKind, id: number) {
+  return `${kind}-${id}`
+}
+
+function buildDefaultMovementTracker(
+  kind: MovimientoKind,
+  item: { id: number; estado: string; terceroId: number }
+): LocalMovementTracker {
+  return {
+    movementKey: getMovementKey(kind, item.id),
+    stage: item.estado === "ANULADO" ? "cerrado" : "registrado",
+    owner: kind === "pago" ? "Tesoreria" : "Cobranzas",
+    expectedImputation:
+      kind === "pago"
+        ? `Revisar aplicacion del pago sobre proveedor #${item.terceroId}.`
+        : `Verificar aplicacion del cobro sobre cliente #${item.terceroId}.`,
+    retentionNote:
+      kind === "pago"
+        ? "Sin retenciones locales cargadas."
+        : "No aplica retencion compleja en el flujo actual.",
+    nextStep:
+      kind === "pago"
+        ? "Confirmar imputacion final y revisar retenciones si corresponde."
+        : "Confirmar imputacion del cobro y cierre documental.",
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+function getMovementTrackerHealth(kind: MovimientoKind, tracker: LocalMovementTracker) {
+  if (tracker.stage === "cerrado") {
+    return kind === "pago"
+      ? "Pago conciliado, imputado y sin tareas pendientes"
+      : "Cobro conciliado y cerrado sobre el circuito actual"
+  }
+
+  if (tracker.stage === "pendiente_retencion") {
+    return kind === "pago"
+      ? "Pago pendiente de certificar o validar retenciones"
+      : "Cobro con observacion fiscal documentada localmente"
+  }
+
+  if (tracker.stage === "pendiente_imputacion") {
+    return kind === "pago"
+      ? "Pago registrado pero pendiente de aplicacion avanzada"
+      : "Cobro registrado pero pendiente de aplicacion avanzada"
+  }
+
+  return kind === "pago"
+    ? "Pago registrado en backend y bajo seguimiento operativo"
+    : "Cobro registrado en backend y bajo seguimiento operativo"
+}
+
 function createEmptyMedio(monedas: Moneda[], cajas: Caja[], formasPago: FormaPago[]): MedioDraft {
   return {
     id: `medio-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -256,19 +336,11 @@ function MovimientoDialog({
 }) {
   const [tab, setTab] = useState("principal")
   const [form, setForm] = useState<MovimientoFormState>(() => buildInitialForm(monedas))
-  const [medios, setMedios] = useState<MedioDraft[]>([])
+  const [medios, setMedios] = useState<MedioDraft[]>(() => [
+    createEmptyMedio(monedas, cajas, formasPago),
+  ])
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-
-    setTab("principal")
-    setForm(buildInitialForm(monedas))
-    setMedios([createEmptyMedio(monedas, cajas, formasPago)])
-    setSaving(false)
-    setFormError(null)
-  }, [open, kind, monedas, cajas, formasPago])
 
   const total = useMemo(
     () => medios.reduce((sum, medio) => sum + Number(medio.importe || 0), 0),
@@ -718,9 +790,7 @@ function PagosContent() {
     totalPages: totalPagesCobros,
     page: pageCobros,
     setPage: setPageCobros,
-    desde: desdeCobros,
     setDesde: setDesdeCobros,
-    hasta: hastaCobros,
     setHasta: setHastaCobros,
     getById: getCobroById,
     registrar: registrarCobro,
@@ -741,6 +811,11 @@ function PagosContent() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   const [movementDialog, setMovementDialog] = useState<MovimientoKind | null>(null)
+  const {
+    rows: trackers,
+    setRows: setTrackers,
+    reset: resetTrackers,
+  } = useLegacyLocalCollection<LocalMovementTracker>(MOVEMENT_TRACKER_STORAGE_KEY, [])
 
   const clientesOptions = useMemo<TerceroOption[]>(
     () =>
@@ -776,6 +851,10 @@ function PagosContent() {
   )
 
   const cajasById = useMemo(() => new Map(cajas.map((caja) => [caja.id, caja])), [cajas])
+  const trackerMap = useMemo(
+    () => new Map(trackers.map((tracker) => [tracker.movementKey, tracker])),
+    [trackers]
+  )
 
   const filteredPagos = useMemo(
     () =>
@@ -828,6 +907,35 @@ function PagosContent() {
     Boolean(proveedor.nroDocumento)
   ).length
   const clientesConDocumento = clientes.filter((cliente) => Boolean(cliente.nroDocumento)).length
+  const pendingAdvanced = useMemo(
+    () =>
+      [
+        ...pagos.map((item) => ["pago", item] as const),
+        ...cobros.map((item) => ["cobro", item] as const),
+      ]
+        .map(
+          ([kind, item]) =>
+            trackerMap.get(getMovementKey(kind, item.id)) ?? buildDefaultMovementTracker(kind, item)
+        )
+        .filter((tracker) => tracker.stage !== "cerrado").length,
+    [cobros, pagos, trackerMap]
+  )
+
+  const updateTracker = (
+    movementKey: string,
+    patch: Partial<LocalMovementTracker>,
+    fallback: LocalMovementTracker
+  ) => {
+    setTrackers((current) => {
+      const index = current.findIndex((row) => row.movementKey === movementKey)
+      const base = index >= 0 ? current[index] : fallback
+      const nextRow = { ...base, ...patch, updatedAt: new Date().toISOString() }
+
+      return index >= 0
+        ? current.map((row, rowIndex) => (rowIndex === index ? nextRow : row))
+        : [...current, nextRow]
+    })
+  }
 
   const setSharedDesde = (value: string) => {
     setDesdePagos(value)
@@ -906,6 +1014,10 @@ function PagosContent() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => resetTrackers()}>
+            <RefreshCcw className="h-4 w-4" />
+            Reiniciar seguimiento local
+          </Button>
           <Button variant="outline" onClick={refreshAll} disabled={loadingPagos || loadingCobros}>
             <RefreshCcw className="h-4 w-4" />
             Actualizar
@@ -969,6 +1081,11 @@ function PagosContent() {
               ? `Pago #${ultimoPago.id} por $${fmtARS(ultimoPago.total)}.`
               : "No hay pagos cargados."
           }
+        />
+        <SummaryCard
+          title="Pendientes avanzados"
+          value={String(pendingAdvanced)}
+          description="Movimientos con seguimiento local pendiente de imputacion, retencion o cierre."
         />
       </div>
 
@@ -1373,11 +1490,12 @@ function PagosContent() {
                   </div>
 
                   <Tabs defaultValue="general" className="w-full">
-                    <TabsList className="grid w-full grid-cols-4">
+                    <TabsList className="grid w-full grid-cols-5">
                       <TabsTrigger value="general">General</TabsTrigger>
                       <TabsTrigger value="tercero">Tercero</TabsTrigger>
                       <TabsTrigger value="medios">Medios</TabsTrigger>
                       <TabsTrigger value="circuito">Circuito</TabsTrigger>
+                      <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="general" className="space-y-4 pt-4">
@@ -1557,6 +1675,155 @@ function PagosContent() {
                           </CardContent>
                         </Card>
                       )}
+                    </TabsContent>
+
+                    <TabsContent value="seguimiento" className="space-y-4 pt-4">
+                      {(() => {
+                        const fallback = buildDefaultMovementTracker(detail.kind, detail.data)
+                        const tracker =
+                          trackerMap.get(getMovementKey(detail.kind, detail.data.id)) ?? fallback
+
+                        return (
+                          <>
+                            <Alert>
+                              <Wallet className="h-4 w-4" />
+                              <AlertDescription>
+                                Este seguimiento es local al navegador actual y cubre imputaciones,
+                                retenciones y cierre ampliado mientras no exista backend dedicado.
+                              </AlertDescription>
+                            </Alert>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <Card>
+                                <CardHeader>
+                                  <CardTitle className="text-base">Seguimiento avanzado</CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                  <div className="space-y-2">
+                                    <Label>Estado operativo</Label>
+                                    <Select
+                                      value={tracker.stage}
+                                      onValueChange={(value) =>
+                                        updateTracker(
+                                          getMovementKey(detail.kind, detail.data.id),
+                                          { stage: value as MovementTrackerStage },
+                                          fallback
+                                        )
+                                      }
+                                    >
+                                      <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Seleccionar estado" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="registrado">Registrado</SelectItem>
+                                        <SelectItem value="pendiente_imputacion">
+                                          Pendiente imputacion
+                                        </SelectItem>
+                                        <SelectItem value="pendiente_retencion">
+                                          Pendiente retencion
+                                        </SelectItem>
+                                        <SelectItem value="cerrado">Cerrado</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Responsable</Label>
+                                    <Input
+                                      value={tracker.owner}
+                                      onChange={(event) =>
+                                        updateTracker(
+                                          getMovementKey(detail.kind, detail.data.id),
+                                          { owner: event.target.value },
+                                          fallback
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Imputacion esperada</Label>
+                                    <Textarea
+                                      rows={4}
+                                      value={tracker.expectedImputation}
+                                      onChange={(event) =>
+                                        updateTracker(
+                                          getMovementKey(detail.kind, detail.data.id),
+                                          { expectedImputation: event.target.value },
+                                          fallback
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Nota de retenciones</Label>
+                                    <Textarea
+                                      rows={4}
+                                      value={tracker.retentionNote}
+                                      onChange={(event) =>
+                                        updateTracker(
+                                          getMovementKey(detail.kind, detail.data.id),
+                                          { retentionNote: event.target.value },
+                                          fallback
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Proximo paso</Label>
+                                    <Textarea
+                                      rows={4}
+                                      value={tracker.nextStep}
+                                      onChange={(event) =>
+                                        updateTracker(
+                                          getMovementKey(detail.kind, detail.data.id),
+                                          { nextStep: event.target.value },
+                                          fallback
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </CardContent>
+                              </Card>
+
+                              <Card>
+                                <CardHeader>
+                                  <CardTitle className="text-base">Continuidad</CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-3 text-sm">
+                                  <div className="rounded-lg bg-muted/40 p-3">
+                                    <p className="text-xs text-muted-foreground">Estado actual</p>
+                                    <div className="mt-1 flex items-center gap-2">
+                                      <Badge variant={MOVEMENT_STAGE_CONFIG[tracker.stage].variant}>
+                                        {MOVEMENT_STAGE_CONFIG[tracker.stage].label}
+                                      </Badge>
+                                    </div>
+                                    <p className="mt-2 font-medium">
+                                      {getMovementTrackerHealth(detail.kind, tracker)}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg bg-muted/40 p-3">
+                                    <p className="text-xs text-muted-foreground">
+                                      Ultima actualizacion local
+                                    </p>
+                                    <p className="mt-1 font-medium">
+                                      {formatDateTime(tracker.updatedAt)}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg bg-muted/40 p-3">
+                                    <p className="text-xs text-muted-foreground">
+                                      Imputacion esperada
+                                    </p>
+                                    <p className="mt-1 font-medium">{tracker.expectedImputation}</p>
+                                  </div>
+                                  <div className="rounded-lg bg-muted/40 p-3">
+                                    <p className="text-xs text-muted-foreground">Retenciones</p>
+                                    <p className="mt-1 font-medium">{tracker.retentionNote}</p>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            </div>
+                          </>
+                        )
+                      })()}
                     </TabsContent>
                   </Tabs>
                 </div>

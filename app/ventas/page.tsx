@@ -7,7 +7,9 @@ import {
   FileText,
   Truck,
   Receipt,
+  Package,
   CreditCard,
+  Landmark,
   ShoppingCart,
   ArrowRight,
   AlertTriangle,
@@ -21,6 +23,9 @@ import {
   XCircle,
   ArrowUpRight,
   ArrowDownRight,
+  RotateCcw,
+  Scale,
+  MonitorCog,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -93,7 +98,7 @@ const workflowSteps = [
     icon: CreditCard,
     label: "Cobro",
     sub: "Recibo de Pago",
-    href: "/ventas/facturas",
+    href: "/ventas/cobros",
     color: "border-teal-200 bg-teal-50 hover:bg-teal-100",
     iconColor: "text-teal-600",
   },
@@ -109,9 +114,119 @@ const workflowSteps = [
     icon: Percent,
     label: "Nota de Débito",
     sub: "Cargo adicional",
-    href: "/ventas/notas-credito",
+    href: "/ventas/notas-debito",
     color: "border-amber-200 bg-amber-50 hover:bg-amber-100",
     iconColor: "text-amber-600",
+  },
+]
+
+const comprobantesExpansionLinks = [
+  {
+    title: "Cobros",
+    description: "Alta, detalle y anulación con backend real",
+    href: "/ventas/cobros",
+    icon: CreditCard,
+    color: "border-teal-200 bg-teal-50 hover:bg-teal-100",
+    iconColor: "text-teal-600",
+  },
+  {
+    title: "Cheques",
+    description: "Cartera, depósito, rechazo y entrega",
+    href: "/ventas/cheques",
+    icon: DollarSign,
+    color: "border-cyan-200 bg-cyan-50 hover:bg-cyan-100",
+    iconColor: "text-cyan-600",
+  },
+  {
+    title: "Notas Débito",
+    description: "Cargos y recálculos sobre comprobantes",
+    href: "/ventas/notas-debito",
+    icon: Percent,
+    color: "border-amber-200 bg-amber-50 hover:bg-amber-100",
+    iconColor: "text-amber-600",
+  },
+  {
+    title: "Devoluciones",
+    description: "Seguimiento visible de devoluciones y resolución",
+    href: "/ventas/devoluciones",
+    icon: RotateCcw,
+    color: "border-rose-200 bg-rose-50 hover:bg-rose-100",
+    iconColor: "text-rose-600",
+  },
+  {
+    title: "Ajustes",
+    description: "Débitos y créditos comerciales del legacy",
+    href: "/ventas/ajustes",
+    icon: Scale,
+    color: "border-slate-200 bg-slate-50 hover:bg-slate-100",
+    iconColor: "text-slate-700",
+  },
+  {
+    title: "Imputaciones",
+    description: "Aplicación documental y contable visible",
+    href: "/ventas/imputaciones",
+    icon: Landmark,
+    color: "border-indigo-200 bg-indigo-50 hover:bg-indigo-100",
+    iconColor: "text-indigo-600",
+  },
+  {
+    title: "Operaciones Legacy",
+    description: "Monitor, ventanilla, batch e inicialización masiva honesta",
+    href: "/ventas/operaciones",
+    icon: MonitorCog,
+    color: "border-fuchsia-200 bg-fuchsia-50 hover:bg-fuchsia-100",
+    iconColor: "text-fuchsia-700",
+  },
+]
+
+const ventasBaseLinks = [
+  {
+    title: "Clientes",
+    description: "Maestro comercial, detalle fiscal y circuito heredado visible.",
+    href: "/ventas/clientes",
+    icon: Users,
+    color: "border-violet-200 bg-violet-50 hover:bg-violet-100",
+    iconColor: "text-violet-600",
+  },
+  {
+    title: "Productos",
+    description: "Catálogo, stock y alertas operativas del maestro de ventas.",
+    href: "/ventas/productos",
+    icon: Package,
+    color: "border-sky-200 bg-sky-50 hover:bg-sky-100",
+    iconColor: "text-sky-600",
+  },
+  {
+    title: "Listas de Precios",
+    description: "Vigencia, prioridad comercial y lectura destacada de listas.",
+    href: "/ventas/listas-precios",
+    icon: FileText,
+    color: "border-blue-200 bg-blue-50 hover:bg-blue-100",
+    iconColor: "text-blue-600",
+  },
+  {
+    title: "Descuentos",
+    description: "Reglas comerciales por cliente y producto con contexto real.",
+    href: "/ventas/descuentos",
+    icon: Percent,
+    color: "border-amber-200 bg-amber-50 hover:bg-amber-100",
+    iconColor: "text-amber-600",
+  },
+  {
+    title: "Puntos de Facturación",
+    description: "Cobertura operativa de tipos, sucursales y numeración visible.",
+    href: "/ventas/puntos-facturacion",
+    icon: Receipt,
+    color: "border-rose-200 bg-rose-50 hover:bg-rose-100",
+    iconColor: "text-rose-600",
+  },
+  {
+    title: "Cuenta Corriente",
+    description: "Saldos, movimientos y lectura de cartera por cliente.",
+    href: "/ventas/cuenta-corriente",
+    icon: Landmark,
+    color: "border-emerald-200 bg-emerald-50 hover:bg-emerald-100",
+    iconColor: "text-emerald-700",
   },
 ]
 
@@ -573,6 +688,66 @@ export default function VentasDashboard() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Circuito Comercial Base</CardTitle>
+          <CardDescription>
+            Accesos directos al Lote 2 para clientes, productos, listas, descuentos, puntos de
+            facturación y cuenta corriente.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {ventasBaseLinks.map((entry) => (
+              <Link key={entry.href} href={entry.href}>
+                <div className={`rounded-xl border p-4 transition-colors ${entry.color}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-lg bg-white/80 p-2 shadow-sm">
+                      <entry.icon className={`h-5 w-5 ${entry.iconColor}`} />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold">{entry.title}</p>
+                      <p className="text-sm text-muted-foreground">{entry.description}</p>
+                    </div>
+                    <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Circuitos de Comprobantes</CardTitle>
+          <CardDescription>
+            Accesos directos al tramo ampliado del Lote 3 para cobros, cheques, devoluciones,
+            ajustes, imputaciones y variantes operativas heredadas.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {comprobantesExpansionLinks.map((entry) => (
+              <Link key={entry.href} href={entry.href}>
+                <div className={`rounded-xl border p-4 transition-colors ${entry.color}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-lg bg-white/80 p-2 shadow-sm">
+                      <entry.icon className={`h-5 w-5 ${entry.iconColor}`} />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold">{entry.title}</p>
+                      <p className="text-sm text-muted-foreground">{entry.description}</p>
+                    </div>
+                    <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Gráficos fila 1 */}
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -892,13 +1067,17 @@ export default function VentasDashboard() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { href: "/ventas/clientes", icon: Users, label: "Nuevo Cliente" },
+              { href: "/ventas/productos", icon: Package, label: "Productos" },
+              { href: "/ventas/listas-precios", icon: FileText, label: "Listas" },
+              { href: "/ventas/descuentos", icon: Percent, label: "Descuentos" },
+              { href: "/ventas/puntos-facturacion", icon: Receipt, label: "Ptos. Facturación" },
+              { href: "/ventas/cuenta-corriente", icon: Landmark, label: "Cta. Corriente" },
               { href: "/ventas/pedidos", icon: ShoppingCart, label: "Nuevo Pedido" },
               { href: "/ventas/remitos", icon: Truck, label: "Nuevo Remito" },
               { href: "/ventas/facturas", icon: Receipt, label: "Nueva Factura" },
-              { href: "/ventas/listas-precios", icon: Tag, label: "Listas de Precios" },
               { href: "/ventas/notas-credito", icon: Percent, label: "Nota de Crédito" },
               { href: "/ventas/reportes", icon: BarChart2, label: "Ver Reportes" },
-              { href: "/ventas/productos", icon: DollarSign, label: "Productos" },
+              { href: "/ventas/cobros", icon: CreditCard, label: "Cobros" },
             ].map((action) => (
               <Link key={action.href} href={action.href}>
                 <Button

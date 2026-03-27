@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -146,7 +146,19 @@ export default function RetencionesPage() {
     search,
     setSearch,
   } = useProveedores()
-  const [selectedProveedorId, setSelectedProveedorId] = useState<number | null>(null)
+  const [preferredProveedorId, setPreferredProveedorId] = useState<number | null>(null)
+  const selectedProveedorId = useMemo(() => {
+    if (!proveedores.length) return null
+
+    if (
+      preferredProveedorId &&
+      proveedores.some((proveedor) => proveedor.id === preferredProveedorId)
+    ) {
+      return preferredProveedorId
+    }
+
+    return proveedores[0].id
+  }, [preferredProveedorId, proveedores])
   const {
     retenciones,
     loading: loadingAsignaciones,
@@ -183,20 +195,6 @@ export default function RetencionesPage() {
     () => proveedores.find((proveedor) => proveedor.id === selectedProveedorId) ?? null,
     [proveedores, selectedProveedorId]
   )
-
-  useEffect(() => {
-    if (!proveedores.length) {
-      setSelectedProveedorId(null)
-      return
-    }
-
-    if (
-      !selectedProveedorId ||
-      !proveedores.some((proveedor) => proveedor.id === selectedProveedorId)
-    ) {
-      setSelectedProveedorId(proveedores[0].id)
-    }
-  }, [proveedores, selectedProveedorId])
 
   const availableTipos = useMemo(
     () =>
@@ -417,7 +415,7 @@ export default function RetencionesPage() {
                     className={`w-full rounded-lg border p-3 text-left transition-colors ${
                       isSelected ? "border-primary bg-accent/40" : "hover:bg-accent/20"
                     }`}
-                    onClick={() => setSelectedProveedorId(proveedor.id)}
+                    onClick={() => setPreferredProveedorId(proveedor.id)}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>

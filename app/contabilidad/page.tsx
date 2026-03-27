@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -12,7 +13,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { BarChart3, BookOpen, CalendarDays, PiggyBank, Wallet } from "lucide-react"
+import {
+  ArrowRightLeft,
+  BarChart3,
+  Ban,
+  BookOpen,
+  CalendarDays,
+  PiggyBank,
+  ShieldCheck,
+  Ticket,
+  Undo2,
+  Unplug,
+  Wallet,
+} from "lucide-react"
 import { useEjercicioVigente } from "@/lib/hooks/useEjercicios"
 import { useAsientos, usePlanCuentasAll } from "@/lib/hooks/useAsientos"
 import { usePagos } from "@/lib/hooks/usePagos"
@@ -40,7 +53,59 @@ function formatPeriodo(periodo?: string) {
   })
 }
 
+const treasuryExpansionLinks = [
+  {
+    title: "Ingresos",
+    description: "Ingresos de tesorería fuera del circuito estándar de cobros",
+    href: "/contabilidad/ingresos",
+    icon: PiggyBank,
+  },
+  {
+    title: "Egresos",
+    description: "Salidas operativas y egresos menores del legacy",
+    href: "/contabilidad/egresos",
+    icon: Wallet,
+  },
+  {
+    title: "Vales",
+    description: "Adelantos, fondos a rendir y seguimiento de beneficiarios",
+    href: "/contabilidad/vales",
+    icon: Ticket,
+  },
+  {
+    title: "Reintegros",
+    description: "Rendiciones parciales o totales de vales emitidos",
+    href: "/contabilidad/reintegros",
+    icon: Undo2,
+  },
+  {
+    title: "Transferencias",
+    description: "Movimientos entre cajas y cuentas bancarias",
+    href: "/contabilidad/transferencias",
+    icon: ArrowRightLeft,
+  },
+  {
+    title: "CAE y Timbrado",
+    description: "Control visible de autorizaciones y vencimientos",
+    href: "/contabilidad/cae-timbrado",
+    icon: ShieldCheck,
+  },
+  {
+    title: "Anulaciones",
+    description: "Reversión visible de comprobantes financieros y cruces",
+    href: "/contabilidad/anulaciones",
+    icon: Ban,
+  },
+  {
+    title: "Desimputaciones",
+    description: "Corrección visible de aplicaciones documentales",
+    href: "/contabilidad/desimputaciones",
+    icon: Unplug,
+  },
+]
+
 export default function ContabilidadPage() {
+  const [currentTimestamp] = useState(() => Date.now())
   const sucursalId = useDefaultSucursalId() ?? 1
   const { ejercicio } = useEjercicioVigente()
   const { cuentas, loading: loadingCuentas, error: errorCuentas } = usePlanCuentasAll(ejercicio?.id)
@@ -85,7 +150,9 @@ export default function ContabilidadPage() {
     .slice(0, 5)
   const periodosCerrados = periodos.filter((periodo) => periodo.cerrado).length
   const cotizacionAgeDays = ultimaCotizacion
-    ? Math.floor((Date.now() - new Date(ultimaCotizacion.fecha).getTime()) / (1000 * 60 * 60 * 24))
+    ? Math.floor(
+        (currentTimestamp - new Date(ultimaCotizacion.fecha).getTime()) / (1000 * 60 * 60 * 24)
+      )
     : null
 
   const cards = [
@@ -281,6 +348,38 @@ export default function ContabilidadPage() {
             </Link>
           )
         })}
+
+        <Card className="lg:col-span-4">
+          <CardHeader>
+            <CardTitle>Circuitos Financieros Legacy</CardTitle>
+            <CardDescription>
+              Primer bloque estructural del Lote 6 para tesorería avanzada, autorizaciones y
+              reversión de operaciones sin depender todavía de API específica.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {treasuryExpansionLinks.map((entry) => {
+                const Icon = entry.icon
+                return (
+                  <Link key={entry.href} href={entry.href}>
+                    <div className="rounded-xl border bg-muted/20 p-4 transition-colors hover:bg-accent/40">
+                      <div className="flex items-start gap-3">
+                        <div className="rounded-lg bg-background p-2 shadow-sm">
+                          <Icon className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold">{entry.title}</p>
+                          <p className="text-sm text-muted-foreground">{entry.description}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <Card>

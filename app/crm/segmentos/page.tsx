@@ -60,7 +60,6 @@ import {
   Tag,
   ArrowRight,
   Megaphone,
-  AlertTriangle,
   Target,
 } from "lucide-react"
 import { useCrmSegmentos, useCrmCampanas, useCrmClientes } from "@/lib/hooks/useCrm"
@@ -766,7 +765,7 @@ function SegmentosContent() {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar segmento?</AlertDialogTitle>
             <AlertDialogDescription>
-              Estás a punto de eliminar "{selectedSegment?.nombre}".
+              Estás a punto de eliminar &quot;{selectedSegment?.nombre}&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

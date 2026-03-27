@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/table"
 import { useFormulasProduccion } from "@/lib/hooks/useFormulasProduccion"
 import type { FormulaProduccion } from "@/lib/types/formulas-produccion"
-import { AlertCircle, Eye, FlaskConical, Plus, RefreshCcw, Search } from "lucide-react"
+import { AlertCircle, Eye, Plus, RefreshCcw, Search } from "lucide-react"
 
 type ComponentDraft = {
   itemId: string
