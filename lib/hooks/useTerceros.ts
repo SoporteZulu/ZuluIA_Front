@@ -7,6 +7,9 @@ import type {
   CreateTerceroDto,
   UpdateTerceroDto,
   CondicionIva,
+  CatalogosTerceros,
+  CategoriaTerceroCatalogo,
+  EstadoTerceroCatalogo,
   TerceroPerfilComercial,
   TerceroContacto,
   TerceroSucursalEntrega,
@@ -19,6 +22,10 @@ import type { TipoDocumento } from "@/lib/types/configuracion"
 
 interface UseTercerosOptions {
   soloActivos?: boolean
+  condicionIvaId?: number | null
+  categoriaClienteId?: number | null
+  estadoClienteId?: number | null
+  sucursalId?: number | null
 }
 
 export function useTerceros(options: UseTercerosOptions = {}) {
@@ -41,8 +48,18 @@ export function useTerceros(options: UseTercerosOptions = {}) {
         search,
       })
 
-      if (options.soloActivos ?? true) {
-        params.set("soloActivos", "true")
+      params.set("soloActivos", String(options.soloActivos ?? true))
+      if (options.condicionIvaId) {
+        params.set("condicionIvaId", String(options.condicionIvaId))
+      }
+      if (options.categoriaClienteId) {
+        params.set("categoriaClienteId", String(options.categoriaClienteId))
+      }
+      if (options.estadoClienteId) {
+        params.set("estadoClienteId", String(options.estadoClienteId))
+      }
+      if (options.sucursalId) {
+        params.set("sucursalId", String(options.sucursalId))
       }
 
       const result = await apiGet<PagedResult<Tercero>>(`/api/terceros?${params.toString()}`)
@@ -54,7 +71,15 @@ export function useTerceros(options: UseTercerosOptions = {}) {
     } finally {
       setLoading(false)
     }
-  }, [options.soloActivos, page, search])
+  }, [
+    options.categoriaClienteId,
+    options.condicionIvaId,
+    options.estadoClienteId,
+    options.soloActivos,
+    options.sucursalId,
+    page,
+    search,
+  ])
 
   useEffect(() => {
     fetchTerceros()
@@ -65,23 +90,21 @@ export function useTerceros(options: UseTercerosOptions = {}) {
     setSearch(value)
   }, [])
 
-  const createTercero = async (dto: CreateTerceroDto): Promise<boolean> => {
+  const createTercero = async (dto: CreateTerceroDto): Promise<Tercero | null> => {
     try {
-      await apiPost<Tercero>("/api/terceros", dto)
-      return true
+      return await apiPost<Tercero>("/api/terceros", dto)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al crear cliente")
-      return false
+      return null
     }
   }
 
-  const updateTercero = async (id: number, dto: UpdateTerceroDto): Promise<boolean> => {
+  const updateTercero = async (id: number, dto: UpdateTerceroDto): Promise<Tercero | null> => {
     try {
-      await apiPut<Tercero>(`/api/terceros/${id}`, dto)
-      return true
+      return await apiPut<Tercero>(`/api/terceros/${id}`, dto)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al actualizar cliente")
-      return false
+      return null
     }
   }
 
@@ -204,6 +227,10 @@ export function useTercerosConfig() {
   const [condicionesIva, setCondicionesIva] = useState<CondicionIva[]>([])
   const [monedas, setMonedas] = useState<Moneda[]>([])
   const [tiposDocumento, setTiposDocumento] = useState<TipoDocumento[]>([])
+  const [categoriasClientes, setCategoriasClientes] = useState<CategoriaTerceroCatalogo[]>([])
+  const [categoriasProveedores, setCategoriasProveedores] = useState<CategoriaTerceroCatalogo[]>([])
+  const [estadosClientes, setEstadosClientes] = useState<EstadoTerceroCatalogo[]>([])
+  const [estadosProveedores, setEstadosProveedores] = useState<EstadoTerceroCatalogo[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -211,13 +238,18 @@ export function useTercerosConfig() {
       apiGet<CondicionIva[] | PagedResult<CondicionIva>>("/api/configuracion/condiciones-iva"),
       apiGet<Moneda[] | PagedResult<Moneda>>("/api/configuracion/monedas"),
       apiGet<TipoDocumento[] | PagedResult<TipoDocumento>>("/api/configuracion/tipos-documento"),
+      apiGet<CatalogosTerceros>("/api/terceros/catalogos?soloActivos=true"),
     ])
-      .then(([conds, mons, docs]) => {
+      .then(([conds, mons, docs, catalogos]) => {
         const toArray = <T>(r: T[] | PagedResult<T>): T[] => (Array.isArray(r) ? r : r.items)
 
         setCondicionesIva(toArray(conds))
         setMonedas(toArray(mons))
         setTiposDocumento(toArray(docs))
+        setCategoriasClientes(catalogos.categoriasClientes ?? [])
+        setCategoriasProveedores(catalogos.categoriasProveedores ?? [])
+        setEstadosClientes(catalogos.estadosClientes ?? [])
+        setEstadosProveedores(catalogos.estadosProveedores ?? [])
       })
       .catch((e) => {
         console.error("Error cargando datos de configuración de terceros:", e)
@@ -225,7 +257,16 @@ export function useTercerosConfig() {
       .finally(() => setLoading(false))
   }, [])
 
-  return { condicionesIva, monedas, tiposDocumento, loading }
+  return {
+    condicionesIva,
+    monedas,
+    tiposDocumento,
+    categoriasClientes,
+    categoriasProveedores,
+    estadosClientes,
+    estadosProveedores,
+    loading,
+  }
 }
 
 export function useProveedores(options: UseTercerosOptions = {}) {
@@ -248,9 +289,7 @@ export function useProveedores(options: UseTercerosOptions = {}) {
         search,
       })
 
-      if (options.soloActivos ?? true) {
-        params.set("soloActivos", "true")
-      }
+      params.set("soloActivos", String(options.soloActivos ?? true))
 
       const result = await apiGet<PagedResult<Tercero>>(`/api/terceros?${params.toString()}`)
       setTerceros(result.items)

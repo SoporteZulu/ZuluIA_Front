@@ -118,18 +118,46 @@ function parseOperationalObservation(value?: string | null) {
   const entrega = parts
     .find((part) => part.startsWith("Entrega estimada: "))
     ?.replace("Entrega estimada: ", "")
+  const condicionVenta = parts
+    .find((part) => part.startsWith("Condición venta: "))
+    ?.replace("Condición venta: ", "")
+  const tipoEntrega = parts
+    .find((part) => part.startsWith("Tipo entrega: "))
+    ?.replace("Tipo entrega: ", "")
+  const zona = parts.find((part) => part.startsWith("Zona: "))?.replace("Zona: ", "")
+  const transporte = parts
+    .find((part) => part.startsWith("Transporte: "))
+    ?.replace("Transporte: ", "")
+  const domicilioEntrega = parts
+    .find((part) => part.startsWith("Domicilio entrega: "))
+    ?.replace("Domicilio entrega: ", "")
+  const observacionEntrega = parts
+    .find((part) => part.startsWith("Obs. entrega: "))
+    ?.replace("Obs. entrega: ", "")
 
   const operationalNotes = parts.filter(
     (part) =>
       !part.startsWith("Vendedor: ") &&
       !part.startsWith("Canal: ") &&
-      !part.startsWith("Entrega estimada: ")
+      !part.startsWith("Entrega estimada: ") &&
+      !part.startsWith("Condición venta: ") &&
+      !part.startsWith("Tipo entrega: ") &&
+      !part.startsWith("Zona: ") &&
+      !part.startsWith("Transporte: ") &&
+      !part.startsWith("Domicilio entrega: ") &&
+      !part.startsWith("Obs. entrega: ")
   )
 
   return {
     vendedor: vendedor || "No informado",
     canal: canal || "No informado",
     entrega: entrega || "No informada",
+    condicionVenta: condicionVenta || "No informada",
+    tipoEntrega: tipoEntrega || "No informado",
+    zona: zona || "No informada",
+    transporte: transporte || "No informado",
+    domicilioEntrega: domicilioEntrega || "No informado",
+    observacionEntrega: observacionEntrega || "Sin observación de entrega",
     detalle: operationalNotes.length > 0 ? operationalNotes.join(" | ") : "Sin detalle operativo",
   }
 }
@@ -218,7 +246,39 @@ function SalesOrderForm({
   const [vendedor, setVendedor] = useState("")
   const [canal, setCanal] = useState("vendedor")
   const [entregaEstimada, setEntregaEstimada] = useState("")
+  const [condicionVenta, setCondicionVenta] = useState("cuenta corriente")
+  const [tipoEntrega, setTipoEntrega] = useState("domicilio")
+  const [zonaEntrega, setZonaEntrega] = useState("")
+  const [transporte, setTransporte] = useState("")
+  const [domicilioEntrega, setDomicilioEntrega] = useState("")
+  const [observacionEntrega, setObservacionEntrega] = useState("")
   const [detalleOperativo, setDetalleOperativo] = useState("")
+
+  const selectedCustomer = useMemo(
+    () => clientes.find((cliente) => cliente.id === form.terceroId) ?? null,
+    [clientes, form.terceroId]
+  )
+
+  const selectedSucursal = useMemo(
+    () => sucursales.find((sucursal) => sucursal.id === form.sucursalId) ?? null,
+    [form.sucursalId, sucursales]
+  )
+
+  const operationalWarnings = useMemo(() => {
+    const warnings: string[] = []
+
+    if (!form.terceroId) warnings.push("Falta seleccionar el cliente del pedido.")
+    if (!form.sucursalId) warnings.push("Falta seleccionar la sucursal emisora.")
+    if (!vendedor.trim()) warnings.push("Conviene indicar el vendedor responsable del pedido.")
+    if (!entregaEstimada) warnings.push("Conviene informar una fecha de entrega comprometida.")
+    if (!domicilioEntrega.trim()) warnings.push("Falta un domicilio o punto de entrega para el pedido.")
+    if (lineItems.length === 0) warnings.push("Agregá al menos un renglón antes de registrar el pedido.")
+    if (!detalleOperativo.trim()) {
+      warnings.push("Sumá un detalle comercial para que el pedido sea más claro en seguimiento.")
+    }
+
+    return warnings
+  }, [detalleOperativo, domicilioEntrega, entregaEstimada, form.sucursalId, form.terceroId, lineItems.length, vendedor])
 
   const addItem = (itemId: string) => {
     const item = items.find((current) => current.id === Number(itemId))
@@ -280,7 +340,13 @@ function SalesOrderForm({
     const observationParts = [
       vendedor ? `Vendedor: ${vendedor}` : null,
       `Canal: ${canal}`,
+      condicionVenta ? `Condición venta: ${condicionVenta}` : null,
       entregaEstimada ? `Entrega estimada: ${entregaEstimada}` : null,
+      tipoEntrega ? `Tipo entrega: ${tipoEntrega}` : null,
+      zonaEntrega.trim() ? `Zona: ${zonaEntrega.trim()}` : null,
+      transporte.trim() ? `Transporte: ${transporte.trim()}` : null,
+      domicilioEntrega.trim() ? `Domicilio entrega: ${domicilioEntrega.trim()}` : null,
+      observacionEntrega.trim() ? `Obs. entrega: ${observacionEntrega.trim()}` : null,
       detalleOperativo.trim() || null,
       form.observacion?.trim() || null,
     ].filter(Boolean)
@@ -308,24 +374,89 @@ function SalesOrderForm({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-4">
+        <Card className="border-slate-200 bg-slate-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Pedido</p>
+            <p className="text-base font-semibold text-slate-900">
+              {availableTypes.find((tipo) => tipo.id === form.tipoComprobanteId)?.descripcion ??
+                "Pedido de venta"}
+            </p>
+            <p className="text-xs text-slate-600">{formatDate(form.fecha)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-emerald-200 bg-emerald-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Cliente</p>
+            <p className="text-base font-semibold text-emerald-950 wrap-break-word">
+              {selectedCustomer?.razonSocial ?? "Sin cliente seleccionado"}
+            </p>
+            <p className="text-xs text-emerald-800">
+              {selectedCustomer?.condicionIvaDescripcion ?? "Condición fiscal pendiente"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-sky-200 bg-sky-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-sky-700">Entrega</p>
+            <p className="text-base font-semibold text-sky-950">
+              {entregaEstimada ? formatDate(entregaEstimada) : "Sin fecha comprometida"}
+            </p>
+            <p className="text-xs text-sky-800 wrap-break-word">
+              {domicilioEntrega || "Sin punto de entrega cargado"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-amber-200 bg-amber-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Totales</p>
+            <p className="text-base font-semibold text-amber-950">{formatMoney(totals.total)}</p>
+            <p className="text-xs text-amber-800">{lineItems.length} renglón(es) informados</p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-4">
+        <TabsList className="grid h-auto w-full grid-cols-5">
           <TabsTrigger value="principal" className="py-2 text-xs">
             Principal
           </TabsTrigger>
           <TabsTrigger value="items" className="py-2 text-xs">
             Items
           </TabsTrigger>
+          <TabsTrigger value="entrega" className="py-2 text-xs">
+            Entrega
+          </TabsTrigger>
           <TabsTrigger value="totales" className="py-2 text-xs">
             Totales
           </TabsTrigger>
           <TabsTrigger value="legado" className="py-2 text-xs">
-            Legado
+            Cobertura
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="principal" className="mt-4 space-y-4">
+          {operationalWarnings.length > 0 ? (
+            <Card className="border-amber-200 bg-amber-50/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base text-amber-950">
+                  <AlertCircle className="h-4 w-4" /> Pendientes para cerrar el pedido
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-2 md:grid-cols-2">
+                {operationalWarnings.map((warning) => (
+                  <div
+                    key={warning}
+                    className="rounded-lg border border-amber-200 bg-background/80 px-3 py-2 text-sm text-slate-700"
+                  >
+                    {warning}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Sucursal</Label>
@@ -425,6 +556,20 @@ function SalesOrderForm({
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label>Condición de venta</Label>
+              <Select value={condicionVenta} onValueChange={setCondicionVenta}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cuenta corriente">Cuenta corriente</SelectItem>
+                  <SelectItem value="contado">Contado</SelectItem>
+                  <SelectItem value="transferencia">Transferencia</SelectItem>
+                  <SelectItem value="acordada">Condición acordada</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1.5 md:col-span-2">
               <Label>Detalle operativo</Label>
               <Textarea
@@ -432,6 +577,123 @@ function SalesOrderForm({
                 value={detalleOperativo}
                 onChange={(event) => setDetalleOperativo(event.target.value)}
                 placeholder="Observaciones comerciales, condiciones o referencias del cliente"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Cliente y emisión</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2 text-sm">
+                <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cliente</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.razonSocial ?? "Sin cliente seleccionado"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Sucursal</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedSucursal?.descripcion ?? "Sin sucursal"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">IVA</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.condicionIvaDescripcion ?? "Sin condición"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">CUIT</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.nroDocumento ?? "Sin documento"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Contacto</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.telefono ?? selectedCustomer?.email ?? "Sin contacto"}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Programación comercial</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2 text-sm">
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Vendedor</p>
+                  <p className="mt-1 font-medium wrap-break-word">{vendedor || "Sin vendedor"}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Canal</p>
+                  <p className="mt-1 font-medium capitalize">{canal}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Condición</p>
+                  <p className="mt-1 font-medium capitalize">{condicionVenta}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Compromiso</p>
+                  <p className="mt-1 font-medium">{entregaEstimada ? formatDate(entregaEstimada) : "Sin fecha"}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="entrega" className="mt-4 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>Tipo de entrega</Label>
+              <Select value={tipoEntrega} onValueChange={setTipoEntrega}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="domicilio">A domicilio</SelectItem>
+                  <SelectItem value="retiro">Retiro en sucursal</SelectItem>
+                  <SelectItem value="transporte">Por transporte</SelectItem>
+                  <SelectItem value="programada">Programada</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Zona</Label>
+              <Input
+                value={zonaEntrega}
+                onChange={(event) => setZonaEntrega(event.target.value)}
+                placeholder="Zona comercial o logística"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Transporte</Label>
+              <Input
+                value={transporte}
+                onChange={(event) => setTransporte(event.target.value)}
+                placeholder="Transportista o retiro"
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2 xl:col-span-3">
+              <Label>Domicilio de entrega</Label>
+              <Textarea
+                rows={3}
+                value={domicilioEntrega}
+                onChange={(event) => setDomicilioEntrega(event.target.value)}
+                placeholder="Dirección, sucursal o punto de retiro comprometido"
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2 xl:col-span-3">
+              <Label>Observación de entrega</Label>
+              <Textarea
+                rows={3}
+                value={observacionEntrega}
+                onChange={(event) => setObservacionEntrega(event.target.value)}
+                placeholder="Horario, contacto en recepción, instrucciones o restricciones"
               />
             </div>
           </div>
@@ -454,83 +716,85 @@ function SalesOrderForm({
               </SelectContent>
             </Select>
           </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Descripción</TableHead>
-                <TableHead className="text-right">Cantidad</TableHead>
-                <TableHead className="text-right">Precio</TableHead>
-                <TableHead className="text-right">Desc. %</TableHead>
-                <TableHead className="text-right">IVA %</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {lineItems.length === 0 ? (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    Agregue items para registrar el pedido.
-                  </TableCell>
+                  <TableHead>Descripción</TableHead>
+                  <TableHead className="text-right">Cantidad</TableHead>
+                  <TableHead className="text-right">Precio</TableHead>
+                  <TableHead className="text-right">Desc. %</TableHead>
+                  <TableHead className="text-right">IVA %</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              ) : (
-                lineItems.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.descripcion}</TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        className="ml-auto w-20 text-right"
-                        type="number"
-                        min={1}
-                        value={item.cantidad}
-                        onChange={(event) =>
-                          updateLineItem(
-                            item.id,
-                            "cantidad",
-                            Math.max(1, Number(event.target.value) || 1)
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        className="ml-auto w-28 text-right"
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={item.precioUnitario}
-                        onChange={(event) =>
-                          updateLineItem(
-                            item.id,
-                            "precioUnitario",
-                            parseFloat(event.target.value) || 0
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        className="ml-auto w-24 text-right"
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={0.01}
-                        value={item.descuento}
-                        onChange={(event) =>
-                          updateLineItem(item.id, "descuento", parseFloat(event.target.value) || 0)
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">{item.alicuotaIvaPct.toFixed(2)}%</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}>
-                        <AlertCircle className="h-4 w-4 text-destructive" />
-                      </Button>
+              </TableHeader>
+              <TableBody>
+                {lineItems.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                      Agregue items para registrar el pedido.
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  lineItems.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.descripcion}</TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          className="ml-auto w-20 text-right"
+                          type="number"
+                          min={1}
+                          value={item.cantidad}
+                          onChange={(event) =>
+                            updateLineItem(
+                              item.id,
+                              "cantidad",
+                              Math.max(1, Number(event.target.value) || 1)
+                            )
+                          }
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          className="ml-auto w-28 text-right"
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={item.precioUnitario}
+                          onChange={(event) =>
+                            updateLineItem(
+                              item.id,
+                              "precioUnitario",
+                              parseFloat(event.target.value) || 0
+                            )
+                          }
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          className="ml-auto w-24 text-right"
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={0.01}
+                          value={item.descuento}
+                          onChange={(event) =>
+                            updateLineItem(item.id, "descuento", parseFloat(event.target.value) || 0)
+                          }
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">{item.alicuotaIvaPct.toFixed(2)}%</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}>
+                          <AlertCircle className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </TabsContent>
 
         <TabsContent value="totales" className="mt-4 space-y-4">
@@ -558,10 +822,9 @@ function SalesOrderForm({
         <TabsContent value="legado" className="mt-4 space-y-4">
           <Card>
             <CardContent className="pt-6 text-sm text-muted-foreground">
-              El legado contemplaba aprobaciones, reserva de stock, seguimiento por preparación y
-              posterior transformación a remito o factura. Esta etapa deja la emisión documental
-              real si el backend expone tipos de pedido, y preserva el contexto operativo en
-              observaciones.
+              La pantalla ya cubre cabecera comercial, detalle, programación y datos de entrega.
+              La reserva de stock, las aprobaciones, la preparación por área y la transformación
+              formal a remito o factura siguen dependiendo de integración backend adicional.
             </CardContent>
           </Card>
         </TabsContent>
@@ -626,7 +889,12 @@ function SalesOrderDetail({
     { label: "Estado del compromiso", value: getCommitmentStatus(order) },
     { label: "Vendedor", value: operationalContext.vendedor },
     { label: "Canal", value: operationalContext.canal },
+    { label: "Condición venta", value: operationalContext.condicionVenta },
     { label: "Entrega estimada", value: operationalContext.entrega },
+    { label: "Tipo entrega", value: operationalContext.tipoEntrega },
+    { label: "Zona", value: operationalContext.zona },
+    { label: "Transporte", value: operationalContext.transporte },
+    { label: "Domicilio entrega", value: operationalContext.domicilioEntrega },
     {
       label: "Items / unidades",
       value: `${order.items.length} renglones · ${order.items.reduce((total, item) => total + item.cantidad, 0)} unidades`,
@@ -635,6 +903,7 @@ function SalesOrderDetail({
       label: "Saldo asociado",
       value: order.saldo > 0 ? formatMoney(order.saldo) : "Sin saldo pendiente",
     },
+    { label: "Obs. entrega", value: operationalContext.observacionEntrega },
     { label: "Detalle operativo", value: operationalContext.detalle },
   ]
 
@@ -660,7 +929,7 @@ function SalesOrderDetail({
         <TabsTrigger value="items">Items</TabsTrigger>
         <TabsTrigger value="totales">Totales</TabsTrigger>
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
-        <TabsTrigger value="legado">Legado</TabsTrigger>
+        <TabsTrigger value="legado">Cobertura</TabsTrigger>
       </TabsList>
       <TabsContent value="principal" className="space-y-4">
         <Card>
@@ -684,42 +953,44 @@ function SalesOrderDetail({
         </Card>
       </TabsContent>
       <TabsContent value="items" className="space-y-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Descripción</TableHead>
-              <TableHead className="text-right">Cantidad</TableHead>
-              <TableHead className="text-right">Precio</TableHead>
-              <TableHead className="text-right">Desc.</TableHead>
-              <TableHead className="text-right">IVA</TableHead>
-              <TableHead className="text-right">Subtotal</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {order.items.length === 0 ? (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                  Este pedido no devolvió detalle de ítems.
-                </TableCell>
+                <TableHead>Descripción</TableHead>
+                <TableHead className="text-right">Cantidad</TableHead>
+                <TableHead className="text-right">Precio</TableHead>
+                <TableHead className="text-right">Desc.</TableHead>
+                <TableHead className="text-right">IVA</TableHead>
+                <TableHead className="text-right">Subtotal</TableHead>
               </TableRow>
-            ) : (
-              order.items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>{item.descripcion}</TableCell>
-                  <TableCell className="text-right">{item.cantidad}</TableCell>
-                  <TableCell className="text-right">{formatMoney(item.precioUnitario)}</TableCell>
-                  <TableCell className="text-right">
-                    {item.descuento ? `${item.descuento}%` : "-"}
-                  </TableCell>
-                  <TableCell className="text-right">{item.alicuotaIvaPct}%</TableCell>
-                  <TableCell className="text-right font-semibold">
-                    {formatMoney(item.subtotal)}
+            </TableHeader>
+            <TableBody>
+              {order.items.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    Este pedido no devolvió detalle de ítems.
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                order.items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>{item.descripcion}</TableCell>
+                    <TableCell className="text-right">{item.cantidad}</TableCell>
+                    <TableCell className="text-right">{formatMoney(item.precioUnitario)}</TableCell>
+                    <TableCell className="text-right">
+                      {item.descuento ? `${item.descuento}%` : "-"}
+                    </TableCell>
+                    <TableCell className="text-right">{item.alicuotaIvaPct}%</TableCell>
+                    <TableCell className="text-right font-semibold">
+                      {formatMoney(item.subtotal)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </TabsContent>
       <TabsContent value="totales" className="space-y-4">
         <Card>
@@ -749,17 +1020,17 @@ function SalesOrderDetail({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Landmark className="h-4 w-4" /> Pendientes del circuito clásico
+              <Landmark className="h-4 w-4" /> Cobertura e integración pendiente
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 text-sm text-muted-foreground md:grid-cols-2">
             <div className="rounded-lg border p-4">
-              Esta etapa ya deja visible compromiso, contexto comercial y volumen pedido; reserva,
-              preparación y seguimiento por área siguen reservados.
+              Esta etapa ya deja visible compromiso, contexto comercial, programación y entrega;
+              reserva, preparación y seguimiento por área siguen reservados.
             </div>
             <div className="rounded-lg border p-4">
-              Conversión formal del pedido a remito o factura con trazabilidad de cumplimiento queda
-              reservada para la siguiente fase.
+              La conversión formal del pedido a remito o factura con trazabilidad de cumplimiento
+              queda reservada para la integración siguiente.
             </div>
           </CardContent>
         </Card>
@@ -873,7 +1144,10 @@ export default function PedidosPage() {
           label: "Circuito",
           value: getOrderDocumentStatus(highlightedOrder as ComprobanteDetalle),
         },
+        { label: "Condición", value: highlightedContext?.condicionVenta ?? "No informada" },
         { label: "Canal", value: highlightedContext?.canal ?? "No informado" },
+        { label: "Entrega", value: highlightedContext?.tipoEntrega ?? "Sin modalidad" },
+        { label: "Zona", value: highlightedContext?.zona ?? "Sin zona" },
       ]
     : []
 
@@ -924,29 +1198,35 @@ export default function PedidosPage() {
         </Alert>
       )}
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="border-slate-200 bg-slate-50/70">
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Total</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.total}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Total</p>
+            <p className="mt-2 text-2xl font-bold text-slate-950">{kpis.total}</p>
+            <p className="mt-1 text-xs text-slate-600">Pedidos detectados en el circuito comercial.</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-amber-200 bg-amber-50/80">
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Borradores</p>
-            <p className="mt-2 text-2xl font-bold text-slate-600">{kpis.borradores}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Borradores</p>
+            <p className="mt-2 text-2xl font-bold text-amber-950">{kpis.borradores}</p>
+            <p className="mt-1 text-xs text-amber-800">Todavía requieren validación comercial o cierre operativo.</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-emerald-200 bg-emerald-50/80">
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Confirmados</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-600">{kpis.confirmados}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Confirmados</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-950">{kpis.confirmados}</p>
+            <p className="mt-1 text-xs text-emerald-800">Pedidos ya emitidos dentro del flujo disponible.</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-sky-200 bg-sky-50/80">
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Cerrados</p>
-            <p className="mt-2 text-2xl font-bold text-primary">{kpis.cerrados}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-sky-700">Seguimiento</p>
+            <p className="mt-2 text-2xl font-bold text-sky-950">{kpis.conCompromiso}</p>
+            <p className="mt-1 text-xs text-sky-800">
+              Con compromiso visible y {kpis.conSaldoPendiente} con saldo pendiente.
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -963,6 +1243,21 @@ export default function PedidosPage() {
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 {highlightedContext?.detalle ?? "Sin detalle operativo registrado."}
               </p>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span className="rounded-full border bg-background/80 px-3 py-1">
+                  {highlightedContext?.vendedor ? `Vendedor: ${highlightedContext.vendedor}` : "Vendedor sin asignar"}
+                </span>
+                <span className="rounded-full border bg-background/80 px-3 py-1">
+                  {highlightedContext?.tipoEntrega
+                    ? `Entrega: ${highlightedContext.tipoEntrega}`
+                    : "Entrega sin modalidad"}
+                </span>
+                <span className="rounded-full border bg-background/80 px-3 py-1">
+                  {highlightedContext?.transporte
+                    ? `Transporte: ${highlightedContext.transporte}`
+                    : "Sin transporte informado"}
+                </span>
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge
@@ -1032,7 +1327,8 @@ export default function PedidosPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
+          <div className="overflow-x-auto">
+            <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Pedido</TableHead>
@@ -1103,7 +1399,8 @@ export default function PedidosPage() {
                 })
               )}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
@@ -1134,37 +1431,37 @@ export default function PedidosPage() {
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
+        <Card className="border-emerald-200 bg-emerald-50/60">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <UserRound className="h-4 w-4" /> Contexto comercial
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {kpis.total} pedidos detectados sobre tipos reales; el detalle ya expone vendedor, canal
-            y notas operativas desde la información actual.
+          <CardContent className="text-sm text-emerald-950/80">
+            {kpis.total} pedidos detectados sobre tipos reales; el detalle ya expone vendedor,
+            canal, condición comercial y notas operativas desde la información actual.
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-sky-200 bg-sky-50/60">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <CalendarClock className="h-4 w-4" /> Seguimiento
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {kpis.conCompromiso} pedidos ya muestran compromiso y {kpis.conSaldoPendiente} conservan
-            saldo pendiente visible dentro del circuito actual.
+          <CardContent className="text-sm text-sky-950/80">
+            {kpis.conCompromiso} pedidos ya muestran compromiso y {kpis.conSaldoPendiente}
+            conservan saldo pendiente visible dentro del circuito actual.
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-amber-200 bg-amber-50/60">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Landmark className="h-4 w-4" /> Próxima fase
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {kpis.confirmados} confirmados y {kpis.cerrados} cerrados ya quedan controlados; reserva
-            de stock, preparación, aprobaciones y transformación formal siguen pendientes.
+          <CardContent className="text-sm text-amber-950/80">
+            {kpis.confirmados} confirmados y {kpis.cerrados} cerrados ya quedan controlados;
+            reserva de stock, preparación, aprobaciones y transformación formal siguen pendientes.
           </CardContent>
         </Card>
       </div>

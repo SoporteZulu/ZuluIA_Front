@@ -1,26 +1,28 @@
 "use client"
 
 import Link from "next/link"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import {
-  Eye,
-  Landmark,
-  ReceiptText,
-  Wallet,
-  Search,
-  Filter,
+  AlertCircle,
+  ArrowRightLeft,
+  CircleDollarSign,
   Edit,
-  Layers3,
+  Eye,
+  Filter,
   GitCompareArrows,
+  Landmark,
+  Layers3,
+  ReceiptText,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  Wallet,
 } from "lucide-react"
 
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogContent,
@@ -29,6 +31,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -36,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -45,10 +50,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import { useCobros } from "@/lib/hooks/useCobros"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
-import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
+import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
+import { useTerceros } from "@/lib/hooks/useTerceros"
+import type { Cobro } from "@/lib/types/cobros"
+import type { Comprobante } from "@/lib/types/comprobantes"
 import { legacySalesAllocations, type LegacySalesAllocation } from "@/lib/ventas-legacy-data"
 import {
   buildLegacyAllocationProfile,
@@ -64,10 +73,23 @@ function formatMoney(value: number) {
   })
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return "Sin fecha"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleDateString("es-AR")
+}
+
+function parseMoneyInput(value: string) {
+  const normalized = value.replace(/\./g, "").replace(",", ".").trim()
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 function statusBadge(status: LegacySalesAllocation["estado"]) {
   if (status === "PENDIENTE") return <Badge variant="secondary">Pendiente</Badge>
   if (status === "IMPUTADA") return <Badge>Imputada</Badge>
-  return <Badge variant="outline">Observada</Badge>
+  return <Badge variant="destructive">Observada</Badge>
 }
 
 function createAllocationLine(): LegacyAllocationLine {
@@ -77,6 +99,47 @@ function createAllocationLine(): LegacyAllocationLine {
     tipo: "",
     importe: "",
   }
+}
+
+function formatCobroLabel(cobro: Cobro, customerName: string) {
+  return `Cobro #${cobro.id} · ${customerName} · ${formatDate(cobro.fecha)} · ${formatMoney(cobro.total)}`
+}
+
+function formatComprobanteLabel(comprobante: Comprobante) {
+  const header = comprobante.nroComprobante ?? `#${comprobante.id}`
+  const type = comprobante.tipoComprobanteDescripcion ?? "Comprobante"
+  return `${type} · ${header}`
+}
+
+function buildLocalAllocationRow(profile: LegacyAllocationProfile): LegacySalesAllocation {
+  return {
+    id: profile.allocationId,
+    cliente: profile.cliente || "Cliente sin asignar",
+    comprobante:
+      profile.comprobanteOrigen || profile.comprobanteDestino || "Documento sin referencia",
+    cuenta: profile.cuentaPuente || "Cuenta corriente ventas",
+    centroCosto: profile.origen || "Mesa de imputación",
+    estado: profile.estado,
+    fecha: profile.fechaAplicacion,
+    importe: parseMoneyInput(profile.importeAplicado),
+  }
+}
+
+function buildSearchableText(row: LegacySalesAllocation, profile: LegacyAllocationProfile) {
+  return [
+    row.cliente,
+    row.comprobante,
+    row.cuenta,
+    row.centroCosto,
+    profile.modalidad,
+    profile.origen,
+    profile.operador,
+    profile.comprobanteOrigen,
+    profile.comprobanteDestino,
+    profile.observaciones,
+  ]
+    .join(" ")
+    .toLowerCase()
 }
 
 function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
@@ -103,9 +166,9 @@ function LegacyAllocationDialog({
 }) {
   const [profile, setProfile] = useState<LegacyAllocationProfile>(initialProfile)
 
-  const set = (
-    key: keyof LegacyAllocationProfile,
-    value: string | boolean | LegacyAllocationLine[]
+  const setField = <K extends keyof LegacyAllocationProfile>(
+    key: K,
+    value: LegacyAllocationProfile[K]
   ) => {
     setProfile((prev) => ({ ...prev, [key]: value }))
   }
@@ -126,10 +189,32 @@ function LegacyAllocationDialog({
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="space-y-1.5 xl:col-span-2">
+          <Label>Cliente</Label>
+          <Input value={profile.cliente} onChange={(event) => setField("cliente", event.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Estado</Label>
+          <Select
+            value={profile.estado}
+            onValueChange={(value) =>
+              setField("estado", value as LegacySalesAllocation["estado"])
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="PENDIENTE">Pendiente</SelectItem>
+              <SelectItem value="IMPUTADA">Imputada</SelectItem>
+              <SelectItem value="OBSERVADA">Observada</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <div className="space-y-1.5">
           <Label>Modalidad</Label>
-          <Select value={profile.modalidad} onValueChange={(value) => set("modalidad", value)}>
+          <Select value={profile.modalidad} onValueChange={(value) => setField("modalidad", value as LegacyAllocationProfile["modalidad"])}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -141,8 +226,16 @@ function LegacyAllocationDialog({
           </Select>
         </div>
         <div className="space-y-1.5">
+          <Label>Fecha de aplicación</Label>
+          <Input
+            type="date"
+            value={profile.fechaAplicacion}
+            onChange={(event) => setField("fechaAplicacion", event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
           <Label>Prioridad</Label>
-          <Select value={profile.prioridad} onValueChange={(value) => set("prioridad", value)}>
+          <Select value={profile.prioridad} onValueChange={(value) => setField("prioridad", value as LegacyAllocationProfile["prioridad"])}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -154,26 +247,67 @@ function LegacyAllocationDialog({
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label>Origen</Label>
-          <Input value={profile.origen} onChange={(event) => set("origen", event.target.value)} />
+          <Label>Origen operativo</Label>
+          <Input value={profile.origen} onChange={(event) => setField("origen", event.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Sucursal</Label>
+          <Input value={profile.sucursal} onChange={(event) => setField("sucursal", event.target.value)} />
         </div>
         <div className="space-y-1.5">
           <Label>Cuenta puente</Label>
+          <Input value={profile.cuentaPuente} onChange={(event) => setField("cuentaPuente", event.target.value)} />
+        </div>
+        <div className="space-y-1.5 xl:col-span-2">
+          <Label>Documento origen</Label>
           <Input
-            value={profile.cuentaPuente}
-            onChange={(event) => set("cuentaPuente", event.target.value)}
+            value={profile.comprobanteOrigen}
+            onChange={(event) => setField("comprobanteOrigen", event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Fecha origen</Label>
+          <Input value={profile.fechaOrigen} onChange={(event) => setField("fechaOrigen", event.target.value)} />
+        </div>
+        <div className="space-y-1.5 xl:col-span-2">
+          <Label>Documento destino</Label>
+          <Input
+            value={profile.comprobanteDestino}
+            onChange={(event) => setField("comprobanteDestino", event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Fecha destino</Label>
+          <Input value={profile.fechaDestino} onChange={(event) => setField("fechaDestino", event.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Saldo origen</Label>
+          <Input
+            value={profile.saldoComprobante}
+            onChange={(event) => setField("saldoComprobante", event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Saldo destino</Label>
+          <Input
+            value={profile.saldoDestino}
+            onChange={(event) => setField("saldoDestino", event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Importe aplicado</Label>
+          <Input
+            value={profile.importeAplicado}
+            onChange={(event) => setField("importeAplicado", event.target.value)}
           />
         </div>
         <div className="space-y-1.5">
           <Label>Operador</Label>
-          <Input
-            value={profile.operador}
-            onChange={(event) => set("operador", event.target.value)}
-          />
+          <Input value={profile.operador} onChange={(event) => setField("operador", event.target.value)} />
         </div>
         <div className="space-y-1.5">
           <Label>Lote</Label>
-          <Input value={profile.lote} onChange={(event) => set("lote", event.target.value)} />
+          <Input value={profile.lote} onChange={(event) => setField("lote", event.target.value)} />
         </div>
       </div>
 
@@ -185,10 +319,7 @@ function LegacyAllocationDialog({
               Marca conciliación del lote o aplicación.
             </p>
           </div>
-          <Switch
-            checked={profile.conciliado}
-            onCheckedChange={(value) => set("conciliado", value)}
-          />
+          <Switch checked={profile.conciliado} onCheckedChange={(value) => setField("conciliado", value)} />
         </div>
         <div className="flex items-center justify-between rounded-lg border p-3">
           <div>
@@ -199,7 +330,7 @@ function LegacyAllocationDialog({
           </div>
           <Switch
             checked={profile.permiteDesimputar}
-            onCheckedChange={(value) => set("permiteDesimputar", value)}
+            onCheckedChange={(value) => setField("permiteDesimputar", value)}
           />
         </div>
       </div>
@@ -216,7 +347,7 @@ function LegacyAllocationDialog({
             type="button"
             variant="outline"
             className="bg-transparent"
-            onClick={() => set("lineas", [...profile.lineas, createAllocationLine()])}
+            onClick={() => setField("lineas", [...profile.lineas, createAllocationLine()])}
           >
             Agregar línea
           </Button>
@@ -226,7 +357,7 @@ function LegacyAllocationDialog({
             profile.lineas.map((linea) => (
               <div
                 key={linea.id}
-                className="grid gap-3 rounded-lg border p-3 md:grid-cols-[1.3fr_1fr_140px_auto]"
+                className="grid gap-3 rounded-lg border p-3 md:grid-cols-[1.4fr_1fr_140px_auto]"
               >
                 <Input
                   value={linea.referencia}
@@ -258,7 +389,7 @@ function LegacyAllocationDialog({
         <Label>Observaciones</Label>
         <Textarea
           value={profile.observaciones}
-          onChange={(event) => set("observaciones", event.target.value)}
+          onChange={(event) => setField("observaciones", event.target.value)}
           rows={4}
         />
       </div>
@@ -267,26 +398,71 @@ function LegacyAllocationDialog({
         <Button variant="outline" className="bg-transparent" onClick={onClose}>
           Cancelar
         </Button>
-        <Button onClick={() => onSave(profile)}>Guardar circuito legacy</Button>
+        <Button onClick={() => onSave(profile)}>Guardar circuito</Button>
       </DialogFooter>
     </div>
   )
 }
 
 export default function VentasImputacionesPage() {
-  const sucursalId = useDefaultSucursalId()
-  const { cobros } = useCobros({ sucursalId })
-  const { comprobantes } = useComprobantes({ esVenta: true })
+  const defaultSucursalId = useDefaultSucursalId()
+  const { cobros, error: cobrosError, refetch: refetchCobros } = useCobros({
+    sucursalId: defaultSucursalId,
+  })
+  const {
+    comprobantes,
+    error: comprobantesError,
+    refetch: refetchComprobantes,
+  } = useComprobantes({ esVenta: true, sucursalId: defaultSucursalId })
+  const { terceros: clientes } = useTerceros({ sucursalId: defaultSucursalId ?? null })
+  const { sucursales } = useSucursales()
   const { rows: legacyProfiles, setRows: setLegacyProfiles } =
     useLegacyLocalCollection<LegacyAllocationProfile>("ventas-imputaciones-legacy", [])
+
   const [selected, setSelected] = useState<LegacySalesAllocation | null>(null)
   const [editing, setEditing] = useState<LegacySalesAllocation | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState("todos")
   const [filterModalidad, setFilterModalidad] = useState("todos")
+  const [filterClienteId, setFilterClienteId] = useState("todos")
+  const [filterSucursalId, setFilterSucursalId] = useState("todos")
+  const [draftClienteId, setDraftClienteId] = useState("")
+  const [draftSucursalId, setDraftSucursalId] = useState("")
+  const [draftCobroId, setDraftCobroId] = useState("")
+  const [draftComprobanteId, setDraftComprobanteId] = useState("")
+  const [draftFechaAplicacion, setDraftFechaAplicacion] = useState(
+    new Date().toISOString().slice(0, 10)
+  )
+  const [draftModalidad, setDraftModalidad] = useState<LegacyAllocationProfile["modalidad"]>(
+    "Manual"
+  )
+  const [draftOperador, setDraftOperador] = useState("")
+  const [draftImporte, setDraftImporte] = useState("")
+  const [draftObservaciones, setDraftObservaciones] = useState("")
+  const effectiveDraftSucursalId = draftSucursalId || (defaultSucursalId ? String(defaultSucursalId) : "")
 
-  const normalizedSearchTerm = searchTerm.toLowerCase().trim()
-  const profileById = new Map(legacyProfiles.map((profile) => [profile.allocationId, profile]))
+  const customerById = useMemo(() => new Map(clientes.map((cliente) => [cliente.id, cliente])), [clientes])
+  const sucursalById = useMemo(
+    () => new Map(sucursales.map((sucursal) => [sucursal.id, sucursal])),
+    [sucursales]
+  )
+  const profileById = useMemo(
+    () => new Map(legacyProfiles.map((profile) => [profile.allocationId, profile])),
+    [legacyProfiles]
+  )
+
+  const localOnlyRows = useMemo(
+    () =>
+      legacyProfiles
+        .filter((profile) => !legacySalesAllocations.some((row) => row.id === profile.allocationId))
+        .map(buildLocalAllocationRow),
+    [legacyProfiles]
+  )
+
+  const allocations = useMemo(
+    () => [...localOnlyRows, ...legacySalesAllocations],
+    [localOnlyRows]
+  )
 
   const getProfile = (row: LegacySalesAllocation) => {
     return profileById.get(row.id) ?? buildLegacyAllocationProfile(row)
@@ -295,80 +471,177 @@ export default function VentasImputacionesPage() {
   const saveProfile = (profile: LegacyAllocationProfile) => {
     setLegacyProfiles((prev) => {
       const index = prev.findIndex((row) => row.allocationId === profile.allocationId)
-      if (index === -1) return [...prev, profile]
+      if (index === -1) return [profile, ...prev]
       return prev.map((row) => (row.allocationId === profile.allocationId ? profile : row))
     })
     setEditing(null)
   }
 
-  const filtered = legacySalesAllocations.filter((row) => {
+  const pendingDocuments = useMemo(
+    () => comprobantes.filter((row) => row.saldo > 0 && row.estado !== "ANULADO"),
+    [comprobantes]
+  )
+
+  const selectedDraftCliente = draftClienteId ? customerById.get(Number(draftClienteId)) ?? null : null
+  const selectedDraftSucursal = effectiveDraftSucursalId
+    ? sucursalById.get(Number(effectiveDraftSucursalId)) ?? null
+    : null
+  const availableCobros = useMemo(
+    () =>
+      cobros.filter((row) => {
+        const matchesCliente = !draftClienteId || row.terceroId === Number(draftClienteId)
+        const matchesSucursal =
+          !effectiveDraftSucursalId || row.sucursalId === Number(effectiveDraftSucursalId)
+        return matchesCliente && matchesSucursal
+      }),
+    [cobros, draftClienteId, effectiveDraftSucursalId]
+  )
+  const availableComprobantes = useMemo(
+    () =>
+      pendingDocuments.filter((row) => {
+        const matchesCliente = !draftClienteId || row.terceroId === Number(draftClienteId)
+        const matchesSucursal =
+          !effectiveDraftSucursalId || row.sucursalId === Number(effectiveDraftSucursalId)
+        return matchesCliente && matchesSucursal
+      }),
+    [pendingDocuments, draftClienteId, effectiveDraftSucursalId]
+  )
+  const selectedCobro = availableCobros.find((row) => String(row.id) === draftCobroId) ?? null
+  const selectedComprobante =
+    availableComprobantes.find((row) => String(row.id) === draftComprobanteId) ?? null
+  const draftImporteValue = parseMoneyInput(draftImporte)
+
+  const draftWarnings = useMemo(() => {
+    const warnings: string[] = []
+    if (!draftClienteId) warnings.push("Seleccioná el cliente antes de imputar.")
+    if (!selectedCobro) warnings.push("Definí el cobro origen a aplicar.")
+    if (!selectedComprobante) warnings.push("Elegí el comprobante destino con saldo.")
+    if (draftImporteValue <= 0) warnings.push("Indicá un importe mayor a cero.")
+    if (selectedCobro && draftImporteValue > selectedCobro.total) {
+      warnings.push("El importe supera el total del cobro origen seleccionado.")
+    }
+    if (selectedComprobante && draftImporteValue > selectedComprobante.saldo) {
+      warnings.push("El importe supera el saldo pendiente del comprobante destino.")
+    }
+    return warnings
+  }, [draftClienteId, draftImporteValue, selectedCobro, selectedComprobante])
+
+  const handleRegisterDraft = () => {
+    if (!selectedCobro || !selectedComprobante || !selectedDraftCliente) return
+
+    const allocationId = `local-${globalThis.crypto.randomUUID()}`
+    const importe = draftImporteValue
+    const profile: LegacyAllocationProfile = {
+      allocationId,
+      cliente: selectedDraftCliente.razonSocial,
+      terceroId: selectedDraftCliente.id,
+      sucursalId: selectedComprobante.sucursalId,
+      estado: importe >= selectedComprobante.saldo ? "IMPUTADA" : "PENDIENTE",
+      modalidad: draftModalidad,
+      fechaAplicacion: draftFechaAplicacion,
+      fechaOrigen: selectedCobro.fecha,
+      fechaDestino: selectedComprobante.fecha,
+      origen: "Mesa de imputación ventas",
+      sucursal: selectedDraftSucursal?.descripcion ?? `Sucursal #${selectedComprobante.sucursalId}`,
+      prioridad: importe >= selectedComprobante.saldo ? "Alta" : "Media",
+      conciliado: false,
+      permiteDesimputar: true,
+      cuentaPuente: selectedComprobante.tipoComprobanteDescripcion ?? "Cuenta corriente ventas",
+      comprobanteOrigen: formatCobroLabel(selectedCobro, selectedDraftCliente.razonSocial),
+      comprobanteDestino: formatComprobanteLabel(selectedComprobante),
+      saldoComprobante: String(selectedCobro.total),
+      saldoDestino: String(selectedComprobante.saldo),
+      importeAplicado: String(importe),
+      operador: draftOperador,
+      lote: draftModalidad === "Masiva" ? `LOTE-${new Date().getTime()}` : "",
+      observaciones: draftObservaciones,
+      lineas: [
+        {
+          id: `allocation-line-${allocationId}-1`,
+          referencia: `${formatCobroLabel(selectedCobro, selectedDraftCliente.razonSocial)} -> ${formatComprobanteLabel(selectedComprobante)}`,
+          tipo: draftModalidad === "Desimputación" ? "Reversa" : "Aplicación",
+          importe: String(importe),
+        },
+      ],
+    }
+
+    saveProfile(profile)
+    setSelected(buildLocalAllocationRow(profile))
+    setDraftCobroId("")
+    setDraftComprobanteId("")
+    setDraftImporte("")
+    setDraftObservaciones("")
+    setDraftOperador("")
+  }
+
+  const normalizedSearchTerm = searchTerm.toLowerCase().trim()
+  const filtered = allocations.filter((row) => {
     const profile = getProfile(row)
     const matchesSearch =
-      normalizedSearchTerm === "" ||
-      row.cliente.toLowerCase().includes(normalizedSearchTerm) ||
-      row.comprobante.toLowerCase().includes(normalizedSearchTerm) ||
-      row.cuenta.toLowerCase().includes(normalizedSearchTerm) ||
-      row.centroCosto.toLowerCase().includes(normalizedSearchTerm) ||
-      profile.origen.toLowerCase().includes(normalizedSearchTerm) ||
-      profile.operador.toLowerCase().includes(normalizedSearchTerm)
-
-    const matchesEstado = filterEstado === "todos" || row.estado === filterEstado
+      normalizedSearchTerm === "" || buildSearchableText(row, profile).includes(normalizedSearchTerm)
+    const matchesEstado = filterEstado === "todos" || profile.estado === filterEstado
     const matchesModalidad = filterModalidad === "todos" || profile.modalidad === filterModalidad
+    const matchesCliente =
+      filterClienteId === "todos" || profile.terceroId === Number(filterClienteId)
+    const matchesSucursal =
+      filterSucursalId === "todos" || profile.sucursalId === Number(filterSucursalId)
 
-    return matchesSearch && matchesEstado && matchesModalidad
+    return matchesSearch && matchesEstado && matchesModalidad && matchesCliente && matchesSucursal
   })
 
   const highlighted =
-    filtered.find((row) => row.estado === "PENDIENTE") ??
-    filtered[0] ??
-    legacySalesAllocations[0] ??
-    null
+    filtered.find((row) => getProfile(row).estado === "PENDIENTE") ?? filtered[0] ?? allocations[0] ?? null
 
   const totals = {
-    total: legacySalesAllocations.length,
-    pendientes: legacySalesAllocations.filter((row) => row.estado === "PENDIENTE").length,
-    imputadas: legacySalesAllocations.filter((row) => row.estado === "IMPUTADA").length,
-    monto: legacySalesAllocations.reduce((sum, row) => sum + row.importe, 0),
+    total: allocations.length,
+    pendientes: allocations.filter((row) => getProfile(row).estado === "PENDIENTE").length,
+    imputadas: allocations.filter((row) => getProfile(row).estado === "IMPUTADA").length,
+    monto: allocations.reduce((sum, row) => sum + row.importe, 0),
   }
 
-  const pendingLiveDocs = comprobantes.filter(
-    (row) => row.saldo > 0 && row.estado !== "ANULADO"
-  ).length
-  const livePendingTotal = comprobantes
-    .filter((row) => row.saldo > 0 && row.estado !== "ANULADO")
-    .reduce((sum, row) => sum + row.saldo, 0)
-  const configured = legacySalesAllocations.filter((row) => profileById.has(row.id)).length
+  const pendingLiveDocs = pendingDocuments.length
+  const livePendingTotal = pendingDocuments.reduce((sum, row) => sum + row.saldo, 0)
+  const configured = legacyProfiles.length
+  const localCreated = localOnlyRows.length
   const masivas = legacyProfiles.filter((profile) => profile.modalidad === "Masiva").length
   const reversables = legacyProfiles.filter((profile) => profile.permiteDesimputar).length
   const highlightedProfile = highlighted ? getProfile(highlighted) : null
   const highlightedFields =
     highlighted && highlightedProfile
       ? [
-          { label: "Cliente", value: highlighted.cliente },
-          { label: "Comprobante", value: highlighted.comprobante },
-          { label: "Cuenta", value: highlighted.cuenta },
-          { label: "Centro de costo", value: highlighted.centroCosto },
+          { label: "Cliente", value: highlightedProfile.cliente || highlighted.cliente },
+          { label: "Monto imputado", value: formatMoney(highlighted.importe) },
+          { label: "Fecha aplicación", value: formatDate(highlightedProfile.fechaAplicacion) },
+          { label: "Documento origen", value: highlightedProfile.comprobanteOrigen || highlighted.comprobante },
+          { label: "Documento destino", value: highlightedProfile.comprobanteDestino || "Pendiente de definición" },
           { label: "Modalidad", value: highlightedProfile.modalidad },
-          { label: "Origen", value: highlightedProfile.origen || "No informado" },
-          { label: "Conciliado", value: highlightedProfile.conciliado ? "Sí" : "No" },
-          {
-            label: "Desimputación",
-            value: highlightedProfile.permiteDesimputar ? "Permitida" : "No prevista",
-          },
+          { label: "Cuenta puente", value: highlightedProfile.cuentaPuente || highlighted.cuenta },
+          { label: "Operador", value: highlightedProfile.operador || "Sin operador asignado" },
         ]
       : []
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Imputaciones</h1>
           <p className="mt-1 text-muted-foreground">
-            Imputaciones comerciales y contables visibles para completar el circuito de aplicación
-            de ventas hasta que exista un servicio dedicado de imputación y desimputación.
+            Mesa operativa para cruzar cobros y comprobantes con saldo, siguiendo la lógica del
+            legado mientras el backend aún no expone un servicio dedicado de imputación.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            className="bg-transparent"
+            onClick={() => {
+              void refetchCobros()
+              void refetchComprobantes()
+            }}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Recargar
+          </Button>
           <Link href="/ventas/cobros">
             <Button variant="outline" className="bg-transparent">
               Cobros
@@ -380,85 +653,261 @@ export default function VentasImputacionesPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Imputaciones</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totals.total}</div>
+      <Alert>
+        <ShieldAlert className="h-4 w-4" />
+        <AlertDescription>
+          La aplicación efectiva de cobros sigue dependiendo del backend. Esta pantalla cubre la
+          lectura operativa, el armado de origen y destino, y la trazabilidad local de la
+          imputación o desimputación.
+        </AlertDescription>
+      </Alert>
+
+      {cobrosError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{cobrosError}</AlertDescription>
+        </Alert>
+      )}
+      {comprobantesError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{comprobantesError}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="border-slate-200 bg-slate-50/70">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Trayectos</p>
+            <p className="mt-2 text-2xl font-bold text-slate-950">{totals.total}</p>
+            <p className="mt-1 text-xs text-slate-600">Filas visibles entre overlay histórico y armado local.</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Pendientes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{totals.pendientes}</div>
+        <Card className="border-amber-200 bg-amber-50/80">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Pendientes</p>
+            <p className="mt-2 text-2xl font-bold text-amber-950">{totals.pendientes}</p>
+            <p className="mt-1 text-xs text-amber-800">Requieren cierre o aplicación parcial adicional.</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Comprobantes con saldo</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{pendingLiveDocs}</div>
+        <Card className="border-emerald-200 bg-emerald-50/80">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Saldo vivo</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-950">{pendingLiveDocs}</p>
+            <p className="mt-1 text-xs text-emerald-800">Comprobantes de venta con saldo aún aplicable.</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Importe visible</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatMoney(totals.monto)}</div>
+        <Card className="border-sky-200 bg-sky-50/80">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-sky-700">Monto visible</p>
+            <p className="mt-2 text-2xl font-bold text-sky-950">{formatMoney(totals.monto)}</p>
+            <p className="mt-1 text-xs text-sky-800">Con {formatMoney(livePendingTotal)} pendientes desde backend.</p>
           </CardContent>
         </Card>
       </div>
 
-      {highlighted ? (
-        <Card className="border-primary/20 bg-primary/5">
+      <div className="grid gap-4 xl:grid-cols-[1.45fr_1fr]">
+        <Card className="border-primary/15 bg-primary/5">
+          <CardHeader>
+            <CardDescription>Mesa de imputación</CardDescription>
+            <CardTitle className="mt-1 flex items-center gap-2 text-xl">
+              <ArrowRightLeft className="h-5 w-5" /> Armar origen y destino
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {draftWarnings.length > 0 ? (
+              <div className="grid gap-2 md:grid-cols-2">
+                {draftWarnings.map((warning) => (
+                  <div
+                    key={warning}
+                    className="rounded-lg border border-amber-200 bg-background/80 px-3 py-2 text-sm text-slate-700"
+                  >
+                    {warning}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-1.5 xl:col-span-2">
+                <Label>Cliente</Label>
+                <Select value={draftClienteId} onValueChange={setDraftClienteId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar cliente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clientes.map((cliente) => (
+                      <SelectItem key={cliente.id} value={String(cliente.id)}>
+                        {cliente.razonSocial}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Sucursal</Label>
+                <Select value={effectiveDraftSucursalId} onValueChange={setDraftSucursalId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar sucursal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sucursales.map((sucursal) => (
+                      <SelectItem key={sucursal.id} value={String(sucursal.id)}>
+                        {sucursal.descripcion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 xl:col-span-3">
+                <Label>Cobro origen</Label>
+                <Select value={draftCobroId} onValueChange={setDraftCobroId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar cobro" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableCobros.map((cobro) => (
+                      <SelectItem key={cobro.id} value={String(cobro.id)}>
+                        {formatCobroLabel(
+                          cobro,
+                          customerById.get(cobro.terceroId)?.razonSocial ?? `Cliente #${cobro.terceroId}`
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 xl:col-span-3">
+                <Label>Comprobante destino</Label>
+                <Select value={draftComprobanteId} onValueChange={setDraftComprobanteId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar comprobante con saldo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableComprobantes.map((row) => (
+                      <SelectItem key={row.id} value={String(row.id)}>
+                        {`${formatComprobanteLabel(row)} · Saldo ${formatMoney(row.saldo)}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Fecha de aplicación</Label>
+                <Input
+                  type="date"
+                  value={draftFechaAplicacion}
+                  onChange={(event) => setDraftFechaAplicacion(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Modalidad</Label>
+                <Select value={draftModalidad} onValueChange={(value) => setDraftModalidad(value as LegacyAllocationProfile["modalidad"])}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Manual">Manual</SelectItem>
+                    <SelectItem value="Masiva">Masiva</SelectItem>
+                    <SelectItem value="Desimputación">Desimputación</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Importe a imputar</Label>
+                <Input
+                  value={draftImporte}
+                  onChange={(event) => setDraftImporte(event.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-1.5 xl:col-span-2">
+                <Label>Operador</Label>
+                <Input
+                  value={draftOperador}
+                  onChange={(event) => setDraftOperador(event.target.value)}
+                  placeholder="Responsable de la imputación"
+                />
+              </div>
+              <div className="space-y-1.5 xl:col-span-3">
+                <Label>Observaciones</Label>
+                <Textarea
+                  rows={3}
+                  value={draftObservaciones}
+                  onChange={(event) => setDraftObservaciones(event.target.value)}
+                  placeholder="Notas operativas, acuerdo con el cliente o criterio de aplicación"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-lg border bg-background/70 p-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cliente</p>
+                <p className="mt-1 font-medium wrap-break-word">
+                  {selectedDraftCliente?.razonSocial ?? "Sin cliente seleccionado"}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-background/70 p-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cobro origen</p>
+                <p className="mt-1 font-medium wrap-break-word">
+                  {selectedCobro
+                    ? formatMoney(selectedCobro.total)
+                    : "Sin cobro seleccionado"}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-background/70 p-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Saldo destino</p>
+                <p className="mt-1 font-medium wrap-break-word">
+                  {selectedComprobante
+                    ? formatMoney(selectedComprobante.saldo)
+                    : "Sin comprobante destino"}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button onClick={handleRegisterDraft} disabled={draftWarnings.length > 0}>
+                Documentar imputación
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-dashed">
           <CardHeader>
             <CardDescription>Aplicación prioritaria</CardDescription>
-            <CardTitle className="mt-1 text-xl">{highlighted.comprobante}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DetailFieldGrid fields={highlightedFields} />
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Layers3 className="h-4 w-4" /> Cobertura legacy
+            <CardTitle className="mt-1 text-xl">
+              {highlightedProfile?.comprobanteOrigen ?? highlighted?.comprobante ?? "Sin imputación destacada"}
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {configured} imputaciones ya tienen circuito heredado documentado, con {masivas} lotes
-            masivos visibles.
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <GitCompareArrows className="h-4 w-4" /> Reversa y conciliación
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {reversables} tramos permiten desimputación y la lectura operativa ya distingue
-            aplicación manual, masiva o reversa.
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ReceiptText className="h-4 w-4" /> Saldo vivo
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {pendingLiveDocs} comprobantes de venta siguen con saldo, por{" "}
-            {formatMoney(livePendingTotal)} visibles desde backend.
+          <CardContent className="space-y-4">
+            {highlighted ? <DetailFieldGrid fields={highlightedFields} /> : null}
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <div className="flex items-center gap-2 font-medium">
+                  <Layers3 className="h-4 w-4" /> Cobertura local
+                </div>
+                <p className="mt-2 text-muted-foreground">
+                  {configured} circuitos documentados y {localCreated} armados directamente desde esta mesa.
+                </p>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <div className="flex items-center gap-2 font-medium">
+                  <GitCompareArrows className="h-4 w-4" /> Reversa y lote
+                </div>
+                <p className="mt-2 text-muted-foreground">
+                  {masivas} perfiles masivos y {reversables} con desimputación prevista.
+                </p>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <div className="flex items-center gap-2 font-medium">
+                  <Wallet className="h-4 w-4" /> Contexto vivo
+                </div>
+                <p className="mt-2 text-muted-foreground">
+                  {cobros.length} cobros visibles y {pendingLiveDocs} comprobantes con saldo desde backend.
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -470,11 +919,11 @@ export default function VentasImputacionesPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-[1fr_220px_220px]">
-            <div className="relative">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_220px_220px_240px_240px]">
+            <div className="relative md:col-span-2 xl:col-span-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Buscar por cliente, comprobante, cuenta u operador..."
+                placeholder="Buscar por cliente, origen, destino, cuenta u operador..."
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
                 className="pl-10"
@@ -502,98 +951,179 @@ export default function VentasImputacionesPage() {
                 <SelectItem value="Desimputación">Desimputación</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={filterClienteId} onValueChange={setFilterClienteId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Cliente" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los clientes</SelectItem>
+                {clientes.map((cliente) => (
+                  <SelectItem key={cliente.id} value={String(cliente.id)}>
+                    {cliente.razonSocial}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filterSucursalId} onValueChange={setFilterSucursalId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Sucursal" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todas las sucursales</SelectItem>
+                {sucursales.map((sucursal) => (
+                  <SelectItem key={sucursal.id} value={String(sucursal.id)}>
+                    {sucursal.descripcion}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Landmark className="h-4 w-4" /> Imputaciones visibles
+              <Landmark className="h-4 w-4" /> Mesa documentada ({filtered.length})
             </CardTitle>
             <CardDescription>
-              Overlay local del tramo de imputación documental y contable.
+              Vista unificada de origen, destino, importe y estado de imputación, con el mismo eje
+              operativo del legado.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Comprobante</TableHead>
-                  <TableHead>Modalidad</TableHead>
-                  <TableHead>Cuenta</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="text-right">Importe</TableHead>
-                  <TableHead className="text-right">Detalle</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-medium">{row.cliente}</TableCell>
-                    <TableCell>{row.comprobante}</TableCell>
-                    <TableCell>{getProfile(row).modalidad}</TableCell>
-                    <TableCell>{row.cuenta}</TableCell>
-                    <TableCell>{statusBadge(row.estado)}</TableCell>
-                    <TableCell className="text-right">{formatMoney(row.importe)}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => setSelected(row)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setEditing(row)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Origen</TableHead>
+                    <TableHead>Destino</TableHead>
+                    <TableHead>Modalidad</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="text-right">Importe</TableHead>
+                    <TableHead className="text-right">Detalle</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filtered.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                        No hay imputaciones para los filtros actuales.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filtered.map((row) => {
+                      const profile = getProfile(row)
+                      return (
+                        <TableRow key={row.id}>
+                          <TableCell className="font-medium">{profile.cliente || row.cliente}</TableCell>
+                          <TableCell>{formatDate(profile.fechaAplicacion)}</TableCell>
+                          <TableCell className="max-w-72 text-sm wrap-break-word">
+                            {profile.comprobanteOrigen || row.comprobante}
+                          </TableCell>
+                          <TableCell className="max-w-72 text-sm wrap-break-word">
+                            {profile.comprobanteDestino || "Pendiente de asignación"}
+                          </TableCell>
+                          <TableCell>{profile.modalidad}</TableCell>
+                          <TableCell>{statusBadge(profile.estado)}</TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {formatMoney(parseMoneyInput(profile.importeAplicado) || row.importe)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="icon" onClick={() => setSelected(row)}>
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => setEditing(row)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Contexto vivo</CardTitle>
-            <CardDescription>
-              Señales reales del backend relacionadas con la aplicación de cobros.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Wallet className="h-4 w-4" /> Cobros visibles
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Contexto vivo</CardTitle>
+              <CardDescription>Señales reales del backend relacionadas con la aplicación.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Wallet className="h-4 w-4" /> Cobros visibles
+                </div>
+                <p className="mt-2 text-2xl font-bold">{cobros.length}</p>
               </div>
-              <p className="mt-2 text-2xl font-bold">{cobros.length}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <ReceiptText className="h-4 w-4" /> Documentos con saldo
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <ReceiptText className="h-4 w-4" /> Documentos con saldo
+                </div>
+                <p className="mt-2 text-2xl font-bold">{pendingLiveDocs}</p>
               </div>
-              <p className="mt-2 text-2xl font-bold">{pendingLiveDocs}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Landmark className="h-4 w-4" /> Saldo pendiente visible
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <CircleDollarSign className="h-4 w-4" /> Pendiente visible
+                </div>
+                <p className="mt-2 text-2xl font-bold">{formatMoney(livePendingTotal)}</p>
               </div>
-              <p className="mt-2 text-2xl font-bold">{formatMoney(livePendingTotal)}</p>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              La imputación masiva y la desimputación todavía dependen de un servicio dedicado; por
-              eso este tramo sigue en overlay local aunque ya convive con cobros y comprobantes
-              reales.
-            </p>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Cobertura operativa</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <div className="rounded-lg border bg-muted/30 p-3">
+                {configured} perfiles guardados sostienen trazabilidad local mientras el backend no
+                publica la imputación formal.
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                {totals.imputadas} filas ya figuran imputadas y {totals.pendientes} siguen en
+                trabajo o cierre parcial.
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                La desimputación y la aplicación masiva quedan visibles en frontend, pero su
+                ejecución definitiva sigue pendiente de integración específica.
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Accesos relacionados</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              <Link href="/ventas/cobros">
+                <Button variant="outline" className="w-full justify-start bg-transparent">
+                  <Wallet className="mr-2 h-4 w-4" /> Revisar cobros
+                </Button>
+              </Link>
+              <Link href="/ventas/cuenta-corriente">
+                <Button variant="outline" className="w-full justify-start bg-transparent">
+                  <ReceiptText className="mr-2 h-4 w-4" /> Ver cuenta corriente
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Detalle de imputación</DialogTitle>
             <DialogDescription>
-              Visibilidad del tramo comercial-contable hasta contar con servicio específico.
+              Lectura de origen, destino, modalidad y líneas hasta contar con el servicio formal.
             </DialogDescription>
           </DialogHeader>
           {selected ? (
@@ -606,27 +1136,51 @@ export default function VentasImputacionesPage() {
               <TabsContent value="principal" className="space-y-4 pt-4">
                 <DetailFieldGrid
                   fields={[
-                    { label: "Cliente", value: selected.cliente },
-                    { label: "Fecha", value: selected.fecha },
-                    { label: "Estado", value: selected.estado },
-                    { label: "Importe", value: formatMoney(selected.importe) },
-                    { label: "Cuenta", value: selected.cuenta },
-                    { label: "Centro de costo", value: selected.centroCosto },
+                    { label: "Cliente", value: getProfile(selected).cliente || selected.cliente },
+                    { label: "Estado", value: getProfile(selected).estado },
+                    { label: "Modalidad", value: getProfile(selected).modalidad },
+                    { label: "Fecha de aplicación", value: formatDate(getProfile(selected).fechaAplicacion) },
+                    {
+                      label: "Importe imputado",
+                      value: formatMoney(parseMoneyInput(getProfile(selected).importeAplicado) || selected.importe),
+                    },
+                    { label: "Prioridad", value: getProfile(selected).prioridad },
                   ]}
                 />
               </TabsContent>
               <TabsContent value="circuito" className="space-y-4 pt-4">
                 <DetailFieldGrid
                   fields={[
-                    { label: "Modalidad", value: getProfile(selected).modalidad },
-                    { label: "Origen", value: getProfile(selected).origen || "No informado" },
-                    { label: "Prioridad", value: getProfile(selected).prioridad },
+                    {
+                      label: "Documento origen",
+                      value: getProfile(selected).comprobanteOrigen || selected.comprobante,
+                    },
+                    {
+                      label: "Documento destino",
+                      value: getProfile(selected).comprobanteDestino || "Pendiente de asignación",
+                    },
+                    { label: "Fecha origen", value: formatDate(getProfile(selected).fechaOrigen) },
+                    { label: "Fecha destino", value: formatDate(getProfile(selected).fechaDestino) },
+                    { label: "Sucursal", value: getProfile(selected).sucursal || "Sin sucursal" },
+                    {
+                      label: "Cuenta puente",
+                      value: getProfile(selected).cuentaPuente || selected.cuenta,
+                    },
+                    {
+                      label: "Saldo origen",
+                      value: formatMoney(parseMoneyInput(getProfile(selected).saldoComprobante)),
+                    },
+                    {
+                      label: "Saldo destino",
+                      value: formatMoney(parseMoneyInput(getProfile(selected).saldoDestino)),
+                    },
                     { label: "Conciliado", value: getProfile(selected).conciliado ? "Sí" : "No" },
                     {
                       label: "Permite desimputar",
                       value: getProfile(selected).permiteDesimputar ? "Sí" : "No",
                     },
                     { label: "Operador", value: getProfile(selected).operador || "Pendiente" },
+                    { label: "Lote", value: getProfile(selected).lote || "No asignado" },
                   ]}
                 />
               </TabsContent>
@@ -641,15 +1195,8 @@ export default function VentasImputacionesPage() {
                     </div>
                   ))}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Link href="/ventas/cobros">
-                    <Button variant="outline" className="bg-transparent">
-                      Ir a cobros
-                    </Button>
-                  </Link>
-                  <Link href="/ventas/cuenta-corriente">
-                    <Button>Revisar cuenta corriente</Button>
-                  </Link>
+                <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  {getProfile(selected).observaciones || "Sin observaciones registradas."}
                 </div>
               </TabsContent>
             </Tabs>
@@ -658,12 +1205,12 @@ export default function VentasImputacionesPage() {
       </Dialog>
 
       <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Editar circuito legacy</DialogTitle>
+            <DialogTitle>Editar circuito de imputación</DialogTitle>
             <DialogDescription>
-              Modalidad manual, masiva o desimputación persistidas sólo en frontend hasta contar con
-              backend específico.
+              Ajustá modalidad, origen, destino, saldos y trazabilidad local mientras no exista el
+              backend dedicado.
             </DialogDescription>
           </DialogHeader>
           {editing ? (

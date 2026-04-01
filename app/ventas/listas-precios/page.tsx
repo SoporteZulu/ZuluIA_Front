@@ -115,6 +115,15 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
   )
 }
 
+function getPriceVariation(currentPrice: number, referencePrice: number) {
+  if (!referencePrice) return 0
+  return ((currentPrice - referencePrice) / referencePrice) * 100
+}
+
+function formatPercent(value: number) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`
+}
+
 interface PriceListFormProps {
   list: ListaPreciosDetalle | null
   onClose: () => void
@@ -153,6 +162,7 @@ function PriceListForm({ list, onClose, onSaved, saveList, monedas }: PriceListF
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const selectedCurrency = monedas.find((moneda) => moneda.id === form.monedaId) ?? null
 
   const set = (key: keyof CreateListaPreciosDto, value: string | number | boolean | null) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -178,13 +188,13 @@ function PriceListForm({ list, onClose, onSaved, saveList, monedas }: PriceListF
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="grid h-auto w-full grid-cols-3">
           <TabsTrigger value="principal" className="py-2 text-xs">
-            Principal
+            Cabecera
           </TabsTrigger>
           <TabsTrigger value="vigencia" className="py-2 text-xs">
             Vigencia
           </TabsTrigger>
           <TabsTrigger value="legado" className="py-2 text-xs">
-            Legado
+            Cobertura actual
           </TabsTrigger>
         </TabsList>
 
@@ -221,6 +231,50 @@ function PriceListForm({ list, onClose, onSaved, saveList, monedas }: PriceListF
               <Label htmlFor="lista-default">Marcar como lista predeterminada</Label>
             </div>
           </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Ficha comercial</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 text-sm md:grid-cols-2">
+                <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Nombre visible</p>
+                  <p className="mt-1 font-medium wrap-break-word">{form.nombre || "Sin nombre definido"}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Tipo de lista</p>
+                  <p className="mt-1 font-medium">Venta</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Moneda</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCurrency
+                      ? `${selectedCurrency.descripcion} (${selectedCurrency.simbolo})`
+                      : "Sin moneda"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Prioridad comercial</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {form.esDefault
+                      ? "Lista principal para cotización y venta inmediata."
+                      : "Lista complementaria para segmentos, campañas o futuras vigencias."}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Cobertura del modelo actual</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <p>La API actual permite administrar cabecera, moneda, vigencia y precios por producto con persistencia real.</p>
+                <p>Las promociones encadenadas, herencias entre listas y reglas por cliente o canal siguen reservadas para una segunda fase.</p>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="vigencia" className="mt-4 space-y-4">
@@ -247,9 +301,9 @@ function PriceListForm({ list, onClose, onSaved, saveList, monedas }: PriceListF
         <TabsContent value="legado" className="mt-4 space-y-4">
           <Card>
             <CardContent className="pt-6 text-sm text-muted-foreground">
-              El legado contemplaba promociones encadenadas, herencia entre listas, precios
-              especiales por cliente y campañas por período. Esta base deja el maestro real listo
-              para esa siguiente fase sin simular reglas inexistentes en la API.
+              El circuito histórico contemplaba promociones encadenadas, herencia entre listas,
+              precios especiales por cliente y campañas por período. Esta base deja el maestro
+              real listo para esa siguiente fase sin simular reglas inexistentes en la API.
             </CardContent>
           </Card>
         </TabsContent>
@@ -408,19 +462,22 @@ function PriceListItemsManager({ list, onChanged, upsert, remove }: PriceListIte
         </CardContent>
       </Card>
 
+      <div className="w-full overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Producto</TableHead>
+            <TableHead className="text-right">Precio base</TableHead>
             <TableHead className="text-right">Precio</TableHead>
             <TableHead className="text-right">Descuento</TableHead>
+            <TableHead className="text-right">Variación</TableHead>
             <TableHead className="text-right">Acciones</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {list.items.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+              <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                 Esta lista todavía no tiene productos asociados.
               </TableCell>
             </TableRow>
@@ -430,11 +487,17 @@ function PriceListItemsManager({ list, onChanged, upsert, remove }: PriceListIte
                 precio: item.precio,
                 descuentoPct: item.descuentoPct,
               }
+              const catalogItem = items.find((catalogRow) => catalogRow.id === item.itemId)
+              const referencePrice = catalogItem?.precioVenta ?? 0
+              const variation = getPriceVariation(draft.precio, referencePrice)
               return (
                 <TableRow key={item.itemId}>
                   <TableCell>
                     <p className="font-medium">{item.itemDescripcion}</p>
                     <p className="text-xs text-muted-foreground font-mono">{item.itemCodigo}</p>
+                  </TableCell>
+                  <TableCell className="text-right text-sm text-muted-foreground">
+                    {referencePrice > 0 ? formatMoney(referencePrice) : "-"}
                   </TableCell>
                   <TableCell className="text-right">
                     <Input
@@ -473,6 +536,19 @@ function PriceListItemsManager({ list, onChanged, upsert, remove }: PriceListIte
                       }
                     />
                   </TableCell>
+                  <TableCell className="text-right text-sm">
+                    <span
+                      className={
+                        variation < 0
+                          ? "text-emerald-700"
+                          : variation > 0
+                            ? "text-amber-700"
+                            : "text-muted-foreground"
+                      }
+                    >
+                      {referencePrice > 0 ? formatPercent(variation) : "-"}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
                       <Button
@@ -493,6 +569,7 @@ function PriceListItemsManager({ list, onChanged, upsert, remove }: PriceListIte
           )}
         </TableBody>
       </Table>
+      </div>
     </div>
   )
 }
@@ -549,7 +626,7 @@ function PriceListDetail({
         <TabsTrigger value="principal">Principal</TabsTrigger>
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
         <TabsTrigger value="items">Items</TabsTrigger>
-        <TabsTrigger value="legado">Legado</TabsTrigger>
+        <TabsTrigger value="legado">Cobertura actual</TabsTrigger>
       </TabsList>
 
       <TabsContent value="principal" className="space-y-4">
@@ -591,7 +668,7 @@ function PriceListDetail({
       <TabsContent value="legado" className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Bloques reservados</CardTitle>
+            <CardTitle className="text-base">Expansión prevista</CardTitle>
             <CardDescription>
               Promociones, herencias, precios especiales y reglas comerciales avanzadas.
             </CardDescription>
@@ -768,8 +845,8 @@ export default function ListasPreciosPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Listas de Precios</h1>
           <p className="text-muted-foreground">
-            Maestro real de listas con detalle por producto y estructura preparada para reglas
-            heredadas más complejas.
+            Maestro real de listas con detalle por producto, vigencia operativa y estructura
+            preparada para precios especiales y reglas comerciales más complejas.
           </p>
         </div>
         <Button
@@ -789,7 +866,7 @@ export default function ListasPreciosPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
         <Card>
           <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground">Total listas</p>
@@ -812,6 +889,12 @@ export default function ListasPreciosPage() {
           <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground">Default</p>
             <p className="mt-1 text-2xl font-bold text-amber-600">{kpis.defaults}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-xs text-muted-foreground">Con vencimiento</p>
+            <p className="mt-1 text-2xl font-bold text-indigo-600">{kpis.conVencimiento}</p>
           </CardContent>
         </Card>
       </div>
@@ -1062,7 +1145,7 @@ export default function ListasPreciosPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Percent className="h-4 w-4" /> Promociones heredadas
+              <Percent className="h-4 w-4" /> Promociones previstas
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
@@ -1101,7 +1184,7 @@ export default function ListasPreciosPage() {
               {editingList ? "Editar lista de precios" : "Nueva lista de precios"}
             </DialogTitle>
             <DialogDescription>
-              Alta y mantenimiento del maestro comercial con campos actuales y estructura heredada.
+              Alta y mantenimiento del maestro comercial con cabecera actual y expansión prevista.
             </DialogDescription>
           </DialogHeader>
           <PriceListForm

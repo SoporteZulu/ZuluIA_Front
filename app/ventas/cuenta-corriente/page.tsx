@@ -51,8 +51,10 @@ import {
   useDeudores,
   useMovimientosCuentaCorriente,
 } from "@/lib/hooks/useCuentaCorriente"
+import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useSucursales } from "@/lib/hooks/useSucursales"
 import { useTerceros } from "@/lib/hooks/useTerceros"
+import type { Comprobante } from "@/lib/types/comprobantes"
 import type {
   Deudor,
   MovimientoCuentaCorriente,
@@ -82,6 +84,48 @@ function formatCustomerAddress(customer?: Tercero | null) {
   ].filter(Boolean)
 
   return parts.length > 0 ? parts.join(", ") : "-"
+}
+
+function getDaysPastDue(value?: string | null) {
+  if (!value) return null
+  const dueDate = new Date(value)
+  if (Number.isNaN(dueDate.getTime())) return null
+  const now = new Date()
+  const normalizedNow = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const normalizedDue = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate())
+  return Math.round((normalizedNow.getTime() - normalizedDue.getTime()) / 86400000)
+}
+
+function getDueStatus(document: Pick<Comprobante, "fechaVto" | "saldo">) {
+  const daysPastDue = getDaysPastDue(document.fechaVto)
+  if (daysPastDue === null) {
+    return {
+      label: "Sin vencimiento",
+      className: "border-slate-200 bg-slate-50 text-slate-700",
+    }
+  }
+  if (document.saldo <= 0) {
+    return {
+      label: "Sin saldo",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    }
+  }
+  if (daysPastDue > 0) {
+    return {
+      label: `Vencido ${daysPastDue} día(s)`,
+      className: "border-red-200 bg-red-50 text-red-700",
+    }
+  }
+  if (daysPastDue === 0) {
+    return {
+      label: "Vence hoy",
+      className: "border-amber-200 bg-amber-50 text-amber-700",
+    }
+  }
+  return {
+    label: `Vence en ${Math.abs(daysPastDue)} día(s)`,
+    className: "border-sky-200 bg-sky-50 text-sky-700",
+  }
 }
 
 function movementIcon(tipo: string) {
@@ -331,6 +375,15 @@ function AccountDetailModal({
 }) {
   const { sucursales } = useSucursales()
   const {
+    comprobantes,
+    loading: loadingComprobantes,
+    error: errorComprobantes,
+  } = useComprobantes({
+    esVenta: true,
+    terceroId: deudor.terceroId,
+    sucursalId: deudor.sucursalId ?? undefined,
+  })
+  const {
     saldos,
     loading: loadingSaldos,
     error: errorSaldos,
@@ -354,6 +407,26 @@ function AccountDetailModal({
   } = useMovimientosCuentaCorriente(deudor.terceroId)
 
   const saldoPrincipal = saldos.find((saldo) => saldo.monedaId === deudor.monedaId) ?? null
+  const pendingDocuments = useMemo(
+    () => comprobantes.filter((comprobante) => comprobante.saldo > 0 && comprobante.estado !== "ANULADO"),
+    [comprobantes]
+  )
+  const dueSummary = useMemo(() => {
+    const overdue = pendingDocuments.filter((document) => {
+      const daysPastDue = getDaysPastDue(document.fechaVto)
+      return daysPastDue !== null && daysPastDue > 0
+    })
+    const dueSoon = pendingDocuments.filter((document) => {
+      const daysPastDue = getDaysPastDue(document.fechaVto)
+      return daysPastDue !== null && daysPastDue <= 0 && daysPastDue >= -7
+    })
+    return {
+      total: pendingDocuments.length,
+      overdue,
+      dueSoon,
+      totalPending: pendingDocuments.reduce((acc, document) => acc + document.saldo, 0),
+    }
+  }, [pendingDocuments])
   const creditRisk = getCreditRiskSummary(deudor, customer)
   const movementSummary = useMemo(() => {
     const withVoucher = movimientos.filter((movimiento) => movimiento.comprobanteId !== null).length
@@ -412,6 +485,14 @@ function AccountDetailModal({
             ? `Tiene a favor ${formatMoney(Math.abs(deudor.saldo), deudor.monedaSimbolo)}`
             : "Sin saldo pendiente",
     },
+    {
+      label: "Pendientes visibles",
+      value: `${dueSummary.total} documentos por ${formatMoney(dueSummary.totalPending)}`,
+    },
+    {
+      label: "Cartera vencida",
+      value: `${dueSummary.overdue.length} documentos vencidos visibles`,
+    },
   ]
 
   const customerFields = [
@@ -431,10 +512,11 @@ function AccountDetailModal({
 
   return (
     <Tabs defaultValue="principal" className="w-full">
-      <TabsList className="grid w-full grid-cols-5">
+      <TabsList className="grid w-full grid-cols-7">
         <TabsTrigger value="principal">Principal</TabsTrigger>
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
         <TabsTrigger value="saldos">Saldos</TabsTrigger>
+        <TabsTrigger value="pendientes">Pendientes</TabsTrigger>
         <TabsTrigger value="movimientos">Movimientos</TabsTrigger>
         <TabsTrigger value="cobranzas">Cobranzas</TabsTrigger>
         <TabsTrigger value="legado">Legado</TabsTrigger>
@@ -537,56 +619,163 @@ function AccountDetailModal({
                 </Alert>
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Sucursal</TableHead>
-                    <TableHead>Moneda</TableHead>
-                    <TableHead className="text-right">Saldo</TableHead>
-                    <TableHead>Actualizado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {saldos.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
-                        No hay saldos detallados disponibles para este tercero.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    saldos.map((saldo: SaldoCuentaCorriente) => (
-                      <TableRow key={`${saldo.terceroId}-${saldo.sucursalId}-${saldo.monedaId}`}>
-                        <TableCell>
-                          {sucursales.find((sucursal) => sucursal.id === saldo.sucursalId)
-                            ?.descripcion ??
-                            (saldo.sucursalId ? `#${saldo.sucursalId}` : "Consolidado")}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{saldo.monedaSimbolo}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-semibold">
-                          <span
-                            className={
-                              saldo.saldo > 0
-                                ? "text-red-600"
-                                : saldo.saldo < 0
-                                  ? "text-emerald-600"
-                                  : ""
-                            }
-                          >
-                            {formatMoney(saldo.saldo, saldo.monedaSimbolo)}
-                          </span>
-                        </TableCell>
-                        <TableCell>{formatDate(saldo.updatedAt)}</TableCell>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Sucursal</TableHead>
+                        <TableHead>Moneda</TableHead>
+                        <TableHead className="text-right">Saldo</TableHead>
+                        <TableHead>Actualizado</TableHead>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {saldos.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
+                            No hay saldos detallados disponibles para este tercero.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        saldos.map((saldo: SaldoCuentaCorriente) => (
+                          <TableRow key={`${saldo.terceroId}-${saldo.sucursalId}-${saldo.monedaId}`}>
+                            <TableCell>
+                              {sucursales.find((sucursal) => sucursal.id === saldo.sucursalId)
+                                ?.descripcion ??
+                                (saldo.sucursalId ? `#${saldo.sucursalId}` : "Consolidado")}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{saldo.monedaSimbolo}</Badge>
+                            </TableCell>
+                            <TableCell className="text-right font-semibold">
+                              <span
+                                className={
+                                  saldo.saldo > 0
+                                    ? "text-red-600"
+                                    : saldo.saldo < 0
+                                      ? "text-emerald-600"
+                                      : ""
+                                }
+                              >
+                                {formatMoney(saldo.saldo, saldo.monedaSimbolo)}
+                              </span>
+                            </TableCell>
+                            <TableCell>{formatDate(saldo.updatedAt)}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
             )}
           </CardContent>
         </Card>
       </TabsContent>
+
+        <TabsContent value="pendientes" className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardContent className="pt-4 pb-4">
+                <p className="text-xs text-muted-foreground">Pendientes visibles</p>
+                <p className="mt-2 text-2xl font-bold">{dueSummary.total}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-4">
+                <p className="text-xs text-muted-foreground">Vencidos</p>
+                <p className="mt-2 text-2xl font-bold text-red-600">{dueSummary.overdue.length}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-4">
+                <p className="text-xs text-muted-foreground">A vencer 7 días</p>
+                <p className="mt-2 text-2xl font-bold text-amber-600">{dueSummary.dueSoon.length}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-4">
+                <p className="text-xs text-muted-foreground">Saldo pendiente</p>
+                <p className="mt-2 text-2xl font-bold text-primary">
+                  {formatMoney(dueSummary.totalPending)}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Documentos pendientes visibles</CardTitle>
+              <CardDescription>
+                Replica la lectura del legado sobre fecha, vencimiento, tipo, saldo, total y observación.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {loadingComprobantes ? (
+                <div className="py-10 text-center text-muted-foreground">
+                  <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                  Cargando documentos pendientes...
+                </div>
+              ) : errorComprobantes ? (
+                <div className="px-6 pb-6">
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>{errorComprobantes}</AlertDescription>
+                  </Alert>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Fecha vto.</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Comprobante</TableHead>
+                        <TableHead className="text-right">Saldo</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead>Observación</TableHead>
+                        <TableHead>Estado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pendingDocuments.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                            No hay documentos pendientes visibles para este tercero.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        pendingDocuments.map((document) => {
+                          const dueStatus = getDueStatus(document)
+                          return (
+                            <TableRow key={document.id}>
+                              <TableCell>{formatDate(document.fecha)}</TableCell>
+                              <TableCell>{formatDate(document.fechaVto)}</TableCell>
+                              <TableCell>{document.tipoComprobanteDescripcion ?? "Comprobante"}</TableCell>
+                              <TableCell>{document.nroComprobante ?? `#${document.id}`}</TableCell>
+                              <TableCell className="text-right font-semibold text-red-600">
+                                {formatMoney(document.saldo)}
+                              </TableCell>
+                              <TableCell className="text-right">{formatMoney(document.total)}</TableCell>
+                              <TableCell className="max-w-72 text-sm text-muted-foreground wrap-break-word">
+                                {document.observacion ?? "-"}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className={dueStatus.className}>
+                                  {dueStatus.label}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
       <TabsContent value="movimientos" className="space-y-4">
         <Card>
@@ -686,6 +875,7 @@ function AccountDetailModal({
               </div>
             ) : (
               <>
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -763,6 +953,7 @@ function AccountDetailModal({
                     )}
                   </TableBody>
                 </Table>
+                </div>
 
                 {totalPages > 1 && (
                   <div className="flex items-center justify-center gap-2 border-t px-6 py-4">
@@ -868,6 +1059,7 @@ function AccountDetailModal({
 
 export default function CuentaCorrientePage() {
   const { deudores, loading, error, refetch } = useDeudores(undefined, undefined, false)
+  const { comprobantes } = useComprobantes({ esVenta: true })
   const { sucursales } = useSucursales()
   const { terceros } = useTerceros()
   const [searchTerm, setSearchTerm] = useState("")
@@ -999,6 +1191,27 @@ export default function CuentaCorrientePage() {
     }
   }, [customerById, filtered])
 
+  const visiblePendingDocuments = useMemo(
+    () => comprobantes.filter((document) => document.saldo > 0 && document.estado !== "ANULADO"),
+    [comprobantes]
+  )
+
+  const overdueSummary = useMemo(() => {
+    const overdueDocuments = visiblePendingDocuments.filter((document) => {
+      const daysPastDue = getDaysPastDue(document.fechaVto)
+      return daysPastDue !== null && daysPastDue > 0
+    })
+    const dueSoonDocuments = visiblePendingDocuments.filter((document) => {
+      const daysPastDue = getDaysPastDue(document.fechaVto)
+      return daysPastDue !== null && daysPastDue <= 0 && daysPastDue >= -7
+    })
+    return {
+      overdueDocuments,
+      dueSoonDocuments,
+      overdueAmount: overdueDocuments.reduce((acc, document) => acc + document.saldo, 0),
+    }
+  }, [visiblePendingDocuments])
+
   const currentSelectedDeudor = selectedDeudor
     ? (deudores.find(
         (deudor) =>
@@ -1038,6 +1251,14 @@ export default function CuentaCorrientePage() {
         {
           label: "Saldo",
           value: formatMoney(highlightedDebtor.saldo, highlightedDebtor.monedaSimbolo),
+        },
+        {
+          label: "Docs pendientes",
+          value: String(
+            visiblePendingDocuments.filter(
+              (document) => document.terceroId === highlightedDebtor.terceroId && document.saldo > 0
+            ).length
+          ),
         },
         { label: "Alerta cartera", value: getPortfolioAlert(highlightedDebtor.saldo) },
         { label: "Domicilio", value: formatCustomerAddress(highlightedCustomer) },
@@ -1082,7 +1303,7 @@ export default function CuentaCorrientePage() {
 
       <SummaryCards deudores={deudores} />
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Riesgo alto</CardTitle>
@@ -1113,6 +1334,17 @@ export default function CuentaCorrientePage() {
             <p className="text-2xl font-bold text-primary">{filteredKpis.total}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Posiciones filtradas para priorizar gestión de cartera.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Documentos vencidos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-red-600">{overdueSummary.overdueDocuments.length}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formatMoney(overdueSummary.overdueAmount)} visibles con vencimiento superado.
             </p>
           </CardContent>
         </Card>
@@ -1340,6 +1572,7 @@ export default function CuentaCorrientePage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -1417,6 +1650,7 @@ export default function CuentaCorrientePage() {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 
@@ -1453,6 +1687,18 @@ export default function CuentaCorrientePage() {
           <CardContent className="text-sm text-muted-foreground">
             La cartera visible suma {formatMoney(filteredKpis.totalDebt)} a cobrar; recibos, gestión
             de cobranzas, alertas de mora y conciliación avanzada siguen reservados.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Landmark className="h-4 w-4" /> Vencimientos visibles
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {overdueSummary.overdueDocuments.length} documentos vencidos y{" "}
+            {overdueSummary.dueSoonDocuments.length} a vencer en 7 días sostienen la lectura de
+            cartera que antes vivía en los listados legacy.
           </CardContent>
         </Card>
       </div>

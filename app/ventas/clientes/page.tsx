@@ -52,6 +52,8 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { useEmpleados } from "@/lib/hooks/useEmpleados"
+import { useSucursales } from "@/lib/hooks/useSucursales"
 import { useTerceros, useTercerosConfig } from "@/lib/hooks/useTerceros"
 import { useGeografia } from "@/lib/hooks/useGeografia"
 import type {
@@ -109,6 +111,37 @@ function normalizeText(value: string | null | undefined) {
 function nullableText(value: string | null | undefined) {
   const normalized = normalizeText(value)
   return normalized ? normalized : null
+}
+
+function formatTaxDocument(value: string | null | undefined) {
+  const digits = (value ?? "").replace(/\D/g, "").slice(0, 11)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 10) return `${digits.slice(0, 2)}-${digits.slice(2)}`
+  return `${digits.slice(0, 2)}-${digits.slice(2, 10)}-${digits.slice(10)}`
+}
+
+function formatPhoneDisplay(value: string | null | undefined) {
+  return (value ?? "").replace(/\s+/g, " ").trimStart()
+}
+
+function withSinglePrincipal<T extends { id?: number | string; principal?: boolean }>(
+  rows: T[],
+  id: number | string | undefined,
+  patch: Partial<T>
+) {
+  const nextPrincipal = patch.principal === true
+
+  return rows.map((row) => {
+    if (row.id === id) {
+      return { ...row, ...patch }
+    }
+
+    if (nextPrincipal) {
+      return { ...row, principal: false }
+    }
+
+    return row
+  })
 }
 
 function createEmptyPerfilComercial(): TerceroPerfilComercial {
@@ -290,41 +323,99 @@ function sanitizeCollectionWindow(window: TerceroVentanaCobranza): TerceroVentan
 function buildUpdatePayload(customerId: number, form: CreateTerceroDto): UpdateTerceroDto {
   return {
     id: customerId,
-    razonSocial: form.razonSocial,
-    nombreFantasia: form.nombreFantasia ?? null,
+    razonSocial: normalizeText(form.razonSocial),
+    nombreFantasia: nullableText(form.nombreFantasia),
     tipoPersoneria: form.tipoPersoneria ?? null,
-    nombre: form.nombre ?? null,
-    apellido: form.apellido ?? null,
+    nombre: nullableText(form.nombre),
+    apellido: nullableText(form.apellido),
     esEntidadGubernamental: Boolean(form.esEntidadGubernamental),
-    claveFiscal: form.claveFiscal ?? null,
-    valorClaveFiscal: form.valorClaveFiscal ?? null,
-    nroDocumento: form.nroDocumento ?? null,
+    claveFiscal: nullableText(form.claveFiscal),
+    valorClaveFiscal: nullableText(form.valorClaveFiscal),
+    nroDocumento: nullableText(form.nroDocumento),
     condicionIvaId: form.condicionIvaId,
     esCliente: form.esCliente,
     esProveedor: form.esProveedor,
     esEmpleado: form.esEmpleado,
-    calle: form.calle ?? null,
-    nro: form.nro ?? null,
-    piso: form.piso ?? null,
-    dpto: form.dpto ?? null,
-    codigoPostal: form.codigoPostal ?? null,
+    calle: nullableText(form.calle),
+    nro: nullableText(form.nro),
+    piso: nullableText(form.piso),
+    dpto: nullableText(form.dpto),
+    codigoPostal: nullableText(form.codigoPostal),
+    paisId: form.paisId ?? null,
     localidadId: form.localidadId ?? null,
     barrioId: form.barrioId ?? null,
-    nroIngresosBrutos: form.nroIngresosBrutos ?? null,
-    nroMunicipal: form.nroMunicipal ?? null,
-    telefono: form.telefono ?? null,
-    celular: form.celular ?? null,
-    email: form.email ?? null,
-    web: form.web ?? null,
+    nroIngresosBrutos: nullableText(form.nroIngresosBrutos),
+    nroMunicipal: nullableText(form.nroMunicipal),
+    telefono: nullableText(form.telefono),
+    celular: nullableText(form.celular),
+    email: nullableText(form.email),
+    web: nullableText(form.web),
     monedaId: form.monedaId ?? null,
     categoriaId: form.categoriaId ?? null,
+    categoriaClienteId: form.esCliente ? (form.categoriaClienteId ?? null) : null,
+    estadoClienteId: form.esCliente ? (form.estadoClienteId ?? null) : null,
+    categoriaProveedorId: form.esProveedor ? (form.categoriaProveedorId ?? null) : null,
+    estadoProveedorId: form.esProveedor ? (form.estadoProveedorId ?? null) : null,
     limiteCredito: form.limiteCredito ?? null,
     facturable: form.facturable,
-    cobradorId: form.cobradorId ?? null,
-    pctComisionCobrador: form.pctComisionCobrador,
-    vendedorId: form.vendedorId ?? null,
-    pctComisionVendedor: form.pctComisionVendedor,
-    observacion: form.observacion ?? null,
+    cobradorId: form.aplicaComisionCobrador ? (form.cobradorId ?? null) : null,
+    aplicaComisionCobrador: Boolean(form.aplicaComisionCobrador),
+    pctComisionCobrador: form.aplicaComisionCobrador ? form.pctComisionCobrador : 0,
+    vendedorId: form.aplicaComisionVendedor ? (form.vendedorId ?? null) : null,
+    aplicaComisionVendedor: Boolean(form.aplicaComisionVendedor),
+    pctComisionVendedor: form.aplicaComisionVendedor ? form.pctComisionVendedor : 0,
+    observacion: nullableText(form.observacion),
+    sucursalId: form.sucursalId ?? null,
+  }
+}
+
+function buildCreatePayload(form: CreateTerceroDto): CreateTerceroDto {
+  return {
+    legajo: nullableText(form.legajo),
+    tipoPersoneria: form.tipoPersoneria ?? "JURIDICA",
+    razonSocial: normalizeText(form.razonSocial),
+    nombre: nullableText(form.nombre),
+    apellido: nullableText(form.apellido),
+    nombreFantasia: nullableText(form.nombreFantasia),
+    tipoDocumentoId: form.tipoDocumentoId ?? null,
+    nroDocumento: nullableText(form.nroDocumento),
+    condicionIvaId: form.condicionIvaId,
+    esEntidadGubernamental: Boolean(form.esEntidadGubernamental),
+    claveFiscal: nullableText(form.claveFiscal),
+    valorClaveFiscal: nullableText(form.valorClaveFiscal),
+    esCliente: form.esCliente,
+    esProveedor: form.esProveedor,
+    esEmpleado: form.esEmpleado,
+    calle: nullableText(form.calle),
+    nro: nullableText(form.nro),
+    piso: nullableText(form.piso),
+    dpto: nullableText(form.dpto),
+    codigoPostal: nullableText(form.codigoPostal),
+    paisId: form.paisId ?? null,
+    localidadId: form.localidadId ?? null,
+    barrioId: form.barrioId ?? null,
+    nroIngresosBrutos: nullableText(form.nroIngresosBrutos),
+    nroMunicipal: nullableText(form.nroMunicipal),
+    telefono: nullableText(form.telefono),
+    celular: nullableText(form.celular),
+    email: nullableText(form.email),
+    web: nullableText(form.web),
+    monedaId: form.monedaId ?? null,
+    categoriaId: form.categoriaId ?? null,
+    categoriaClienteId: form.esCliente ? (form.categoriaClienteId ?? null) : null,
+    estadoClienteId: form.esCliente ? (form.estadoClienteId ?? null) : null,
+    categoriaProveedorId: form.esProveedor ? (form.categoriaProveedorId ?? null) : null,
+    estadoProveedorId: form.esProveedor ? (form.estadoProveedorId ?? null) : null,
+    limiteCredito: form.limiteCredito ?? null,
+    facturable: form.facturable,
+    cobradorId: form.aplicaComisionCobrador ? (form.cobradorId ?? null) : null,
+    aplicaComisionCobrador: Boolean(form.aplicaComisionCobrador),
+    pctComisionCobrador: form.aplicaComisionCobrador ? form.pctComisionCobrador : 0,
+    vendedorId: form.aplicaComisionVendedor ? (form.vendedorId ?? null) : null,
+    aplicaComisionVendedor: Boolean(form.aplicaComisionVendedor),
+    pctComisionVendedor: form.aplicaComisionVendedor ? form.pctComisionVendedor : 0,
+    observacion: nullableText(form.observacion),
+    sucursalId: form.sucursalId ?? null,
   }
 }
 
@@ -357,6 +448,7 @@ const EMPTY_FORM: CreateTerceroDto = {
   piso: null,
   dpto: null,
   codigoPostal: null,
+  paisId: null,
   localidadId: null,
   barrioId: null,
   nroIngresosBrutos: null,
@@ -367,13 +459,20 @@ const EMPTY_FORM: CreateTerceroDto = {
   web: null,
   monedaId: null,
   categoriaId: null,
+  categoriaClienteId: null,
+  estadoClienteId: null,
+  categoriaProveedorId: null,
+  estadoProveedorId: null,
   limiteCredito: null,
   facturable: true,
   cobradorId: null,
+  aplicaComisionCobrador: false,
   pctComisionCobrador: 0,
   vendedorId: null,
+  aplicaComisionVendedor: false,
   pctComisionVendedor: 0,
   observacion: null,
+  sucursalId: null,
 }
 
 function buildCustomerForm(customer: Tercero | null): CreateTerceroDto {
@@ -402,6 +501,7 @@ function buildCustomerForm(customer: Tercero | null): CreateTerceroDto {
     piso: customer.piso,
     dpto: customer.dpto,
     codigoPostal: customer.codigoPostal,
+    paisId: customer.paisId ?? null,
     localidadId: customer.localidadId,
     barrioId: customer.barrioId,
     nroIngresosBrutos: customer.nroIngresosBrutos,
@@ -412,35 +512,60 @@ function buildCustomerForm(customer: Tercero | null): CreateTerceroDto {
     web: customer.web,
     monedaId: customer.monedaId,
     categoriaId: customer.categoriaId,
+    categoriaClienteId: customer.categoriaClienteId ?? null,
+    estadoClienteId: customer.estadoClienteId ?? null,
+    categoriaProveedorId: customer.categoriaProveedorId ?? null,
+    estadoProveedorId: customer.estadoProveedorId ?? null,
     limiteCredito: customer.limiteCredito,
     facturable: customer.facturable,
     cobradorId: customer.cobradorId,
+    aplicaComisionCobrador: customer.aplicaComisionCobrador ?? false,
     pctComisionCobrador: customer.pctComisionCobrador,
     vendedorId: customer.vendedorId,
+    aplicaComisionVendedor: customer.aplicaComisionVendedor ?? false,
     pctComisionVendedor: customer.pctComisionVendedor,
     observacion: customer.observacion,
+    sucursalId: customer.sucursalId ?? null,
   }
 }
 
 interface CustomerFormProps {
   customer: Tercero | null
+  customerSections: CustomerSections | null
   onClose: () => void
-  onSaved: () => void
-  createTercero: (dto: CreateTerceroDto) => Promise<boolean>
-  updateTercero: (id: number, dto: UpdateTerceroDto) => Promise<boolean>
+  onSaved: (customerId: number) => void
+  createTercero: (dto: CreateTerceroDto) => Promise<Tercero | null>
+  updateTercero: (id: number, dto: UpdateTerceroDto) => Promise<Tercero | null>
+  updatePerfilComercial: (id: number, dto: TerceroPerfilComercial) => Promise<boolean>
+  updateContactos: (id: number, dto: TerceroContacto[]) => Promise<boolean>
+  updateSucursalesEntrega: (id: number, dto: TerceroSucursalEntrega[]) => Promise<boolean>
+  updateTransportes: (id: number, dto: TerceroTransporte[]) => Promise<boolean>
+  updateVentanasCobranza: (id: number, dto: TerceroVentanaCobranza[]) => Promise<boolean>
 }
 
 function CustomerForm({
   customer,
+  customerSections,
   onClose,
   onSaved,
   createTercero,
   updateTercero,
+  updatePerfilComercial,
+  updateContactos,
+  updateSucursalesEntrega,
+  updateTransportes,
+  updateVentanasCobranza,
 }: CustomerFormProps) {
-  const { condicionesIva, monedas, tiposDocumento } = useTercerosConfig()
-  const [tab, setTab] = useState("basicos")
+  const { condicionesIva, monedas, tiposDocumento, categoriasClientes, estadosClientes } =
+    useTercerosConfig()
+  const { sucursales } = useSucursales(false)
+  const { empleados } = useEmpleados()
+  const [tab, setTab] = useState("ficha")
   const [form, setForm] = useState<CreateTerceroDto>(() => buildCustomerForm(customer))
-  const { localidades, barrios } = useGeografia({
+  const [sections, setSections] = useState<CustomerSections>(() =>
+    normalizeCustomerSections(customerSections)
+  )
+  const { paises, localidades, barrios, fetchPaises } = useGeografia({
     autoFetchLocalidades: true,
     localidadId: form.localidadId,
   })
@@ -453,11 +578,182 @@ function CustomerForm({
   const num = (v: string) => (v ? Number(v) : null)
 
   useEffect(() => {
-    setForm(buildCustomerForm(customer))
-  }, [customer])
+    void fetchPaises()
+  }, [fetchPaises])
+
+  const updateSections = <K extends keyof CustomerSections>(key: K, value: CustomerSections[K]) => {
+    setSections((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const updateContact = (id: number | string | undefined, patch: Partial<TerceroContacto>) => {
+    updateSections("contactos", withSinglePrincipal(sections.contactos, id, patch))
+  }
+
+  const updateBranch = (
+    id: number | string | undefined,
+    patch: Partial<TerceroSucursalEntrega>
+  ) => {
+    updateSections("sucursalesEntrega", withSinglePrincipal(sections.sucursalesEntrega, id, patch))
+  }
+
+  const updateTransport = (id: number | string | undefined, patch: Partial<TerceroTransporte>) => {
+    updateSections("transportes", withSinglePrincipal(sections.transportes, id, patch))
+  }
+
+  const updateCollectionWindow = (
+    id: number | string | undefined,
+    patch: Partial<TerceroVentanaCobranza>
+  ) => {
+    updateSections("ventanasCobranza", withSinglePrincipal(sections.ventanasCobranza, id, patch))
+  }
+
+  const customerCoverage = useMemo(
+    () => [
+      form.facturable ? "Facturación habilitada" : "Registro no facturable",
+      form.condicionIvaId ? "Cobertura fiscal cargada" : "Falta condición fiscal",
+      form.limiteCredito !== null ? "Crédito definido" : "Sin límite de crédito",
+      sections.contactos.length > 0 ? `${sections.contactos.length} contacto(s)` : "Sin contactos",
+      sections.sucursalesEntrega.length > 0
+        ? `${sections.sucursalesEntrega.length} entrega(s)`
+        : "Sin puntos de entrega",
+      sections.transportes.length > 0
+        ? `${sections.transportes.length} transporte(s)`
+        : "Sin transportes",
+      sections.ventanasCobranza.length > 0
+        ? `${sections.ventanasCobranza.length} ventana(s) de cobranza`
+        : "Sin ventanas de cobranza",
+    ],
+    [form.condicionIvaId, form.facturable, form.limiteCredito, sections]
+  )
+
+  const categoriaClienteDescripcion =
+    categoriasClientes.find((item) => item.id === form.categoriaClienteId)?.descripcion ??
+    (form.categoriaClienteId ? `Categoría #${form.categoriaClienteId}` : "Sin categoría")
+
+  const estadoClienteDescripcion =
+    estadosClientes.find((item) => item.id === form.estadoClienteId)?.descripcion ??
+    (form.estadoClienteId ? `Estado #${form.estadoClienteId}` : "Sin estado")
+
+  const vendedorDescripcion =
+    empleados.find((item) => item.id === form.vendedorId)?.razonSocial ??
+    (form.vendedorId ? `Empleado #${form.vendedorId}` : "Sin vendedor")
+
+  const cobradorDescripcion =
+    empleados.find((item) => item.id === form.cobradorId)?.razonSocial ??
+    (form.cobradorId ? `Empleado #${form.cobradorId}` : "Sin cobrador")
+
+  const fichaReferencia = [
+    {
+      label: "Nro. interno",
+      value: customer?.nroInterno ? String(customer.nroInterno) : "Se asigna al guardar",
+    },
+    {
+      label: "Fecha alta",
+      value: customer?.createdAt
+        ? new Date(customer.createdAt).toLocaleDateString("es-AR")
+        : "Se registra al crear",
+    },
+    {
+      label: "Categoría",
+      value: categoriaClienteDescripcion,
+    },
+    {
+      label: "Estado",
+      value: estadoClienteDescripcion,
+    },
+    {
+      label: "Vendedor",
+      value: vendedorDescripcion,
+    },
+    {
+      label: "Cobrador",
+      value: cobradorDescripcion,
+    },
+  ]
+
+  const operationalWarnings = useMemo(() => {
+    const warnings: string[] = []
+
+    if (!form.esCliente) {
+      warnings.push(
+        "El rol cliente está desactivado; la ficha no participará del circuito comercial."
+      )
+    }
+
+    if (form.facturable && !normalizeText(form.nroDocumento)) {
+      warnings.push("Conviene completar el documento antes de usar al cliente en facturación.")
+    }
+
+    if (
+      !normalizeText(form.email) &&
+      !normalizeText(form.telefono) &&
+      !normalizeText(form.celular)
+    ) {
+      warnings.push("No hay un canal principal de contacto cargado.")
+    }
+
+    if (sections.contactos.length === 0) {
+      warnings.push("No hay contactos adicionales para ventas, administración o cobranzas.")
+    } else if (!sections.contactos.some((contact) => contact.principal)) {
+      warnings.push("Conviene marcar un contacto principal para acelerar la gestión comercial.")
+    }
+
+    if (sections.sucursalesEntrega.length === 0) {
+      warnings.push("No hay puntos de entrega cargados.")
+    } else if (!sections.sucursalesEntrega.some((branch) => branch.principal)) {
+      warnings.push("Conviene marcar una sucursal principal de entrega.")
+    }
+
+    if (
+      sections.transportes.length > 0 &&
+      !sections.transportes.some((transport) => transport.principal)
+    ) {
+      warnings.push("Hay transportes asociados, pero ninguno quedó marcado como principal.")
+    }
+
+    if (
+      sections.ventanasCobranza.length > 0 &&
+      !sections.ventanasCobranza.some((window) => window.principal)
+    ) {
+      warnings.push("Hay ventanas de cobranza cargadas, pero ninguna quedó como principal.")
+    }
+
+    if (form.facturable && !form.vendedorId) {
+      warnings.push("El cliente es facturable, pero todavía no tiene vendedor asignado.")
+    }
+
+    if (form.facturable && !form.cobradorId) {
+      warnings.push("El cliente es facturable, pero todavía no tiene cobrador asignado.")
+    }
+
+    const estadoSeleccionado = estadosClientes.find((item) => item.id === form.estadoClienteId)
+    if (estadoSeleccionado?.bloquea) {
+      warnings.push(`${estadoSeleccionado.descripcion} bloquea la operatoria comercial.`)
+    }
+
+    return warnings
+  }, [
+    estadosClientes,
+    form.celular,
+    form.cobradorId,
+    form.email,
+    form.esCliente,
+    form.estadoClienteId,
+    form.facturable,
+    form.nroDocumento,
+    form.telefono,
+    form.vendedorId,
+    sections.contactos,
+    sections.sucursalesEntrega,
+    sections.transportes,
+    sections.ventanasCobranza,
+  ])
 
   const validate = (): string | null => {
     if (!form.razonSocial.trim()) return "La razón social es requerida"
+    if (!form.esCliente && !form.esProveedor && !form.esEmpleado) {
+      return "El tercero debe tener al menos un rol activo"
+    }
     if ((form.legajo?.length ?? 0) > 20) return "El legajo no puede superar los 20 caracteres"
     if (form.legajo && !/^[A-Za-z0-9-]+$/.test(form.legajo)) {
       return "El legajo solo puede contener letras, números y guiones"
@@ -507,6 +803,23 @@ function CustomerForm({
     if ((form.nroMunicipal?.length ?? 0) > 30) {
       return "El nro. municipal no puede superar los 30 caracteres"
     }
+    if (!form.esCliente && (form.categoriaClienteId || form.estadoClienteId)) {
+      return "No puede informar categoría o estado de cliente si el rol cliente está desactivado"
+    }
+
+    if (form.aplicaComisionCobrador) {
+      if (!form.cobradorId) return "Debe seleccionar un cobrador"
+      if (!form.pctComisionCobrador || form.pctComisionCobrador <= 0) {
+        return "Debe ingresar un porcentaje de comisión de cobrador válido"
+      }
+    }
+
+    if (form.aplicaComisionVendedor) {
+      if (!form.vendedorId) return "Debe seleccionar un vendedor"
+      if (!form.pctComisionVendedor || form.pctComisionVendedor <= 0) {
+        return "Debe ingresar un porcentaje de comisión de vendedor válido"
+      }
+    }
 
     const condicionIva = condicionesIva.find((item) => item.id === form.condicionIvaId)
     const tipoDocumento = tiposDocumento.find((item) => item.id === form.tipoDocumentoId)
@@ -543,6 +856,36 @@ function CustomerForm({
     return null
   }
 
+  const saveSections = async (customerId: number) => {
+    const [profileOk, contactsOk, branchesOk, transportesOk, ventanasOk] = await Promise.all([
+      updatePerfilComercial(customerId, sanitizePerfilComercial(sections.perfilComercial)),
+      updateContactos(
+        customerId,
+        sections.contactos.map((contact, index) => sanitizeContact({ ...contact, orden: index }))
+      ),
+      updateSucursalesEntrega(
+        customerId,
+        sections.sucursalesEntrega.map((branch, index) =>
+          sanitizeBranch({ ...branch, orden: index })
+        )
+      ),
+      updateTransportes(
+        customerId,
+        sections.transportes.map((transport, index) =>
+          sanitizeTransport({ ...transport, orden: index })
+        )
+      ),
+      updateVentanasCobranza(
+        customerId,
+        sections.ventanasCobranza.map((window, index) =>
+          sanitizeCollectionWindow({ ...window, orden: index })
+        )
+      ),
+    ])
+
+    return profileOk && contactsOk && branchesOk && transportesOk && ventanasOk
+  }
+
   const handleSave = async () => {
     const err = validate()
     if (err) {
@@ -551,24 +894,87 @@ function CustomerForm({
     }
     setSaving(true)
     setFormError(null)
-    const ok = customer
-      ? await updateTercero(customer.id, buildUpdatePayload(customer.id, form))
-      : await createTercero(form)
+    const payload = buildCreatePayload(form)
+    const savedCustomer = customer
+      ? await updateTercero(customer.id, buildUpdatePayload(customer.id, payload))
+      : await createTercero(payload)
+
+    if (!savedCustomer) {
+      setSaving(false)
+      setFormError("No se pudo guardar el cliente")
+      return
+    }
+
+    const sectionsOk = await saveSections(savedCustomer.id)
     setSaving(false)
-    if (ok) onSaved()
-    else setFormError("No se pudo guardar el cliente")
+
+    if (!sectionsOk) {
+      onSaved(savedCustomer.id)
+      return
+    }
+
+    onSaved(savedCustomer.id)
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-4">
+        <Card className="border-slate-200 bg-slate-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Ficha</p>
+            <p className="min-w-0 wrap-break-word text-base font-semibold text-slate-900">
+              {form.razonSocial || "Nuevo cliente"}
+            </p>
+            <p className="text-xs text-slate-600">
+              {form.nombreFantasia || "Completá identidad comercial y fiscal"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-emerald-200 bg-emerald-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Circuito</p>
+            <p className="text-base font-semibold text-emerald-950">
+              {form.facturable ? "Listo para facturar" : "Registro restringido"}
+            </p>
+            <p className="text-xs text-emerald-800">{formatMoney(form.limiteCredito)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-sky-200 bg-sky-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-sky-700">Cobertura</p>
+            <p className="text-base font-semibold text-sky-950">
+              {sections.contactos.length +
+                sections.sucursalesEntrega.length +
+                sections.transportes.length}{" "}
+              bloques activos
+            </p>
+            <p className="min-w-0 wrap-break-word text-xs text-sky-800">
+              {customerCoverage.join(" · ")}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-amber-200 bg-amber-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Vista integral</p>
+            <p className="text-base font-semibold text-amber-950">Ficha comercial completa</p>
+            <p className="text-xs text-amber-800">
+              La operación, la cobranza y las entregas quedan en una sola lectura, ordenada y clara.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-5">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
           {[
-            { key: "basicos", label: "Datos Básicos" },
+            { key: "ficha", label: "Ficha" },
             { key: "ubicacion", label: "Ubicación" },
             { key: "fiscal", label: "Fiscal" },
             { key: "comercial", label: "Comercial" },
-            { key: "otros", label: "Otros" },
+            { key: "perfil", label: "Perfil" },
+            { key: "contactos", label: "Contactos" },
+            { key: "entregas", label: "Entregas" },
+            { key: "operacion", label: "Operación" },
           ].map((t) => (
             <TabsTrigger key={t.key} value={t.key} className="text-xs capitalize py-2">
               {t.label}
@@ -576,128 +982,232 @@ function CustomerForm({
           ))}
         </TabsList>
 
-        {/* Tab 1: Datos Básicos */}
-        <TabsContent value="basicos" className="space-y-4 mt-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Legajo</Label>
-              <Input
-                placeholder="LEG-0001"
-                value={form.legajo ?? ""}
-                disabled={Boolean(customer)}
-                onChange={(e) => set("legajo", str(e.target.value))}
-              />
-              {customer ? (
-                <p className="text-xs text-muted-foreground">
-                  El legajo es inmutable en la API actual.
-                </p>
-              ) : null}
-            </div>
-            <div className="space-y-1.5">
-              <Label>
-                Tipo de personería <span className="text-red-500">*</span>
-              </Label>
-              <Select
-                value={form.tipoPersoneria ?? "JURIDICA"}
-                onValueChange={(value) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    tipoPersoneria: value as TipoPersoneria,
-                    esEntidadGubernamental:
-                      value === "FISICA" ? false : (prev.esEntidadGubernamental ?? false),
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar personería" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="JURIDICA">Jurídica</SelectItem>
-                  <SelectItem value="FISICA">Física</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {form.tipoPersoneria === "FISICA" && (
-              <>
+        <TabsContent value="ficha" className="mt-4 space-y-4">
+          {operationalWarnings.length > 0 ? (
+            <Card className="border-amber-200 bg-amber-50/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base text-amber-950">
+                  <AlertCircle className="h-4 w-4" /> Pendientes para cerrar la ficha
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-2 md:grid-cols-2">
+                {operationalWarnings.map((warning) => (
+                  <div
+                    key={warning}
+                    className="rounded-lg border border-amber-200 bg-background/80 px-3 py-2 text-sm text-slate-700"
+                  >
+                    {warning}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card className="border-dashed bg-muted/20">
+            <CardContent className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-6">
+              {fichaReferencia.map((item) => (
+                <div key={item.label} className="min-w-0 rounded-lg border bg-background/80 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                    {item.label}
+                  </p>
+                  <p className="mt-1 wrap-break-word text-sm font-medium text-foreground">
+                    {item.value}
+                  </p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.9fr)]">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Identidad del cliente</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label>
-                    Nombre <span className="text-red-500">*</span>
-                  </Label>
+                  <Label>Legajo</Label>
                   <Input
-                    placeholder="Nombre"
-                    value={form.nombre ?? ""}
-                    onChange={(e) => set("nombre", str(e.target.value))}
+                    placeholder="LEG-0001"
+                    value={form.legajo ?? ""}
+                    disabled={Boolean(customer)}
+                    onChange={(e) => set("legajo", str(e.target.value))}
                   />
+                  {customer ? (
+                    <p className="text-xs text-muted-foreground">
+                      El legajo permanece fijo en la edición actual.
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-1.5">
                   <Label>
-                    Apellido <span className="text-red-500">*</span>
+                    Tipo de personería <span className="text-red-500">*</span>
+                  </Label>
+                  <Select
+                    value={form.tipoPersoneria ?? "JURIDICA"}
+                    onValueChange={(value) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        tipoPersoneria: value as TipoPersoneria,
+                        esEntidadGubernamental:
+                          value === "FISICA" ? false : (prev.esEntidadGubernamental ?? false),
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar personería" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="JURIDICA">Jurídica</SelectItem>
+                      <SelectItem value="FISICA">Física</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {form.tipoPersoneria === "FISICA" ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label>
+                        Nombre <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        placeholder="Nombre"
+                        value={form.nombre ?? ""}
+                        onChange={(e) => set("nombre", str(e.target.value))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>
+                        Apellido <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        placeholder="Apellido"
+                        value={form.apellido ?? ""}
+                        onChange={(e) => set("apellido", str(e.target.value))}
+                      />
+                    </div>
+                  </>
+                ) : null}
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label>
+                    Razón social <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    placeholder="Apellido"
-                    value={form.apellido ?? ""}
-                    onChange={(e) => set("apellido", str(e.target.value))}
+                    placeholder="Empresa SA"
+                    value={form.razonSocial}
+                    onChange={(e) => set("razonSocial", e.target.value)}
                   />
                 </div>
-              </>
-            )}
-            <div className="space-y-1.5">
-              <Label>
-                Razón Social <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                placeholder="Empresa SA"
-                value={form.razonSocial}
-                onChange={(e) => set("razonSocial", e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Nombre Fantasía</Label>
-              <Input
-                placeholder="Nombre de fantasía"
-                value={form.nombreFantasia ?? ""}
-                onChange={(e) => set("nombreFantasia", str(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Email</Label>
-              <Input
-                type="email"
-                placeholder="contacto@empresa.com"
-                value={form.email ?? ""}
-                onChange={(e) => set("email", str(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Teléfono</Label>
-              <Input
-                placeholder="011-1234-5678"
-                value={form.telefono ?? ""}
-                onChange={(e) => set("telefono", str(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Celular</Label>
-              <Input
-                placeholder="11-1234-5678"
-                value={form.celular ?? ""}
-                onChange={(e) => set("celular", str(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Sitio Web</Label>
-              <Input
-                placeholder="https://www.empresa.com"
-                value={form.web ?? ""}
-                onChange={(e) => set("web", str(e.target.value))}
-              />
-            </div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label>Nombre de fantasía</Label>
+                  <Input
+                    placeholder="Nombre comercial visible en ventas"
+                    value={form.nombreFantasia ?? ""}
+                    onChange={(e) => set("nombreFantasia", str(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Email principal</Label>
+                  <Input
+                    type="email"
+                    placeholder="contacto@empresa.com"
+                    value={form.email ?? ""}
+                    autoComplete="email"
+                    onChange={(e) => set("email", str(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Teléfono</Label>
+                  <Input
+                    placeholder="011-1234-5678"
+                    value={form.telefono ?? ""}
+                    inputMode="tel"
+                    autoComplete="tel"
+                    onChange={(e) => set("telefono", str(formatPhoneDisplay(e.target.value)))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Celular</Label>
+                  <Input
+                    placeholder="11-1234-5678"
+                    value={form.celular ?? ""}
+                    inputMode="tel"
+                    autoComplete="tel-national"
+                    onChange={(e) => set("celular", str(formatPhoneDisplay(e.target.value)))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Sitio web</Label>
+                  <Input
+                    placeholder="https://www.empresa.com"
+                    value={form.web ?? ""}
+                    onChange={(e) => set("web", str(e.target.value))}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Lectura rápida</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em]">Personería</p>
+                  <p className="mt-1 font-medium text-foreground">
+                    {personeriaLabel(form.tipoPersoneria)}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em]">Documentación</p>
+                  <p className="mt-1 wrap-break-word font-medium text-foreground">
+                    {form.nroDocumento || "Sin documento informado"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em]">Canal principal</p>
+                  <p className="mt-1 wrap-break-word font-medium text-foreground">
+                    {form.email || form.telefono || form.celular || "Sin canal cargado"}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {customerCoverage.map((entry) => (
+                    <Badge
+                      key={entry}
+                      variant="outline"
+                      className="max-w-full whitespace-normal text-left wrap-break-word"
+                    >
+                      {entry}
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 
         <TabsContent value="ubicacion" className="space-y-4 mt-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5 col-span-2">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>País</Label>
+              <Select
+                value={form.paisId ? String(form.paisId) : "__none__"}
+                onValueChange={(value) =>
+                  set("paisId", value === "__none__" ? null : Number(value))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar país" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sin país</SelectItem>
+                  {paises.map((pais) => (
+                    <SelectItem key={pais.id} value={String(pais.id)}>
+                      {pais.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
               <Label>Calle</Label>
               <Input
                 placeholder="Av. Corrientes"
@@ -787,7 +1297,7 @@ function CustomerForm({
         </TabsContent>
 
         <TabsContent value="fiscal" className="space-y-4 mt-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Tipo de documento</Label>
               <Select
@@ -818,7 +1328,8 @@ function CustomerForm({
               <Input
                 placeholder="30-12345678-9"
                 value={form.nroDocumento ?? ""}
-                onChange={(e) => set("nroDocumento", str(e.target.value))}
+                inputMode="numeric"
+                onChange={(e) => set("nroDocumento", str(formatTaxDocument(e.target.value)))}
               />
             </div>
             <div className="space-y-1.5">
@@ -873,7 +1384,7 @@ function CustomerForm({
                 onChange={(e) => set("valorClaveFiscal", str(e.target.value))}
               />
             </div>
-            <div className="col-span-2 flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-1 md:col-span-2">
               <Switch
                 id="entidad-gubernamental"
                 checked={Boolean(form.esEntidadGubernamental)}
@@ -885,162 +1396,889 @@ function CustomerForm({
           </div>
         </TabsContent>
 
-        {/* Tab 3: Comercial */}
         <TabsContent value="comercial" className="space-y-4 mt-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Moneda</Label>
-              <Select
-                value={form.monedaId ? String(form.monedaId) : "__none__"}
-                onValueChange={(v) => set("monedaId", v !== "__none__" ? Number(v) : null)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar moneda" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Sin moneda</SelectItem>
-                  {monedas.map((m) => (
-                    <SelectItem key={m.id} value={String(m.id)}>
-                      {m.descripcion} ({m.simbolo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Límite de Crédito</Label>
-              <Input
-                type="number"
-                min={0}
-                placeholder="0"
-                value={form.limiteCredito ?? ""}
-                onChange={(e) =>
-                  set("limiteCredito", e.target.value ? parseFloat(e.target.value) : null)
-                }
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Operación comercial</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label>Moneda</Label>
+                <Select
+                  value={form.monedaId ? String(form.monedaId) : "__none__"}
+                  onValueChange={(v) => set("monedaId", v !== "__none__" ? Number(v) : null)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar moneda" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin moneda</SelectItem>
+                    {monedas.map((m) => (
+                      <SelectItem key={m.id} value={String(m.id)}>
+                        {m.descripcion} ({m.simbolo})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Límite de Crédito</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={form.limiteCredito ?? ""}
+                  onChange={(e) =>
+                    set("limiteCredito", e.target.value ? parseFloat(e.target.value) : null)
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Categoría cliente</Label>
+                <Select
+                  value={form.categoriaClienteId ? String(form.categoriaClienteId) : "__none__"}
+                  onValueChange={(value) =>
+                    set("categoriaClienteId", value === "__none__" ? null : Number(value))
+                  }
+                  disabled={!form.esCliente}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar categoría" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin categoría</SelectItem>
+                    {categoriasClientes.map((categoria) => (
+                      <SelectItem key={categoria.id} value={String(categoria.id)}>
+                        {categoria.descripcion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Estado cliente</Label>
+                <Select
+                  value={form.estadoClienteId ? String(form.estadoClienteId) : "__none__"}
+                  onValueChange={(value) =>
+                    set("estadoClienteId", value === "__none__" ? null : Number(value))
+                  }
+                  disabled={!form.esCliente}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar estado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin estado</SelectItem>
+                    {estadosClientes.map((estado) => (
+                      <SelectItem key={estado.id} value={String(estado.id)}>
+                        {estado.descripcion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Sucursal facturación</Label>
+                <Select
+                  value={form.sucursalId ? String(form.sucursalId) : "__none__"}
+                  onValueChange={(value) =>
+                    set("sucursalId", value === "__none__" ? null : Number(value))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar sucursal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin sucursal</SelectItem>
+                    {sucursales.map((sucursal) => (
+                      <SelectItem key={sucursal.id} value={String(sucursal.id)}>
+                        {sucursal.descripcion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Categoría general</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="ID categoría general"
+                  value={form.categoriaId ?? ""}
+                  onChange={(e) => set("categoriaId", num(e.target.value))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Vendedor</Label>
+                <Select
+                  value={form.vendedorId ? String(form.vendedorId) : "__none__"}
+                  onValueChange={(value) =>
+                    set("vendedorId", value === "__none__" ? null : Number(value))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar vendedor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin vendedor</SelectItem>
+                    {empleados.map((empleado) => (
+                      <SelectItem key={empleado.id} value={String(empleado.id)}>
+                        {(empleado.razonSocial || `Empleado #${empleado.id}`) +
+                          (empleado.legajo ? ` · ${empleado.legajo}` : "")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Cobrador</Label>
+                <Select
+                  value={form.cobradorId ? String(form.cobradorId) : "__none__"}
+                  onValueChange={(value) =>
+                    set("cobradorId", value === "__none__" ? null : Number(value))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar cobrador" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin cobrador</SelectItem>
+                    {empleados.map((empleado) => (
+                      <SelectItem key={empleado.id} value={String(empleado.id)}>
+                        {(empleado.razonSocial || `Empleado #${empleado.id}`) +
+                          (empleado.legajo ? ` · ${empleado.legajo}` : "")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>% Comisión Vendedor</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  disabled={!form.aplicaComisionVendedor}
+                  value={form.pctComisionVendedor}
+                  onChange={(e) => set("pctComisionVendedor", parseFloat(e.target.value) || 0)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>% Comisión Cobrador</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  disabled={!form.aplicaComisionCobrador}
+                  value={form.pctComisionCobrador}
+                  onChange={(e) => set("pctComisionCobrador", parseFloat(e.target.value) || 0)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="flex items-center gap-2 rounded-lg border p-3">
+              <Switch
+                id="facturable"
+                checked={form.facturable}
+                onCheckedChange={(value) => set("facturable", value)}
               />
+              <Label htmlFor="facturable">Facturable</Label>
             </div>
-            <div className="space-y-1.5">
-              <Label>Categoría</Label>
-              <Input
-                type="number"
-                min={0}
-                placeholder="ID de categoría"
-                value={form.categoriaId ?? ""}
-                onChange={(e) => set("categoriaId", num(e.target.value))}
+            <div className="flex items-center gap-2 rounded-lg border p-3">
+              <Switch
+                id="aplica-comision-vendedor"
+                checked={Boolean(form.aplicaComisionVendedor)}
+                onCheckedChange={(value) => set("aplicaComisionVendedor", value)}
               />
+              <Label htmlFor="aplica-comision-vendedor">Aplica comisión vendedor</Label>
             </div>
-            <div className="space-y-1.5">
-              <Label>Cobrador</Label>
-              <Input
-                type="number"
-                min={0}
-                placeholder="ID cobrador"
-                value={form.cobradorId ?? ""}
-                onChange={(e) => set("cobradorId", num(e.target.value))}
+            <div className="flex items-center gap-2 rounded-lg border p-3">
+              <Switch
+                id="aplica-comision-cobrador"
+                checked={Boolean(form.aplicaComisionCobrador)}
+                onCheckedChange={(value) => set("aplicaComisionCobrador", value)}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label>% Comisión Cobrador</Label>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                step={0.5}
-                value={form.pctComisionCobrador}
-                onChange={(e) => set("pctComisionCobrador", parseFloat(e.target.value) || 0)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Vendedor</Label>
-              <Input
-                type="number"
-                min={0}
-                placeholder="ID vendedor"
-                value={form.vendedorId ?? ""}
-                onChange={(e) => set("vendedorId", num(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>% Comisión Vendedor</Label>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                step={0.5}
-                value={form.pctComisionVendedor}
-                onChange={(e) => set("pctComisionVendedor", parseFloat(e.target.value) || 0)}
-              />
+              <Label htmlFor="aplica-comision-cobrador">Aplica comisión cobrador</Label>
             </div>
           </div>
-          <div className="flex items-center gap-2 pt-2">
-            <Switch
-              id="facturable"
-              checked={form.facturable}
-              onCheckedChange={(v) => set("facturable", v)}
-            />
-            <Label htmlFor="facturable">Facturable</Label>
-          </div>
+          {form.estadoClienteId ? (
+            <p className="text-xs text-muted-foreground">
+              {(() => {
+                const estado = estadosClientes.find((item) => item.id === form.estadoClienteId)
+                if (!estado) return "Estado cliente seleccionado"
+                return estado.bloquea
+                  ? `${estado.descripcion}: bloquea operatoria comercial.`
+                  : `${estado.descripcion}: no bloquea operatoria comercial.`
+              })()}
+            </p>
+          ) : null}
         </TabsContent>
 
-        <TabsContent value="otros" className="space-y-4 mt-4">
-          <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">Roles del registro</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="esCliente"
-                      checked={form.esCliente}
-                      onCheckedChange={(v) => set("esCliente", v)}
-                    />
-                    <Label htmlFor="esCliente">Es Cliente</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="esProveedor"
-                      checked={form.esProveedor}
-                      onCheckedChange={(v) => set("esProveedor", v)}
-                    />
-                    <Label htmlFor="esProveedor">Es Proveedor</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="esEmpleado"
-                      checked={form.esEmpleado}
-                      onCheckedChange={(v) => set("esEmpleado", v)}
-                    />
-                    <Label htmlFor="esEmpleado">Es Empleado</Label>
-                  </div>
-                </CardContent>
-              </Card>
+        <TabsContent value="perfil" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Perfil comercial y segmentación</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label>ID zona comercial</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={sections.perfilComercial.zonaComercialId ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      zonaComercialId: e.target.value ? Number(e.target.value) : null,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Zona comercial</Label>
+                <Input
+                  value={sections.perfilComercial.zonaComercialDescripcion ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      zonaComercialDescripcion: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Riesgo crediticio</Label>
+                <Select
+                  value={sections.perfilComercial.riesgoCrediticio ?? "NORMAL"}
+                  onValueChange={(value) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      riesgoCrediticio: value,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NORMAL">Normal</SelectItem>
+                    <SelectItem value="ALERTA">Alerta</SelectItem>
+                    <SelectItem value="BLOQUEADO">Bloqueado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Rubro</Label>
+                <Input
+                  value={sections.perfilComercial.rubro ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      rubro: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Subrubro</Label>
+                <Input
+                  value={sections.perfilComercial.subrubro ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      subrubro: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Sector</Label>
+                <Input
+                  value={sections.perfilComercial.sector ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      sector: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Condición de cobranza</Label>
+                <Input
+                  value={sections.perfilComercial.condicionCobranza ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      condicionCobranza: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Condición de venta</Label>
+                <Input
+                  value={sections.perfilComercial.condicionVenta ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      condicionVenta: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Plazo de cobro</Label>
+                <Input
+                  value={sections.perfilComercial.plazoCobro ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      plazoCobro: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Vigencia de saldo</Label>
+                <Input
+                  value={sections.perfilComercial.vigenciaSaldo ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      vigenciaSaldo: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Saldo máximo vigente</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={sections.perfilComercial.saldoMaximoVigente ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      saldoMaximoVigente: e.target.value ? Number(e.target.value) : null,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Facturador por defecto</Label>
+                <Input
+                  value={sections.perfilComercial.facturadorPorDefecto ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      facturadorPorDefecto: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Mínimo factura MiPyMEs</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={sections.perfilComercial.minimoFacturaMipymes ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      minimoFacturaMipymes: e.target.value ? Number(e.target.value) : null,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5 md:col-span-2 xl:col-span-3">
+                <Label>Observación comercial</Label>
+                <Textarea
+                  className="h-28 resize-none"
+                  value={sections.perfilComercial.observacionComercial ?? ""}
+                  onChange={(e) =>
+                    updateSections("perfilComercial", {
+                      ...sections.perfilComercial,
+                      observacionComercial: e.target.value,
+                    })
+                  }
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">Resumen operativo</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm text-muted-foreground">
-                  <p>Personería: {personeriaLabel(form.tipoPersoneria)}</p>
-                  <p>Legajo: {form.legajo || "Sin legajo"}</p>
-                  <p>{formatRelationLabel("Vendedor", form.vendedorId)}</p>
-                  <p>{formatRelationLabel("Cobrador", form.cobradorId)}</p>
-                  <p>Límite configurado: {formatMoney(form.limiteCredito)}</p>
-                  <p>{form.facturable ? "Disponible para facturación" : "No facturable"}</p>
-                </CardContent>
-              </Card>
-            </div>
+        <TabsContent value="contactos" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+              <CardTitle className="text-base">Referentes y canales de contacto</CardTitle>
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-transparent"
+                onClick={() =>
+                  updateSections("contactos", [...sections.contactos, createCustomerContact()])
+                }
+              >
+                <Plus className="mr-2 h-4 w-4" /> Nuevo contacto
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {sections.contactos.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  Agregá referentes comerciales, administrativos o de cobranza.
+                </div>
+              ) : null}
+              {sections.contactos.length > 1 ? (
+                <p className="text-xs text-muted-foreground">
+                  Solo un contacto puede quedar marcado como principal.
+                </p>
+              ) : null}
+              {sections.contactos.map((contact) => (
+                <div key={contact.id} className="rounded-xl border p-4 space-y-3">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <Input
+                      placeholder="Nombre"
+                      value={contact.nombre ?? ""}
+                      onChange={(e) => updateContact(contact.id, { nombre: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Cargo"
+                      value={contact.cargo ?? ""}
+                      onChange={(e) => updateContact(contact.id, { cargo: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Sector"
+                      value={contact.sector ?? ""}
+                      onChange={(e) => updateContact(contact.id, { sector: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Email"
+                      value={contact.email ?? ""}
+                      inputMode="email"
+                      onChange={(e) => updateContact(contact.id, { email: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Teléfono"
+                      value={contact.telefono ?? ""}
+                      inputMode="tel"
+                      onChange={(e) =>
+                        updateContact(contact.id, { telefono: formatPhoneDisplay(e.target.value) })
+                      }
+                    />
+                    {contact.principal ? (
+                      <Badge variant="secondary" className="w-fit">
+                        Contacto principal
+                      </Badge>
+                    ) : null}
+                    <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                      <Label htmlFor={`contact-principal-${contact.id}`}>Principal</Label>
+                      <Switch
+                        id={`contact-principal-${contact.id}`}
+                        checked={Boolean(contact.principal)}
+                        onCheckedChange={(checked) =>
+                          updateContact(contact.id, { principal: checked })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        updateSections(
+                          "contactos",
+                          sections.contactos.filter((row) => row.id !== contact.id)
+                        )
+                      }
+                    >
+                      <X className="mr-2 h-4 w-4" /> Quitar
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-            <div className="space-y-1.5">
-              <Label>Observación</Label>
-              <Textarea
-                placeholder="Observaciones y notas operativas..."
-                value={form.observacion ?? ""}
-                onChange={(e) => set("observacion", str(e.target.value))}
-                className="h-24 resize-none"
-              />
-            </div>
+        <TabsContent value="entregas" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+              <CardTitle className="text-base">Entregas y sucursales</CardTitle>
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-transparent"
+                onClick={() =>
+                  updateSections("sucursalesEntrega", [
+                    ...sections.sucursalesEntrega,
+                    createCustomerBranch(),
+                  ])
+                }
+              >
+                <Plus className="mr-2 h-4 w-4" /> Nueva sucursal
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {sections.sucursalesEntrega.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  Cargá domicilios de entrega, responsables y horarios por sucursal.
+                </div>
+              ) : null}
+              {sections.sucursalesEntrega.length > 1 ? (
+                <p className="text-xs text-muted-foreground">
+                  Solo una sucursal de entrega puede quedar como principal.
+                </p>
+              ) : null}
+              {sections.sucursalesEntrega.map((branch) => (
+                <div key={branch.id} className="rounded-xl border p-4 space-y-3">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <Input
+                      placeholder="Descripción"
+                      value={branch.descripcion ?? ""}
+                      onChange={(e) => updateBranch(branch.id, { descripcion: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Responsable"
+                      value={branch.responsable ?? ""}
+                      onChange={(e) => updateBranch(branch.id, { responsable: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Teléfono"
+                      value={branch.telefono ?? ""}
+                      inputMode="tel"
+                      onChange={(e) =>
+                        updateBranch(branch.id, { telefono: formatPhoneDisplay(e.target.value) })
+                      }
+                    />
+                    <Input
+                      placeholder="Dirección"
+                      value={branch.direccion ?? ""}
+                      onChange={(e) => updateBranch(branch.id, { direccion: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Localidad"
+                      value={branch.localidad ?? ""}
+                      onChange={(e) => updateBranch(branch.id, { localidad: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Horario"
+                      value={branch.horario ?? ""}
+                      onChange={(e) => updateBranch(branch.id, { horario: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {branch.principal ? (
+                        <Badge variant="secondary" className="w-fit">
+                          Principal
+                        </Badge>
+                      ) : null}
+                      <Switch
+                        checked={Boolean(branch.principal)}
+                        onCheckedChange={(checked) =>
+                          updateBranch(branch.id, { principal: checked })
+                        }
+                      />
+                      <Label>Sucursal principal</Label>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        updateSections(
+                          "sucursalesEntrega",
+                          sections.sucursalesEntrega.filter((row) => row.id !== branch.id)
+                        )
+                      }
+                    >
+                      <X className="mr-2 h-4 w-4" /> Quitar
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="operacion" className="mt-4 space-y-4">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+                <CardTitle className="text-base">Transportes asociados</CardTitle>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="bg-transparent"
+                  onClick={() =>
+                    updateSections("transportes", [
+                      ...sections.transportes,
+                      createCustomerTransport(),
+                    ])
+                  }
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Nuevo transporte
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {sections.transportes.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                    Relacioná transportistas, servicios y zonas operativas.
+                  </div>
+                ) : null}
+                {sections.transportes.length > 1 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Solo un transporte puede quedar como principal.
+                  </p>
+                ) : null}
+                {sections.transportes.map((transport) => (
+                  <div key={transport.id} className="rounded-xl border p-4 space-y-3">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder="ID transportista"
+                        value={transport.transportistaId ?? ""}
+                        onChange={(e) =>
+                          updateTransport(transport.id, {
+                            transportistaId: e.target.value ? Number(e.target.value) : null,
+                          })
+                        }
+                      />
+                      <Input
+                        placeholder="Nombre"
+                        value={transport.nombre ?? ""}
+                        onChange={(e) => updateTransport(transport.id, { nombre: e.target.value })}
+                      />
+                      <Input
+                        placeholder="Servicio"
+                        value={transport.servicio ?? ""}
+                        onChange={(e) =>
+                          updateTransport(transport.id, { servicio: e.target.value })
+                        }
+                      />
+                      <Input
+                        placeholder="Zona"
+                        value={transport.zona ?? ""}
+                        onChange={(e) => updateTransport(transport.id, { zona: e.target.value })}
+                      />
+                      <Input
+                        placeholder="Frecuencia"
+                        value={transport.frecuencia ?? ""}
+                        onChange={(e) =>
+                          updateTransport(transport.id, { frecuencia: e.target.value })
+                        }
+                      />
+                      <Textarea
+                        placeholder="Observación"
+                        value={transport.observacion ?? ""}
+                        onChange={(e) =>
+                          updateTransport(transport.id, { observacion: e.target.value })
+                        }
+                        className="resize-none"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-4">
+                        {transport.principal ? (
+                          <Badge variant="secondary" className="w-fit">
+                            Transporte principal
+                          </Badge>
+                        ) : null}
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={Boolean(transport.activo)}
+                            onCheckedChange={(checked) =>
+                              updateTransport(transport.id, { activo: checked })
+                            }
+                          />
+                          <Label>Activo</Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={Boolean(transport.principal)}
+                            onCheckedChange={(checked) =>
+                              updateTransport(transport.id, { principal: checked })
+                            }
+                          />
+                          <Label>Principal</Label>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          updateSections(
+                            "transportes",
+                            sections.transportes.filter((row) => row.id !== transport.id)
+                          )
+                        }
+                      >
+                        <X className="mr-2 h-4 w-4" /> Quitar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+                <CardTitle className="text-base">Cobranza, roles y observaciones</CardTitle>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="bg-transparent"
+                  onClick={() =>
+                    updateSections("ventanasCobranza", [
+                      ...sections.ventanasCobranza,
+                      createCustomerCollectionWindow(),
+                    ])
+                  }
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Nueva ventana
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card className="border-dashed">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">Roles del registro</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id="esCliente"
+                          checked={form.esCliente}
+                          onCheckedChange={(value) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              esCliente: value,
+                              categoriaClienteId: value ? prev.categoriaClienteId : null,
+                              estadoClienteId: value ? prev.estadoClienteId : null,
+                            }))
+                          }
+                        />
+                        <Label htmlFor="esCliente">Es cliente</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id="esProveedor"
+                          checked={form.esProveedor}
+                          onCheckedChange={(v) => set("esProveedor", v)}
+                        />
+                        <Label htmlFor="esProveedor">Es proveedor</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id="esEmpleado"
+                          checked={form.esEmpleado}
+                          onCheckedChange={(v) => set("esEmpleado", v)}
+                        />
+                        <Label htmlFor="esEmpleado">Es empleado</Label>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-dashed">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">Observación general</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Textarea
+                        placeholder="Notas operativas, acuerdos de atención o alertas internas..."
+                        value={form.observacion ?? ""}
+                        onChange={(e) => set("observacion", str(e.target.value))}
+                        className="h-32 resize-none"
+                      />
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="space-y-3">
+                  {sections.ventanasCobranza.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      Definí días, franjas y responsables para cobranza y seguimiento.
+                    </div>
+                  ) : null}
+                  {sections.ventanasCobranza.length > 1 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Solo una ventana de cobranza puede quedar como principal.
+                    </p>
+                  ) : null}
+                  {sections.ventanasCobranza.map((window) => (
+                    <div key={window.id} className="rounded-xl border p-4 space-y-3">
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <Input
+                          placeholder="Día"
+                          value={window.dia ?? ""}
+                          onChange={(e) =>
+                            updateCollectionWindow(window.id, { dia: e.target.value })
+                          }
+                        />
+                        <Input
+                          placeholder="Franja"
+                          value={window.franja ?? ""}
+                          onChange={(e) =>
+                            updateCollectionWindow(window.id, { franja: e.target.value })
+                          }
+                        />
+                        <Input
+                          placeholder="Canal"
+                          value={window.canal ?? ""}
+                          onChange={(e) =>
+                            updateCollectionWindow(window.id, { canal: e.target.value })
+                          }
+                        />
+                        <Input
+                          placeholder="Responsable"
+                          value={window.responsable ?? ""}
+                          onChange={(e) =>
+                            updateCollectionWindow(window.id, { responsable: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {window.principal ? (
+                            <Badge variant="secondary" className="w-fit">
+                              Ventana principal
+                            </Badge>
+                          ) : null}
+                          <Switch
+                            checked={Boolean(window.principal)}
+                            onCheckedChange={(checked) =>
+                              updateCollectionWindow(window.id, { principal: checked })
+                            }
+                          />
+                          <Label>Ventana principal</Label>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            updateSections(
+                              "ventanasCobranza",
+                              sections.ventanasCobranza.filter((row) => row.id !== window.id)
+                            )
+                          }
+                        >
+                          <X className="mr-2 h-4 w-4" /> Quitar
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
       </Tabs>
@@ -1057,7 +2295,7 @@ function CustomerForm({
         </Button>
         <Button onClick={handleSave} disabled={saving}>
           <Check className="h-4 w-4 mr-2" />
-          {saving ? "Guardando..." : customer ? "Guardar Cambios" : "Crear Cliente"}
+          {saving ? "Guardando..." : customer ? "Guardar cambios" : "Crear cliente"}
         </Button>
       </div>
     </div>
@@ -1071,13 +2309,11 @@ function ClienteDetail({
   sections,
   onClose,
   onEdit,
-  onEditSections,
 }: {
   customer: Tercero
   sections: CustomerSections
   onClose: () => void
   onEdit: () => void
-  onEditSections: () => void
 }) {
   const { monedas } = useTercerosConfig()
   const monedaDescripcion =
@@ -1086,7 +2322,9 @@ function ClienteDetail({
   const profile = sections.perfilComercial
 
   const identificationFields = [
+    { label: "Nro. interno", value: customer.nroInterno ? String(customer.nroInterno) : "-" },
     { label: "Legajo", value: customer.legajo ?? "-" },
+    { label: "Rol", value: customer.rolDisplay ?? "Cliente" },
     { label: "Personería", value: personeriaLabel(customer.tipoPersoneria) },
     { label: "Razón Social", value: customer.razonSocial },
     { label: "Nombre", value: customer.nombre ?? "-" },
@@ -1097,6 +2335,7 @@ function ClienteDetail({
     { label: "Celular", value: customer.celular ?? "-" },
     { label: "Sitio Web", value: customer.web ?? "-" },
     { label: "Estado", value: customer.activo ? "Activo" : "Inactivo" },
+    { label: "Estado operativo", value: customer.estadoOperativoDescripcion ?? "-" },
     { label: "Fecha Alta", value: new Date(customer.createdAt).toLocaleDateString("es-AR") },
   ]
 
@@ -1107,12 +2346,19 @@ function ClienteDetail({
     { label: "Departamento", value: customer.dpto ?? "-" },
     { label: "Código Postal", value: customer.codigoPostal ?? "-" },
     {
+      label: "País",
+      value: customer.paisDescripcion ?? (customer.paisId ? `#${customer.paisId}` : "-"),
+    },
+    {
       label: "Localidad",
       value:
         customer.localidadDescripcion ??
         (customer.localidadId ? String(customer.localidadId) : "-"),
     },
-    { label: "Barrio", value: customer.barrioId ? String(customer.barrioId) : "-" },
+    {
+      label: "Barrio",
+      value: customer.barrioDescripcion ?? (customer.barrioId ? String(customer.barrioId) : "-"),
+    },
   ]
 
   const fiscalFields = [
@@ -1139,14 +2385,49 @@ function ClienteDetail({
 
   const commercialFields = [
     { label: "Moneda", value: monedaDescripcion },
-    { label: "Categoría", value: customer.categoriaId ? `#${customer.categoriaId}` : "-" },
+    {
+      label: "Categoría general",
+      value:
+        customer.categoriaDescripcion ?? (customer.categoriaId ? `#${customer.categoriaId}` : "-"),
+    },
+    {
+      label: "Categoría cliente",
+      value:
+        customer.categoriaClienteDescripcion ??
+        (customer.categoriaClienteId ? `#${customer.categoriaClienteId}` : "-"),
+    },
+    {
+      label: "Estado cliente",
+      value:
+        customer.estadoClienteDescripcion ??
+        (customer.estadoClienteId ? `#${customer.estadoClienteId}` : "-"),
+    },
     {
       label: "Límite de Crédito",
       value: formatMoney(customer.limiteCredito),
     },
-    { label: "Cobrador", value: customer.cobradorId ? `#${customer.cobradorId}` : "-" },
+    {
+      label: "Sucursal facturación",
+      value:
+        customer.sucursalDescripcion ?? (customer.sucursalId ? `#${customer.sucursalId}` : "-"),
+    },
+    {
+      label: "Cobrador",
+      value: customer.cobradorNombre ?? (customer.cobradorId ? `#${customer.cobradorId}` : "-"),
+    },
+    {
+      label: "Aplica comisión cobrador",
+      value: customer.aplicaComisionCobrador ? "Sí" : "No",
+    },
     { label: "% Comisión Cobrador", value: `${customer.pctComisionCobrador}%` },
-    { label: "Vendedor", value: customer.vendedorId ? `#${customer.vendedorId}` : "-" },
+    {
+      label: "Vendedor",
+      value: customer.vendedorNombre ?? (customer.vendedorId ? `#${customer.vendedorId}` : "-"),
+    },
+    {
+      label: "Aplica comisión vendedor",
+      value: customer.aplicaComisionVendedor ? "Sí" : "No",
+    },
     { label: "% Comisión Vendedor", value: `${customer.pctComisionVendedor}%` },
     { label: "Facturable", value: customer.facturable ? "Sí" : "No" },
     {
@@ -1232,6 +2513,8 @@ function ClienteDetail({
       customer.facturable ? "Circuito facturable" : "Registro no facturable",
       customer.vendedorId ? "Vendedor asignado" : null,
       customer.cobradorId ? "Cobrador asignado" : null,
+      customer.estadoClienteDescripcion ? "Estado cliente visible" : null,
+      customer.sucursalId ? "Sucursal de facturación" : null,
       customer.limiteCredito !== null ? "Límite de crédito" : null,
       customer.condicionIvaDescripcion ? "Cobertura fiscal" : null,
       sections.contactos.length > 0 ? "Contactos adicionales" : null,
@@ -1247,6 +2530,7 @@ function ClienteDetail({
       sections.sucursalesEntrega.length === 0 ? "Sin sucursales de entrega" : null,
       sections.transportes.length === 0 ? "Sin transportes asociados" : null,
       sections.ventanasCobranza.length === 0 ? "Sin ventanas de cobranza" : null,
+      !customer.estadoClienteDescripcion ? "Sin estado cliente" : null,
       !profile.zonaComercialId && !profile.zonaComercialDescripcion && !profile.rubro
         ? "Sin perfil comercial"
         : null,
@@ -1273,7 +2557,7 @@ function ClienteDetail({
                     className="p-3 rounded-lg bg-muted/50 col-span-2 sm:col-span-1"
                   >
                     <span className="text-xs text-muted-foreground block mb-1">{f.label}</span>
-                    <p className="font-medium text-sm wrap-break-word">{f.value}</p>
+                    <p className="wrap-break-word font-medium text-sm">{f.value}</p>
                   </div>
                 ))}
               </CardContent>
@@ -1297,7 +2581,7 @@ function ClienteDetail({
                   <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <div>
                     <p className="text-xs text-muted-foreground">{channel.label}</p>
-                    <p className="text-sm font-medium wrap-break-word">{channel.value}</p>
+                    <p className="wrap-break-word text-sm font-medium">{channel.value}</p>
                   </div>
                 </div>
               )
@@ -1450,586 +2734,10 @@ function ClienteDetail({
         <Button variant="outline" onClick={onClose} className="bg-transparent">
           Cerrar
         </Button>
-        <Button variant="outline" onClick={onEditSections} className="bg-transparent">
-          <BriefcaseBusiness className="h-4 w-4 mr-2" /> Editar secciones
-        </Button>
         <Button onClick={onEdit}>
-          <Edit className="h-4 w-4 mr-2" /> Editar Cliente
+          <Edit className="h-4 w-4 mr-2" /> Editar ficha completa
         </Button>
       </DialogFooter>
-    </div>
-  )
-}
-
-function CustomerSectionsDialog({
-  customer,
-  sections,
-  onClose,
-  onSave,
-  saving,
-  error,
-}: {
-  customer: Tercero
-  sections: CustomerSections
-  onClose: () => void
-  onSave: (sections: CustomerSections) => void
-  saving: boolean
-  error: string | null
-}) {
-  const [draft, setDraft] = useState<CustomerSections>(normalizeCustomerSections(sections))
-
-  useEffect(() => {
-    setDraft(normalizeCustomerSections(sections))
-  }, [sections])
-
-  const updateDraft = <K extends keyof CustomerSections>(key: K, value: CustomerSections[K]) => {
-    setDraft((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const updateContact = (id: number | string | undefined, patch: Partial<TerceroContacto>) => {
-    updateDraft(
-      "contactos",
-      draft.contactos.map((contact) => (contact.id === id ? { ...contact, ...patch } : contact))
-    )
-  }
-
-  const updateBranch = (
-    id: number | string | undefined,
-    patch: Partial<TerceroSucursalEntrega>
-  ) => {
-    updateDraft(
-      "sucursalesEntrega",
-      draft.sucursalesEntrega.map((branch) => (branch.id === id ? { ...branch, ...patch } : branch))
-    )
-  }
-
-  const updateTransport = (id: number | string | undefined, patch: Partial<TerceroTransporte>) => {
-    updateDraft(
-      "transportes",
-      draft.transportes.map((transport) =>
-        transport.id === id ? { ...transport, ...patch } : transport
-      )
-    )
-  }
-
-  const updateCollectionWindow = (
-    id: number | string | undefined,
-    patch: Partial<TerceroVentanaCobranza>
-  ) => {
-    updateDraft(
-      "ventanasCobranza",
-      draft.ventanasCobranza.map((window) => (window.id === id ? { ...window, ...patch } : window))
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label>ID zona comercial</Label>
-          <Input
-            type="number"
-            min={1}
-            value={draft.perfilComercial.zonaComercialId ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                zonaComercialId: e.target.value ? Number(e.target.value) : null,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Riesgo crediticio</Label>
-          <Select
-            value={draft.perfilComercial.riesgoCrediticio ?? "NORMAL"}
-            onValueChange={(value) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                riesgoCrediticio: value,
-              })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="NORMAL">Normal</SelectItem>
-              <SelectItem value="ALERTA">Alerta</SelectItem>
-              <SelectItem value="BLOQUEADO">Bloqueado</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Rubro</Label>
-          <Input
-            value={draft.perfilComercial.rubro ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                rubro: e.target.value,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Subrubro</Label>
-          <Input
-            value={draft.perfilComercial.subrubro ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                subrubro: e.target.value,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Sector</Label>
-          <Input
-            value={draft.perfilComercial.sector ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                sector: e.target.value,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Condición cobranza</Label>
-          <Input
-            value={draft.perfilComercial.condicionCobranza ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                condicionCobranza: e.target.value,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Vigencia saldo</Label>
-          <Input
-            value={draft.perfilComercial.vigenciaSaldo ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                vigenciaSaldo: e.target.value,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Saldo máximo vigente</Label>
-          <Input
-            type="number"
-            min={0}
-            value={draft.perfilComercial.saldoMaximoVigente ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                saldoMaximoVigente: e.target.value ? Number(e.target.value) : null,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Condición venta</Label>
-          <Input
-            value={draft.perfilComercial.condicionVenta ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                condicionVenta: e.target.value,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Plazo cobro</Label>
-          <Input
-            value={draft.perfilComercial.plazoCobro ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                plazoCobro: e.target.value,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Facturador por defecto</Label>
-          <Input
-            value={draft.perfilComercial.facturadorPorDefecto ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                facturadorPorDefecto: e.target.value,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Mínimo factura MiPyMEs</Label>
-          <Input
-            type="number"
-            min={0}
-            value={draft.perfilComercial.minimoFacturaMipymes ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                minimoFacturaMipymes: e.target.value ? Number(e.target.value) : null,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1.5 md:col-span-2">
-          <Label>Observación comercial</Label>
-          <Textarea
-            className="h-24 resize-none"
-            value={draft.perfilComercial.observacionComercial ?? ""}
-            onChange={(e) =>
-              updateDraft("perfilComercial", {
-                ...draft.perfilComercial,
-                observacionComercial: e.target.value,
-              })
-            }
-          />
-        </div>
-      </div>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
-          <CardTitle className="text-base">Contactos múltiples</CardTitle>
-          <Button
-            type="button"
-            variant="outline"
-            className="bg-transparent"
-            onClick={() => updateDraft("contactos", [...draft.contactos, createCustomerContact()])}
-          >
-            <Plus className="h-4 w-4 mr-2" /> Agregar
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {draft.contactos.map((contact) => (
-            <div key={contact.id} className="rounded-lg border p-4 space-y-3">
-              <div className="grid gap-3 md:grid-cols-3">
-                <Input
-                  placeholder="Nombre"
-                  value={contact.nombre ?? ""}
-                  onChange={(e) => updateContact(contact.id, { nombre: e.target.value })}
-                />
-                <Input
-                  placeholder="Cargo"
-                  value={contact.cargo ?? ""}
-                  onChange={(e) => updateContact(contact.id, { cargo: e.target.value })}
-                />
-                <Input
-                  placeholder="Sector"
-                  value={contact.sector ?? ""}
-                  onChange={(e) => updateContact(contact.id, { sector: e.target.value })}
-                />
-                <Input
-                  placeholder="Email"
-                  value={contact.email ?? ""}
-                  onChange={(e) => updateContact(contact.id, { email: e.target.value })}
-                />
-                <Input
-                  placeholder="Teléfono"
-                  value={contact.telefono ?? ""}
-                  onChange={(e) => updateContact(contact.id, { telefono: e.target.value })}
-                />
-                <div className="flex items-center justify-between rounded-md border px-3">
-                  <Label htmlFor={`principal-${contact.id}`}>Principal</Label>
-                  <Switch
-                    id={`principal-${contact.id}`}
-                    checked={contact.principal}
-                    onCheckedChange={(checked) => updateContact(contact.id, { principal: checked })}
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    updateDraft(
-                      "contactos",
-                      draft.contactos.filter((row) => row.id !== contact.id)
-                    )
-                  }
-                >
-                  <X className="h-4 w-4 mr-2" /> Quitar
-                </Button>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
-          <CardTitle className="text-base">Sucursales y puntos de entrega</CardTitle>
-          <Button
-            type="button"
-            variant="outline"
-            className="bg-transparent"
-            onClick={() =>
-              updateDraft("sucursalesEntrega", [...draft.sucursalesEntrega, createCustomerBranch()])
-            }
-          >
-            <Plus className="h-4 w-4 mr-2" /> Agregar
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {draft.sucursalesEntrega.map((branch) => (
-            <div key={branch.id} className="rounded-lg border p-4 space-y-3">
-              <div className="grid gap-3 md:grid-cols-2">
-                <Input
-                  placeholder="Descripción"
-                  value={branch.descripcion ?? ""}
-                  onChange={(e) => updateBranch(branch.id, { descripcion: e.target.value })}
-                />
-                <Input
-                  placeholder="Responsable"
-                  value={branch.responsable ?? ""}
-                  onChange={(e) => updateBranch(branch.id, { responsable: e.target.value })}
-                />
-                <Input
-                  placeholder="Dirección"
-                  value={branch.direccion ?? ""}
-                  onChange={(e) => updateBranch(branch.id, { direccion: e.target.value })}
-                />
-                <Input
-                  placeholder="Localidad"
-                  value={branch.localidad ?? ""}
-                  onChange={(e) => updateBranch(branch.id, { localidad: e.target.value })}
-                />
-                <Input
-                  placeholder="Teléfono"
-                  value={branch.telefono ?? ""}
-                  onChange={(e) => updateBranch(branch.id, { telefono: e.target.value })}
-                />
-                <Input
-                  placeholder="Horario"
-                  value={branch.horario ?? ""}
-                  onChange={(e) => updateBranch(branch.id, { horario: e.target.value })}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={branch.principal}
-                    onCheckedChange={(checked) => updateBranch(branch.id, { principal: checked })}
-                  />
-                  <Label>Sucursal principal</Label>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    updateDraft(
-                      "sucursalesEntrega",
-                      draft.sucursalesEntrega.filter((row) => row.id !== branch.id)
-                    )
-                  }
-                >
-                  <X className="h-4 w-4 mr-2" /> Quitar
-                </Button>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
-            <CardTitle className="text-base">Transportes asociados</CardTitle>
-            <Button
-              type="button"
-              variant="outline"
-              className="bg-transparent"
-              onClick={() =>
-                updateDraft("transportes", [...draft.transportes, createCustomerTransport()])
-              }
-            >
-              <Plus className="h-4 w-4 mr-2" /> Agregar
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {draft.transportes.map((transport) => (
-              <div key={transport.id} className="rounded-lg border p-4 space-y-3">
-                <Input
-                  type="number"
-                  min={1}
-                  placeholder="ID transportista"
-                  value={transport.transportistaId ?? ""}
-                  onChange={(e) =>
-                    updateTransport(transport.id, {
-                      transportistaId: e.target.value ? Number(e.target.value) : null,
-                    })
-                  }
-                />
-                <Input
-                  placeholder="Nombre"
-                  value={transport.nombre ?? ""}
-                  onChange={(e) => updateTransport(transport.id, { nombre: e.target.value })}
-                />
-                <Input
-                  placeholder="Servicio"
-                  value={transport.servicio ?? ""}
-                  onChange={(e) => updateTransport(transport.id, { servicio: e.target.value })}
-                />
-                <Input
-                  placeholder="Zona"
-                  value={transport.zona ?? ""}
-                  onChange={(e) => updateTransport(transport.id, { zona: e.target.value })}
-                />
-                <Input
-                  placeholder="Frecuencia"
-                  value={transport.frecuencia ?? ""}
-                  onChange={(e) => updateTransport(transport.id, { frecuencia: e.target.value })}
-                />
-                <Textarea
-                  placeholder="Observación"
-                  value={transport.observacion ?? ""}
-                  onChange={(e) => updateTransport(transport.id, { observacion: e.target.value })}
-                />
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={transport.activo}
-                        onCheckedChange={(checked) =>
-                          updateTransport(transport.id, { activo: checked })
-                        }
-                      />
-                      <Label>Activo</Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={Boolean(transport.principal)}
-                        onCheckedChange={(checked) =>
-                          updateTransport(transport.id, { principal: checked })
-                        }
-                      />
-                      <Label>Principal</Label>
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      updateDraft(
-                        "transportes",
-                        draft.transportes.filter((row) => row.id !== transport.id)
-                      )
-                    }
-                  >
-                    <X className="h-4 w-4 mr-2" /> Quitar
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
-            <CardTitle className="text-base">Ventanas de cobranza</CardTitle>
-            <Button
-              type="button"
-              variant="outline"
-              className="bg-transparent"
-              onClick={() =>
-                updateDraft("ventanasCobranza", [
-                  ...draft.ventanasCobranza,
-                  createCustomerCollectionWindow(),
-                ])
-              }
-            >
-              <Plus className="h-4 w-4 mr-2" /> Agregar
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {draft.ventanasCobranza.map((window) => (
-              <div key={window.id} className="rounded-lg border p-4 space-y-3">
-                <Input
-                  placeholder="Día"
-                  value={window.dia ?? ""}
-                  onChange={(e) => updateCollectionWindow(window.id, { dia: e.target.value })}
-                />
-                <Input
-                  placeholder="Franja"
-                  value={window.franja ?? ""}
-                  onChange={(e) => updateCollectionWindow(window.id, { franja: e.target.value })}
-                />
-                <Input
-                  placeholder="Canal"
-                  value={window.canal ?? ""}
-                  onChange={(e) => updateCollectionWindow(window.id, { canal: e.target.value })}
-                />
-                <Input
-                  placeholder="Responsable"
-                  value={window.responsable ?? ""}
-                  onChange={(e) =>
-                    updateCollectionWindow(window.id, { responsable: e.target.value })
-                  }
-                />
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={Boolean(window.principal)}
-                      onCheckedChange={(checked) =>
-                        updateCollectionWindow(window.id, { principal: checked })
-                      }
-                    />
-                    <Label>Principal</Label>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      updateDraft(
-                        "ventanasCobranza",
-                        draft.ventanasCobranza.filter((row) => row.id !== window.id)
-                      )
-                    }
-                  >
-                    <X className="h-4 w-4 mr-2" /> Quitar
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="flex justify-between border-t pt-4">
-        <p className="text-sm text-muted-foreground">
-          Persistencia backend del cliente #{customer.id}. Cada bloque se guarda en su endpoint
-          real.
-        </p>
-        <div className="flex gap-2">
-          <Button variant="outline" className="bg-transparent" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button onClick={() => onSave(draft)} disabled={saving}>
-            {saving ? "Guardando..." : "Guardar secciones"}
-          </Button>
-        </div>
-      </div>
-      {error ? (
-        <p className="text-sm text-red-500 flex items-center gap-1">
-          <AlertCircle className="h-4 w-4" /> {error}
-        </p>
-      ) : null}
     </div>
   )
 }
@@ -2037,6 +2745,13 @@ function CustomerSectionsDialog({
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function ClientesPage() {
+  const [soloActivosFilter, setSoloActivosFilter] = useState<"all" | "active">("all")
+  const [condicionIvaFilter, setCondicionIvaFilter] = useState<number | null>(null)
+  const [categoriaClienteFilter, setCategoriaClienteFilter] = useState<number | null>(null)
+  const [estadoClienteFilter, setEstadoClienteFilter] = useState<number | null>(null)
+  const [sucursalFilter, setSucursalFilter] = useState<number | null>(null)
+  const { condicionesIva, categoriasClientes, estadosClientes } = useTercerosConfig()
+  const { sucursales } = useSucursales(false)
   const {
     terceros,
     loading,
@@ -2062,13 +2777,30 @@ export default function ClientesPage() {
     getVentanasCobranza,
     updateVentanasCobranza,
     refetch,
-  } = useTerceros({ soloActivos: false })
+  } = useTerceros({
+    soloActivos: soloActivosFilter === "active",
+    condicionIvaId: condicionIvaFilter,
+    categoriaClienteId: categoriaClienteFilter,
+    estadoClienteId: estadoClienteFilter,
+    sucursalId: sucursalFilter,
+  })
 
   const [debouncedSearch, setDebouncedSearch] = useState(search)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     setDebouncedSearch(search)
   }, [search])
+
+  useEffect(() => {
+    setPage(1)
+  }, [
+    categoriaClienteFilter,
+    condicionIvaFilter,
+    estadoClienteFilter,
+    soloActivosFilter,
+    setPage,
+    sucursalFilter,
+  ])
 
   useEffect(() => {
     return () => {
@@ -2085,9 +2817,11 @@ export default function ClientesPage() {
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
-  const [isSectionsOpen, setIsSectionsOpen] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Tercero | null>(null)
   const [editingCustomer, setEditingCustomer] = useState<Tercero | null>(null)
+  const [editingCustomerSections, setEditingCustomerSections] = useState<CustomerSections | null>(
+    null
+  )
   const [deleting, setDeleting] = useState(false)
   const [selectedCustomerDetail, setSelectedCustomerDetail] = useState<Tercero | null>(null)
   const [selectedCustomerSections, setSelectedCustomerSections] = useState<CustomerSections | null>(
@@ -2097,7 +2831,6 @@ export default function ClientesPage() {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [formLoading, setFormLoading] = useState(false)
   const [formLoadError, setFormLoadError] = useState<string | null>(null)
-  const [sectionsSaving, setSectionsSaving] = useState(false)
 
   const loadCustomerSnapshot = async (customerId: number) => {
     setDetailLoading(true)
@@ -2148,10 +2881,29 @@ export default function ClientesPage() {
     setFormLoading(true)
     setFormLoadError(null)
     setEditingCustomer(c)
+    setEditingCustomerSections(normalizeCustomerSections(null))
     setIsFormOpen(true)
     try {
-      const detail = await getTerceroById(c.id)
+      const [detail, perfilComercial, contactos, sucursalesEntrega, transportes, ventanasCobranza] =
+        await Promise.all([
+          getTerceroById(c.id),
+          getPerfilComercial(c.id),
+          getContactos(c.id),
+          getSucursalesEntrega(c.id),
+          getTransportes(c.id),
+          getVentanasCobranza(c.id),
+        ])
+
       setEditingCustomer(detail)
+      setEditingCustomerSections(
+        normalizeCustomerSections({
+          perfilComercial,
+          contactos,
+          sucursalesEntrega,
+          transportes,
+          ventanasCobranza,
+        })
+      )
     } catch (e) {
       setFormLoadError(e instanceof Error ? e.message : "Error al cargar cliente para edición")
     } finally {
@@ -2162,16 +2914,6 @@ export default function ClientesPage() {
   const handleDeleteConfirm = (c: Tercero) => {
     setSelectedCustomer(c)
     setIsDeleteOpen(true)
-  }
-
-  const handleSectionsEdit = (c: Tercero) => {
-    setSelectedCustomer(c)
-    setIsSectionsOpen(true)
-    if (selectedCustomerDetail?.id !== c.id || !selectedCustomerSections) {
-      setSelectedCustomerDetail(null)
-      setSelectedCustomerSections(null)
-      void loadCustomerSnapshot(c.id)
-    }
   }
 
   const handleDelete = async () => {
@@ -2186,11 +2928,13 @@ export default function ClientesPage() {
     refetch()
   }
 
-  const handleSaved = () => {
+  const handleSaved = (customerId: number) => {
     setIsFormOpen(false)
+    setEditingCustomer(null)
+    setEditingCustomerSections(null)
     void refetch().then(() => {
-      if (selectedCustomer) {
-        void loadCustomerSnapshot(selectedCustomer.id)
+      if (selectedCustomer?.id === customerId || selectedCustomerDetail?.id === customerId) {
+        void loadCustomerSnapshot(customerId)
       }
     })
   }
@@ -2205,7 +2949,6 @@ export default function ClientesPage() {
         setSelectedCustomerSections(null)
         setIsDetailOpen(false)
         setIsDeleteOpen(false)
-        setIsSectionsOpen(false)
       } else if (nextSelected !== selectedCustomer) {
         setSelectedCustomer(nextSelected)
       }
@@ -2216,6 +2959,7 @@ export default function ClientesPage() {
 
       if (!nextEditing) {
         setEditingCustomer(null)
+        setEditingCustomerSections(null)
         setIsFormOpen(false)
       } else if (nextEditing !== editingCustomer) {
         setEditingCustomer(nextEditing)
@@ -2235,6 +2979,9 @@ export default function ClientesPage() {
     const conDocumento = terceros.filter((customer) => Boolean(customer.nroDocumento)).length
     const conClaveFiscal = terceros.filter((customer) =>
       Boolean(customer.claveFiscal && customer.valorClaveFiscal)
+    ).length
+    const bloqueados = terceros.filter(
+      (customer) => customer.estadoClienteBloquea || customer.estadoOperativoBloquea
     ).length
 
     const destacado = [...terceros]
@@ -2260,52 +3007,10 @@ export default function ClientesPage() {
       conWeb,
       conDocumento,
       conClaveFiscal,
+      bloqueados,
       destacado,
     }
   }, [terceros])
-
-  const saveCustomerSections = async (sections: CustomerSections) => {
-    if (!selectedCustomer) return
-
-    setSectionsSaving(true)
-    setDetailError(null)
-
-    const profileOk = await updatePerfilComercial(
-      selectedCustomer.id,
-      sanitizePerfilComercial(sections.perfilComercial)
-    )
-    const contactsOk = await updateContactos(
-      selectedCustomer.id,
-      sections.contactos.map((contact, index) => sanitizeContact({ ...contact, orden: index }))
-    )
-    const branchesOk = await updateSucursalesEntrega(
-      selectedCustomer.id,
-      sections.sucursalesEntrega.map((branch, index) => sanitizeBranch({ ...branch, orden: index }))
-    )
-    const transportesOk = await updateTransportes(
-      selectedCustomer.id,
-      sections.transportes.map((transport, index) =>
-        sanitizeTransport({ ...transport, orden: index })
-      )
-    )
-    const ventanasOk = await updateVentanasCobranza(
-      selectedCustomer.id,
-      sections.ventanasCobranza.map((window, index) =>
-        sanitizeCollectionWindow({ ...window, orden: index })
-      )
-    )
-
-    setSectionsSaving(false)
-
-    if (profileOk && contactsOk && branchesOk && transportesOk && ventanasOk) {
-      setIsSectionsOpen(false)
-      await refetch()
-      await loadCustomerSnapshot(selectedCustomer.id)
-      return
-    }
-
-    setDetailError("No se pudieron guardar todas las secciones del cliente")
-  }
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000"
 
@@ -2314,16 +3019,20 @@ export default function ClientesPage() {
       <div className="flex justify-between items-start">
         <div className="space-y-1">
           <h1 className="text-3xl font-bold tracking-tight">Clientes</h1>
-          <p className="text-muted-foreground">Maestro de clientes y gestión de crédito</p>
+          <p className="text-muted-foreground">
+            Ficha comercial de clientes con identidad, crédito, contactos, entregas y cobranza.
+          </p>
         </div>
         <Button
           onClick={() => {
             setEditingCustomer(null)
+            setEditingCustomerSections(normalizeCustomerSections(null))
+            setFormLoadError(null)
             setIsFormOpen(true)
           }}
         >
           <Plus className="h-4 w-4 mr-2" />
-          Nuevo Cliente
+          Nuevo cliente
         </Button>
       </div>
 
@@ -2384,6 +3093,12 @@ export default function ClientesPage() {
             color: "text-cyan-600",
             hint: "clave fiscal y valor informados",
           },
+          {
+            label: "Con bloqueo operativo",
+            value: customerSummary.bloqueados,
+            color: "text-rose-600",
+            hint: "estado cliente u operativo bloqueante",
+          },
         ].map((stat) => (
           <Card key={stat.label}>
             <CardHeader className="pb-2">
@@ -2402,7 +3117,7 @@ export default function ClientesPage() {
       {/* Filtros */}
       <Card>
         <CardContent className="pt-4">
-          <div className="flex flex-wrap gap-3 items-end">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <div className="flex-1 min-w-48">
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -2413,6 +3128,105 @@ export default function ClientesPage() {
                   className="pl-9"
                 />
               </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Activos</Label>
+              <Select
+                value={soloActivosFilter}
+                onValueChange={(value) => setSoloActivosFilter(value as "all" | "active")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="active">Solo activos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Condición IVA</Label>
+              <Select
+                value={condicionIvaFilter ? String(condicionIvaFilter) : "__none__"}
+                onValueChange={(value) =>
+                  setCondicionIvaFilter(value === "__none__" ? null : Number(value))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Todas</SelectItem>
+                  {condicionesIva.map((condicion) => (
+                    <SelectItem key={condicion.id} value={String(condicion.id)}>
+                      {condicion.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Categoría cliente</Label>
+              <Select
+                value={categoriaClienteFilter ? String(categoriaClienteFilter) : "__none__"}
+                onValueChange={(value) =>
+                  setCategoriaClienteFilter(value === "__none__" ? null : Number(value))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Todas</SelectItem>
+                  {categoriasClientes.map((categoria) => (
+                    <SelectItem key={categoria.id} value={String(categoria.id)}>
+                      {categoria.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Estado cliente</Label>
+              <Select
+                value={estadoClienteFilter ? String(estadoClienteFilter) : "__none__"}
+                onValueChange={(value) =>
+                  setEstadoClienteFilter(value === "__none__" ? null : Number(value))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Todos</SelectItem>
+                  {estadosClientes.map((estado) => (
+                    <SelectItem key={estado.id} value={String(estado.id)}>
+                      {estado.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Sucursal facturación</Label>
+              <Select
+                value={sucursalFilter ? String(sucursalFilter) : "__none__"}
+                onValueChange={(value) =>
+                  setSucursalFilter(value === "__none__" ? null : Number(value))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Todas</SelectItem>
+                  {sucursales.map((sucursal) => (
+                    <SelectItem key={sucursal.id} value={String(sucursal.id)}>
+                      {sucursal.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             {debouncedSearch && (
               <Button
@@ -2427,6 +3241,31 @@ export default function ClientesPage() {
                 <X className="h-3 w-3 mr-1" /> Limpiar
               </Button>
             )}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(soloActivosFilter !== "all" ||
+              condicionIvaFilter ||
+              categoriaClienteFilter ||
+              estadoClienteFilter ||
+              sucursalFilter) && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-transparent"
+                onClick={() => {
+                  setSoloActivosFilter("all")
+                  setCondicionIvaFilter(null)
+                  setCategoriaClienteFilter(null)
+                  setEstadoClienteFilter(null)
+                  setSucursalFilter(null)
+                }}
+              >
+                Limpiar filtros
+              </Button>
+            )}
+            <Button variant="outline" size="sm" className="bg-transparent" onClick={refetch}>
+              <RefreshCw className="mr-2 h-3.5 w-3.5" /> Refrescar
+            </Button>
           </div>
           {!loading && !error && (
             <p className="text-xs text-muted-foreground mt-2">
@@ -2548,110 +3387,131 @@ export default function ClientesPage() {
 
           {!loading && !error && (
             <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Razón Social</TableHead>
-                    <TableHead>CUIT/CUIL</TableHead>
-                    <TableHead>Condición IVA</TableHead>
-                    <TableHead>Localidad</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Teléfono</TableHead>
-                    <TableHead>Límite Crédito</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {terceros.length === 0 ? (
+              <div className="w-full overflow-x-auto">
+                <Table>
+                  <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
-                        No se encontraron clientes
-                      </TableCell>
+                      <TableHead>Legajo</TableHead>
+                      <TableHead>Razón Social</TableHead>
+                      <TableHead>CUIT/CUIL</TableHead>
+                      <TableHead>Condición IVA</TableHead>
+                      <TableHead>Estado cliente</TableHead>
+                      <TableHead>Localidad</TableHead>
+                      <TableHead>Límite Crédito</TableHead>
+                      <TableHead>Operativo</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
-                  ) : (
-                    terceros.map((customer) => (
-                      <TableRow
-                        key={customer.id}
-                        className="cursor-pointer hover:bg-muted/40"
-                        onClick={() => handleViewDetail(customer)}
-                      >
-                        <TableCell>
-                          <div className="font-medium text-sm">{customer.razonSocial}</div>
-                          {customer.nombreFantasia && (
-                            <div className="text-xs text-muted-foreground">
-                              {customer.nombreFantasia}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {customer.nroDocumento ?? "-"}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {customer.condicionIvaDescripcion ?? `IVA ${customer.condicionIvaId}`}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {customer.localidadDescripcion ?? "-"}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {customer.email ? (
-                            <span className="flex items-center gap-1">
-                              <Mail className="h-3 w-3" /> {customer.email}
-                            </span>
-                          ) : (
-                            "-"
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {customer.telefono ? (
-                            <span className="flex items-center gap-1">
-                              <Phone className="h-3 w-3" /> {customer.telefono}
-                            </span>
-                          ) : (
-                            "-"
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {customer.limiteCredito !== null ? (
-                            "$" + customer.limiteCredito.toLocaleString("es-AR")
-                          ) : (
-                            <span className="text-muted-foreground">Sin límite</span>
-                          )}
-                        </TableCell>
-                        <TableCell>{activoBadge(customer.activo)}</TableCell>
-                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => handleViewDetail(customer)}
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => handleEdit(customer)}
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-destructive"
-                              onClick={() => handleDeleteConfirm(customer)}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
+                  </TableHeader>
+                  <TableBody>
+                    {terceros.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                          No se encontraron clientes
                         </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    ) : (
+                      terceros.map((customer) => (
+                        <TableRow
+                          key={customer.id}
+                          className="cursor-pointer hover:bg-muted/40"
+                          onClick={() => handleViewDetail(customer)}
+                        >
+                          <TableCell className="font-mono text-xs">
+                            {customer.legajo ?? "-"}
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium text-sm">{customer.razonSocial}</div>
+                            {customer.nombreFantasia && (
+                              <div className="text-xs text-muted-foreground">
+                                {customer.nombreFantasia}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {customer.nroDocumento ?? "-"}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {customer.condicionIvaDescripcion ?? `IVA ${customer.condicionIvaId}`}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <div className="flex flex-wrap gap-1">
+                              {customer.estadoClienteDescripcion ? (
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    customer.estadoClienteBloquea
+                                      ? "border-red-200 text-red-600"
+                                      : ""
+                                  }
+                                >
+                                  {customer.estadoClienteDescripcion}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {customer.localidadDescripcion ?? "-"}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {customer.limiteCredito !== null ? (
+                              "$" + customer.limiteCredito.toLocaleString("es-AR")
+                            ) : (
+                              <span className="text-muted-foreground">Sin límite</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {activoBadge(customer.activo)}
+                              {customer.estadoOperativoDescripcion ? (
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    customer.estadoOperativoBloquea
+                                      ? "border-red-200 text-red-600"
+                                      : ""
+                                  }
+                                >
+                                  {customer.estadoOperativoDescripcion}
+                                </Badge>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => handleViewDetail(customer)}
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => handleEdit(customer)}
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive"
+                                onClick={() => handleDeleteConfirm(customer)}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
 
               {totalPages > 1 && (
                 <div className="flex items-center justify-between pt-4">
@@ -2724,10 +3584,6 @@ export default function ClientesPage() {
               customer={selectedCustomerDetail}
               sections={selectedCustomerSections}
               onClose={() => setIsDetailOpen(false)}
-              onEditSections={() => {
-                setIsDetailOpen(false)
-                handleSectionsEdit(selectedCustomerDetail)
-              }}
               onEdit={() => {
                 setIsDetailOpen(false)
                 void handleEdit(selectedCustomerDetail)
@@ -2737,40 +3593,17 @@ export default function ClientesPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isSectionsOpen} onOpenChange={setIsSectionsOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedCustomer
-                ? `Secciones comerciales: ${selectedCustomer.razonSocial}`
-                : "Secciones comerciales del cliente"}
-            </DialogTitle>
-          </DialogHeader>
-          {detailLoading ? (
-            <div className="flex items-center justify-center py-12 text-muted-foreground">
-              <RefreshCw className="h-5 w-5 animate-spin" />
-              <span className="ml-2">Cargando secciones del cliente...</span>
-            </div>
-          ) : selectedCustomer && selectedCustomerSections ? (
-            <CustomerSectionsDialog
-              customer={selectedCustomer}
-              sections={selectedCustomerSections}
-              onClose={() => setIsSectionsOpen(false)}
-              onSave={(sections) => void saveCustomerSections(sections)}
-              saving={sectionsSaving}
-              error={detailError}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
       {/* Form Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingCustomer ? "Editar: " + editingCustomer.razonSocial : "Nuevo Cliente"}
+              {editingCustomer ? "Editar: " + editingCustomer.razonSocial : "Nuevo cliente"}
             </DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Ficha completa de ventas con identidad, fiscal, perfil comercial, contactos, entregas,
+              transportes y cobranza.
+            </p>
           </DialogHeader>
           {formLoading ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -2787,10 +3620,16 @@ export default function ClientesPage() {
               <CustomerForm
                 key={`${editingCustomer?.id ?? "new-customer"}-${isFormOpen ? "open" : "closed"}`}
                 customer={editingCustomer}
+                customerSections={editingCustomerSections}
                 onClose={() => setIsFormOpen(false)}
                 onSaved={handleSaved}
                 createTercero={createTercero}
                 updateTercero={updateTercero}
+                updatePerfilComercial={updatePerfilComercial}
+                updateContactos={updateContactos}
+                updateSucursalesEntrega={updateSucursalesEntrega}
+                updateTransportes={updateTransportes}
+                updateVentanasCobranza={updateVentanasCobranza}
               />
             </>
           )}

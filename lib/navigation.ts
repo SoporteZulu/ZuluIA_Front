@@ -155,7 +155,7 @@ export const navigation = [
       { title: "Devoluciones", url: "/ventas/devoluciones" },
       { title: "Ajustes", url: "/ventas/ajustes" },
       { title: "Cobros", url: "/ventas/cobros" },
-      { title: "Operaciones Legacy", url: "/ventas/operaciones" },
+      { title: "Operaciones", url: "/ventas/operaciones" },
       { title: "Cheques", url: "/ventas/cheques" },
       { title: "Imputaciones", url: "/ventas/imputaciones" },
       { title: "Cuenta Corriente", url: "/ventas/cuenta-corriente" },

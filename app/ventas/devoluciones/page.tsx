@@ -58,6 +58,12 @@ function statusBadge(status: LegacySalesReturn["estado"]) {
   return <Badge variant="outline">Cerrada</Badge>
 }
 
+function priorityBadge(priority: LegacyReturnProfile["prioridad"]) {
+  if (priority === "Alta") return <Badge variant="destructive">Alta</Badge>
+  if (priority === "Media") return <Badge variant="secondary">Media</Badge>
+  return <Badge variant="outline">Baja</Badge>
+}
+
 function createResolutionLine(): LegacyReturnResolutionLine {
   return {
     id: `return-line-${globalThis.crypto.randomUUID()}`,
@@ -117,124 +123,239 @@ function LegacyReturnDialog({
   return (
     <div className="space-y-6">
       <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-        Se persisten localmente los datos del circuito heredado para la devolución{" "}
-        {row.id.toUpperCase()} hasta contar con endpoint específico de gestión por ítem.
+        La cabecera comercial, fiscal y logística de la devolución {row.id.toUpperCase()} se
+        completa localmente hasta contar con un endpoint específico de gestión por ítem y
+        resolución.
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label>Modalidad</Label>
-          <Select value={profile.modalidad} onValueChange={(value) => set("modalidad", value)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="No valorizada">No valorizada</SelectItem>
-              <SelectItem value="Con stock">Con stock</SelectItem>
-              <SelectItem value="Mixta">Mixta</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Prioridad</Label>
-          <Select value={profile.prioridad} onValueChange={(value) => set("prioridad", value)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Alta">Alta</SelectItem>
-              <SelectItem value="Media">Media</SelectItem>
-              <SelectItem value="Baja">Baja</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Canal de ingreso</Label>
-          <Input
-            value={profile.canalIngreso}
-            onChange={(event) => set("canalIngreso", event.target.value)}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Sector responsable</Label>
-          <Input
-            value={profile.sectorResponsable}
-            onChange={(event) => set("sectorResponsable", event.target.value)}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Depósito destino</Label>
-          <Input
-            value={profile.depositoDestino}
-            onChange={(event) => set("depositoDestino", event.target.value)}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Condición de mercadería</Label>
-          <Input
-            value={profile.condicionMercaderia}
-            onChange={(event) => set("condicionMercaderia", event.target.value)}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Autorizado por</Label>
-          <Input
-            value={profile.autorizadoPor}
-            onChange={(event) => set("autorizadoPor", event.target.value)}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Referencia de nota de crédito</Label>
-          <Input
-            value={profile.notaCreditoReferencia}
-            onChange={(event) => set("notaCreditoReferencia", event.target.value)}
-          />
-        </div>
-      </div>
+      <Tabs defaultValue="cliente" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="cliente">Cliente</TabsTrigger>
+          <TabsTrigger value="comprobante">Comprobante</TabsTrigger>
+          <TabsTrigger value="resolucion">Resolución</TabsTrigger>
+        </TabsList>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="flex items-center justify-between rounded-lg border p-3">
-          <div>
-            <p className="font-medium">Requiere retiro</p>
-            <p className="text-sm text-muted-foreground">
-              Retiro coordinado con transporte o cliente.
-            </p>
+        <TabsContent value="cliente" className="space-y-4 pt-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>Sucursal</Label>
+              <Input
+                value={profile.sucursal}
+                onChange={(event) => set("sucursal", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Condición IVA</Label>
+              <Input
+                value={profile.condicionIva}
+                onChange={(event) => set("condicionIva", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>CUIT</Label>
+              <Input value={profile.cuit} onChange={(event) => set("cuit", event.target.value)} />
+            </div>
+            <div className="space-y-1.5 xl:col-span-2">
+              <Label>Calle</Label>
+              <Input value={profile.calle} onChange={(event) => set("calle", event.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Teléfono</Label>
+              <Input
+                value={profile.telefono}
+                onChange={(event) => set("telefono", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Localidad</Label>
+              <Input
+                value={profile.localidad}
+                onChange={(event) => set("localidad", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Provincia</Label>
+              <Input
+                value={profile.provincia}
+                onChange={(event) => set("provincia", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Código postal</Label>
+              <Input
+                value={profile.codigoPostal}
+                onChange={(event) => set("codigoPostal", event.target.value)}
+              />
+            </div>
           </div>
-          <Switch
-            checked={profile.requiereRetiro}
-            onCheckedChange={(value) => set("requiereRetiro", value)}
-          />
-        </div>
-        <div className="flex items-center justify-between rounded-lg border p-3">
-          <div>
-            <p className="font-medium">Genera nota de crédito</p>
-            <p className="text-sm text-muted-foreground">Resolución comercial asociada.</p>
-          </div>
-          <Switch
-            checked={profile.generaNotaCredito}
-            onCheckedChange={(value) => set("generaNotaCredito", value)}
-          />
-        </div>
-        <div className="flex items-center justify-between rounded-lg border p-3">
-          <div>
-            <p className="font-medium">Reingresa stock</p>
-            <p className="text-sm text-muted-foreground">Impacto logístico visible.</p>
-          </div>
-          <Switch
-            checked={profile.reingresaStock}
-            onCheckedChange={(value) => set("reingresaStock", value)}
-          />
-        </div>
-      </div>
+        </TabsContent>
 
-      <div className="space-y-1.5">
-        <Label>Causa raíz</Label>
-        <Textarea
-          value={profile.causaRaiz}
-          onChange={(event) => set("causaRaiz", event.target.value)}
-          rows={3}
-        />
-      </div>
+        <TabsContent value="comprobante" className="space-y-4 pt-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Tipo de comprobante</Label>
+              <Input
+                value={profile.tipoComprobante}
+                onChange={(event) => set("tipoComprobante", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Número</Label>
+              <Input
+                value={profile.numeroComprobante}
+                onChange={(event) => set("numeroComprobante", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Modalidad</Label>
+              <Select value={profile.modalidad} onValueChange={(value) => set("modalidad", value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="No valorizada">No valorizada</SelectItem>
+                  <SelectItem value="Con stock">Con stock</SelectItem>
+                  <SelectItem value="Mixta">Mixta</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Prioridad</Label>
+              <Select value={profile.prioridad} onValueChange={(value) => set("prioridad", value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Alta">Alta</SelectItem>
+                  <SelectItem value="Media">Media</SelectItem>
+                  <SelectItem value="Baja">Baja</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Condición de venta</Label>
+              <Input
+                value={profile.condicionVenta}
+                onChange={(event) => set("condicionVenta", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fecha de vencimiento</Label>
+              <Input
+                type="date"
+                value={profile.fechaVencimiento}
+                onChange={(event) => set("fechaVencimiento", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Lista de precios</Label>
+              <Input
+                value={profile.listaPrecios}
+                onChange={(event) => set("listaPrecios", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Canal de ingreso</Label>
+              <Input
+                value={profile.canalIngreso}
+                onChange={(event) => set("canalIngreso", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Sector responsable</Label>
+              <Input
+                value={profile.sectorResponsable}
+                onChange={(event) => set("sectorResponsable", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Depósito destino</Label>
+              <Input
+                value={profile.depositoDestino}
+                onChange={(event) => set("depositoDestino", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Observación del comprobante</Label>
+              <Textarea
+                value={profile.observacionComprobante}
+                onChange={(event) => set("observacionComprobante", event.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="resolucion" className="space-y-4 pt-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Condición de mercadería</Label>
+              <Input
+                value={profile.condicionMercaderia}
+                onChange={(event) => set("condicionMercaderia", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Autorizado por</Label>
+              <Input
+                value={profile.autorizadoPor}
+                onChange={(event) => set("autorizadoPor", event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Referencia de nota de crédito</Label>
+              <Input
+                value={profile.notaCreditoReferencia}
+                onChange={(event) => set("notaCreditoReferencia", event.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="font-medium">Requiere retiro</p>
+                <p className="text-sm text-muted-foreground">
+                  Retiro coordinado con transporte o cliente.
+                </p>
+              </div>
+              <Switch
+                checked={profile.requiereRetiro}
+                onCheckedChange={(value) => set("requiereRetiro", value)}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="font-medium">Genera nota de crédito</p>
+                <p className="text-sm text-muted-foreground">Resolución comercial asociada.</p>
+              </div>
+              <Switch
+                checked={profile.generaNotaCredito}
+                onCheckedChange={(value) => set("generaNotaCredito", value)}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="font-medium">Reingresa stock</p>
+                <p className="text-sm text-muted-foreground">Impacto logístico visible.</p>
+              </div>
+              <Switch
+                checked={profile.reingresaStock}
+                onCheckedChange={(value) => set("reingresaStock", value)}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Causa raíz</Label>
+            <Textarea
+              value={profile.causaRaiz}
+              onChange={(event) => set("causaRaiz", event.target.value)}
+              rows={3}
+            />
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -299,7 +420,7 @@ function LegacyReturnDialog({
         <Button variant="outline" className="bg-transparent" onClick={onClose}>
           Cancelar
         </Button>
-        <Button onClick={() => onSave(profile)}>Guardar circuito legacy</Button>
+        <Button onClick={() => onSave(profile)}>Guardar devolución</Button>
       </DialogFooter>
     </div>
   )
@@ -368,10 +489,13 @@ export default function VentasDevolucionesPage() {
   const highlightedFields =
     highlighted && highlightedProfile
       ? [
+          { label: "Comprobante", value: highlightedProfile.tipoComprobante },
+          { label: "Número", value: highlightedProfile.numeroComprobante },
           { label: "Cliente", value: highlighted.cliente },
           { label: "Factura origen", value: highlighted.factura },
           { label: "Remito asociado", value: highlighted.remito },
           { label: "Modalidad", value: highlightedProfile.modalidad },
+          { label: "Prioridad", value: highlightedProfile.prioridad },
           { label: "Canal", value: highlightedProfile.canalIngreso || "No informado" },
           { label: "Sector", value: highlightedProfile.sectorResponsable || "No informado" },
           {
@@ -395,8 +519,9 @@ export default function VentasDevolucionesPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Devoluciones</h1>
           <p className="mt-1 text-muted-foreground">
-            Circuito visible de devoluciones del legacy, con contexto operativo para factura, remito
-            y resolución comercial mientras no exista endpoint de gestión por ítem.
+            Gestión comercial y logística de devoluciones con cabecera documental, cliente,
+            resolución e impacto en stock visibles en una sola vista. El seguimiento por ítem sigue
+            coordinándose localmente hasta contar con backend específico.
           </p>
         </div>
         <div className="flex gap-2">
@@ -411,7 +536,7 @@ export default function VentasDevolucionesPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Devoluciones</CardTitle>
@@ -444,13 +569,57 @@ export default function VentasDevolucionesPage() {
             <div className="text-2xl font-bold">{formatMoney(totals.importe)}</div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Fichas completas</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-sky-700">{configured}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Con nota de crédito</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-emerald-700">{withCreditNote}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Con reingreso</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-indigo-700">{withStockReentry}</div>
+          </CardContent>
+        </Card>
       </div>
 
       {highlighted ? (
         <Card className="border-primary/20 bg-primary/5">
-          <CardHeader>
-            <CardDescription>Devolución prioritaria</CardDescription>
-            <CardTitle className="mt-1 text-xl">{highlighted.id.toUpperCase()}</CardTitle>
+          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <CardDescription>Devolución prioritaria</CardDescription>
+              <CardTitle className="mt-1 text-xl">
+                {highlighted.cliente} · {highlighted.id.toUpperCase()}
+              </CardTitle>
+              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                {highlighted.motivo}. La devolución se procesa como{" "}
+                {highlightedProfile?.modalidad.toLowerCase() ?? "modalidad no informada"}, con
+                comprobante {highlightedProfile?.tipoComprobante ?? "sin tipo"} y depósito destino{" "}
+                {highlightedProfile?.depositoDestino || highlighted.deposito}.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {statusBadge(highlighted.estado)}
+                {highlightedProfile ? priorityBadge(highlightedProfile.prioridad) : null}
+                <Badge variant="outline">{formatMoney(highlighted.total)}</Badge>
+                <Badge variant="outline">
+                  {highlightedProfile?.generaNotaCredito
+                    ? highlightedProfile.notaCreditoReferencia || "Con nota de crédito"
+                    : "Sin nota de crédito"}
+                </Badge>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <DetailFieldGrid fields={highlightedFields} />
@@ -458,16 +627,16 @@ export default function VentasDevolucionesPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <ClipboardCheck className="h-4 w-4" /> Cobertura legacy
+              <ClipboardCheck className="h-4 w-4" /> Cobertura operativa
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {configured} devoluciones ya tienen circuito heredado documentado con modalidad,
-            resolución e inspección.
+            {configured} devoluciones ya tienen ficha operativa documentada con modalidad, cabecera
+            comercial, resolución e inspección.
           </CardContent>
         </Card>
         <Card>
@@ -489,7 +658,47 @@ export default function VentasDevolucionesPage() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             Hay {linkedDocuments} comprobantes de venta visibles para cruzar el circuito documental
-            mientras la devolución sigue en overlay local.
+            mientras la resolución detallada sigue administrándose localmente.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Cabecera documental</CardTitle>
+            <CardDescription>
+              Campos visibles inspirados en el formulario histórico de devolución de ventas.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 text-sm text-muted-foreground md:grid-cols-2 xl:grid-cols-1">
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Cliente y fiscal
+              </p>
+              <p className="mt-1 font-medium text-foreground wrap-break-word">
+                {highlightedProfile
+                  ? `${highlighted.cliente} · ${highlightedProfile.condicionIva}`
+                  : "Sin devolución destacada"}
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Comprobante
+              </p>
+              <p className="mt-1 font-medium text-foreground wrap-break-word">
+                {highlightedProfile
+                  ? `${highlightedProfile.tipoComprobante} ${highlightedProfile.numeroComprobante}`
+                  : "Sin cabecera"}
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Condición comercial
+              </p>
+              <p className="mt-1 font-medium text-foreground wrap-break-word">
+                {highlightedProfile
+                  ? `${highlightedProfile.condicionVenta} · ${highlightedProfile.listaPrecios}`
+                  : "Sin condición comercial"}
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -543,46 +752,52 @@ export default function VentasDevolucionesPage() {
             <RotateCcw className="h-4 w-4" /> Devoluciones visibles
           </CardTitle>
           <CardDescription>
-            Overlay local inspirado en los formularios legacy de devolución no valorizada y
-            devolución con stock.
+            Vista operativa inspirada en los formularios históricos de devolución no valorizada y
+            con stock.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Factura</TableHead>
-                <TableHead>Remito</TableHead>
-                <TableHead>Modalidad</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Detalle</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.id.toUpperCase()}</TableCell>
-                  <TableCell>{row.cliente}</TableCell>
-                  <TableCell>{row.factura}</TableCell>
-                  <TableCell>{row.remito}</TableCell>
-                  <TableCell>{getProfile(row).modalidad}</TableCell>
-                  <TableCell>{statusBadge(row.estado)}</TableCell>
-                  <TableCell className="text-right">{formatMoney(row.total)}</TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" onClick={() => setSelected(row)}>
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => setEditing(row)}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
+          <div className="w-full overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Comprobante</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Factura</TableHead>
+                  <TableHead>Remito</TableHead>
+                  <TableHead>Modalidad</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Detalle</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-medium">{row.id.toUpperCase()}</TableCell>
+                    <TableCell className="wrap-break-word">
+                      {getProfile(row).tipoComprobante} {getProfile(row).numeroComprobante}
+                    </TableCell>
+                    <TableCell>{row.cliente}</TableCell>
+                    <TableCell>{row.factura}</TableCell>
+                    <TableCell>{row.remito}</TableCell>
+                    <TableCell>{getProfile(row).modalidad}</TableCell>
+                    <TableCell>{statusBadge(row.estado)}</TableCell>
+                    <TableCell className="text-right">{formatMoney(row.total)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" onClick={() => setSelected(row)}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => setEditing(row)}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
@@ -591,32 +806,63 @@ export default function VentasDevolucionesPage() {
           <DialogHeader>
             <DialogTitle>Detalle de devolución</DialogTitle>
             <DialogDescription>
-              Contexto operativo del circuito legacy y sus vínculos con documentos de ventas.
+              Cabecera documental, circuito comercial y resolución visible de la devolución.
             </DialogDescription>
           </DialogHeader>
           {selected ? (
             <Tabs defaultValue="principal" className="w-full">
               <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="principal">Principal</TabsTrigger>
-                <TabsTrigger value="circuito">Circuito</TabsTrigger>
+                <TabsTrigger value="principal">Cliente</TabsTrigger>
+                <TabsTrigger value="circuito">Comprobante</TabsTrigger>
                 <TabsTrigger value="resolucion">Resolución</TabsTrigger>
               </TabsList>
               <TabsContent value="principal" className="space-y-4 pt-4">
                 <DetailFieldGrid
                   fields={[
                     { label: "Cliente", value: selected.cliente },
-                    { label: "Fecha", value: selected.fecha },
-                    { label: "Depósito", value: selected.deposito },
-                    { label: "Total", value: formatMoney(selected.total) },
-                    { label: "Factura origen", value: selected.factura },
-                    { label: "Remito asociado", value: selected.remito },
+                    { label: "Sucursal", value: getProfile(selected).sucursal || "No informada" },
+                    {
+                      label: "Condición IVA",
+                      value: getProfile(selected).condicionIva || "No informada",
+                    },
+                    { label: "CUIT", value: getProfile(selected).cuit || "No informado" },
+                    {
+                      label: "Dirección",
+                      value:
+                        [
+                          getProfile(selected).calle,
+                          getProfile(selected).localidad,
+                          getProfile(selected).provincia,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "No informada",
+                    },
+                    { label: "Teléfono", value: getProfile(selected).telefono || "No informado" },
                   ]}
                 />
               </TabsContent>
               <TabsContent value="circuito" className="space-y-4 pt-4">
                 <DetailFieldGrid
                   fields={[
+                    { label: "Fecha", value: selected.fecha },
+                    { label: "Comprobante", value: getProfile(selected).tipoComprobante },
+                    { label: "Número", value: getProfile(selected).numeroComprobante },
+                    { label: "Total", value: formatMoney(selected.total) },
+                    { label: "Factura origen", value: selected.factura },
+                    { label: "Remito asociado", value: selected.remito },
                     { label: "Modalidad", value: getProfile(selected).modalidad },
+                    {
+                      label: "Condición de venta",
+                      value: getProfile(selected).condicionVenta || "No informada",
+                    },
+                    {
+                      label: "Lista de precios",
+                      value: getProfile(selected).listaPrecios || "No informada",
+                    },
+                    {
+                      label: "Fecha de vencimiento",
+                      value: getProfile(selected).fechaVencimiento || "No informada",
+                    },
                     { label: "Canal", value: getProfile(selected).canalIngreso || "No informado" },
                     {
                       label: "Sector",
@@ -696,9 +942,9 @@ export default function VentasDevolucionesPage() {
       <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Editar circuito legacy</DialogTitle>
+            <DialogTitle>Editar devolución</DialogTitle>
             <DialogDescription>
-              Modalidad, inspección y resolución persistidas sólo en frontend hasta disponer de
+              Cabecera, inspección y resolución persistidas sólo en frontend hasta disponer de
               backend específico.
             </DialogDescription>
           </DialogHeader>

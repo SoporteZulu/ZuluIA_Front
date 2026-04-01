@@ -72,6 +72,7 @@ export interface TerceroVentanaCobranza {
 
 export interface Tercero {
   id: number
+  nroInterno?: number
   legajo?: string | null
   tipoPersoneria?: TipoPersoneria | null
   razonSocial: string
@@ -94,9 +95,13 @@ export interface Tercero {
   piso: string | null
   dpto: string | null
   codigoPostal: string | null
+  paisId?: number | null
+  paisDescripcion?: string | null
   localidadId: number | null
   localidadDescripcion?: string
   barrioId: number | null
+  barrioDescripcion?: string | null
+  completo?: string | null
   nroIngresosBrutos: string | null
   nroMunicipal: string | null
   telefono: string | null
@@ -104,20 +109,37 @@ export interface Tercero {
   email: string | null
   web: string | null
   monedaId: number | null
+  monedaDescripcion?: string | null
   categoriaId: number | null
   categoriaDescripcion?: string | null
+  categoriaClienteId?: number | null
+  categoriaClienteDescripcion?: string | null
+  estadoClienteId?: number | null
+  estadoClienteDescripcion?: string | null
+  estadoClienteBloquea?: boolean | null
+  categoriaProveedorId?: number | null
+  categoriaProveedorDescripcion?: string | null
+  estadoProveedorId?: number | null
+  estadoProveedorDescripcion?: string | null
+  estadoProveedorBloquea?: boolean | null
   limiteCredito: number | null
   facturable: boolean
   cobradorId: number | null
   cobradorNombre?: string | null
+  aplicaComisionCobrador?: boolean
   pctComisionCobrador: number
   vendedorId: number | null
   vendedorNombre?: string | null
+  aplicaComisionVendedor?: boolean
   pctComisionVendedor: number
   observacion: string | null
   sucursalId?: number | null
   sucursalDescripcion?: string | null
   activo: boolean
+  estadoOperativo?: string
+  estadoOperativoDescripcion?: string | null
+  estadoOperativoBloquea?: boolean
+  rolDisplay?: string | null
   createdAt: string
   updatedAt?: string
   deletedAt?: string | null
@@ -149,6 +171,7 @@ export interface CreateTerceroDto {
   piso?: string | null
   dpto?: string | null
   codigoPostal?: string | null
+  paisId?: number | null
   localidadId?: number | null
   barrioId?: number | null
   nroIngresosBrutos?: string | null
@@ -159,11 +182,17 @@ export interface CreateTerceroDto {
   web?: string | null
   monedaId?: number | null
   categoriaId?: number | null
+  categoriaClienteId?: number | null
+  estadoClienteId?: number | null
+  categoriaProveedorId?: number | null
+  estadoProveedorId?: number | null
   limiteCredito?: number | null
   facturable: boolean
   cobradorId?: number | null
+  aplicaComisionCobrador?: boolean
   pctComisionCobrador: number
   vendedorId?: number | null
+  aplicaComisionVendedor?: boolean
   pctComisionVendedor: number
   observacion?: string | null
   sucursalId?: number | null
@@ -189,6 +218,7 @@ export interface UpdateTerceroDto {
   piso?: string | null
   dpto?: string | null
   codigoPostal?: string | null
+  paisId?: number | null
   localidadId?: number | null
   barrioId?: number | null
   nroIngresosBrutos?: string | null
@@ -199,17 +229,46 @@ export interface UpdateTerceroDto {
   web?: string | null
   monedaId?: number | null
   categoriaId?: number | null
+  categoriaClienteId?: number | null
+  estadoClienteId?: number | null
+  categoriaProveedorId?: number | null
+  estadoProveedorId?: number | null
   limiteCredito?: number | null
   facturable: boolean
   cobradorId?: number | null
+  aplicaComisionCobrador?: boolean
   pctComisionCobrador: number
   vendedorId?: number | null
+  aplicaComisionVendedor?: boolean
   pctComisionVendedor: number
   observacion?: string | null
+  sucursalId?: number | null
 }
 
 export interface CondicionIva {
   id: number
   codigo: number
   descripcion: string
+}
+
+export interface CategoriaTerceroCatalogo {
+  id: number
+  codigo: string
+  descripcion: string
+  activa: boolean
+}
+
+export interface EstadoTerceroCatalogo {
+  id: number
+  codigo: string
+  descripcion: string
+  bloquea: boolean
+  activo: boolean
+}
+
+export interface CatalogosTerceros {
+  categoriasClientes: CategoriaTerceroCatalogo[]
+  categoriasProveedores: CategoriaTerceroCatalogo[]
+  estadosClientes: EstadoTerceroCatalogo[]
+  estadosProveedores: EstadoTerceroCatalogo[]
 }

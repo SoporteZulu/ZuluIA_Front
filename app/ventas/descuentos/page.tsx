@@ -163,6 +163,13 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
+  const selectedCustomer =
+    form.terceroId !== undefined
+      ? terceros.find((tercero) => tercero.id === form.terceroId) ?? null
+      : null
+  const selectedItem =
+    form.itemId !== undefined ? items.find((item) => item.id === form.itemId) ?? null : null
+
   const handleSave = async () => {
     if (!form.porcentaje || form.porcentaje <= 0) {
       setError("El porcentaje debe ser mayor a 0")
@@ -183,13 +190,13 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="grid h-auto w-full grid-cols-3">
           <TabsTrigger value="principal" className="py-2 text-xs">
-            Principal
+            Alcance
           </TabsTrigger>
           <TabsTrigger value="vigencia" className="py-2 text-xs">
             Vigencia
           </TabsTrigger>
           <TabsTrigger value="legado" className="py-2 text-xs">
-            Legado
+            Cobertura actual
           </TabsTrigger>
         </TabsList>
 
@@ -249,6 +256,72 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
               </Select>
             </div>
           </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Cliente vinculado</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 text-sm md:grid-cols-2">
+                <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Razón social</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.razonSocial ?? "Todos los clientes"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">CUIT</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.nroDocumento ?? "No aplica"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">IVA</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.condicionIvaDescripcion ?? "No aplica"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Domicilio</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {formatCustomerAddress(selectedCustomer)}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Producto vinculado</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 text-sm md:grid-cols-2">
+                <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Producto</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedItem
+                      ? `${selectedItem.codigo} · ${selectedItem.descripcion}`
+                      : "Todos los productos"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Categoría</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedItem?.categoriaDescripcion ?? "General"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Precio actual</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedItem ? formatMoney(selectedItem.precioVenta) : "No aplica"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cobertura</p>
+                  <p className="mt-1 font-medium wrap-break-word">{getDiscountScope(form)}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="vigencia" className="mt-4 space-y-4">
@@ -275,10 +348,9 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
         <TabsContent value="legado" className="mt-4 space-y-4">
           <Card>
             <CardContent className="pt-6 text-sm text-muted-foreground">
-              El circuito legacy de descuentos contemplaba reglas por rubro, zona, listas
-              especiales, promociones combinadas y aprobaciones. La nueva vista deja esos bloques
-              disponibles luego del alta mediante un overlay local, sin forzar contratos
-              inexistentes sobre la API actual.
+              El circuito histórico de descuentos contemplaba reglas por rubro, zona, listas
+              especiales, promociones combinadas y aprobaciones. La vista actual deja preparada esa
+              ampliación luego del alta, sin forzar contratos inexistentes sobre la API actual.
             </CardContent>
           </Card>
         </TabsContent>
@@ -296,7 +368,7 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
           Cancelar
         </Button>
         <Button onClick={handleSave} disabled={saving}>
-          {saving ? "Guardando..." : "Crear descuento"}
+          {saving ? "Guardando..." : "Guardar descuento"}
         </Button>
       </div>
     </div>
@@ -433,7 +505,7 @@ function DiscountDetail({
         <TabsTrigger value="principal">Principal</TabsTrigger>
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
         <TabsTrigger value="vigencia">Vigencia</TabsTrigger>
-        <TabsTrigger value="legado">Legado</TabsTrigger>
+        <TabsTrigger value="legado">Cobertura actual</TabsTrigger>
       </TabsList>
 
       <TabsContent value="principal" className="space-y-4">
@@ -496,7 +568,7 @@ function DiscountDetail({
       <TabsContent value="legado" className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Segmentación heredada</CardTitle>
+            <CardTitle className="text-base">Segmentación ampliada</CardTitle>
             <CardDescription>
               Rubro, zona, canal, sucursal y listas especiales visibles sin inventar backend.
             </CardDescription>
@@ -582,6 +654,11 @@ function LegacyDiscountDialog({
 
   return (
     <div className="space-y-6">
+      <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+        La segmentación ampliada del descuento #{descuento.id} se completa localmente mientras la
+        API actual sigue concentrada en porcentaje, cliente, producto y vigencia.
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
           <Label>Campaña</Label>
@@ -783,7 +860,7 @@ function LegacyDiscountDialog({
         <Button variant="outline" className="bg-transparent" onClick={onClose}>
           Cancelar
         </Button>
-        <Button onClick={() => onSave(profile)}>Guardar bloque legacy</Button>
+        <Button onClick={() => onSave(profile)}>Guardar contexto ampliado</Button>
       </DialogFooter>
     </div>
   )
@@ -954,8 +1031,8 @@ export default function DescuentosComercialesPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Descuentos Comerciales</h1>
           <p className="text-muted-foreground">
-            Migración del esquema legacy de descuentos a un maestro operativo por cliente, producto
-            y vigencia
+            Maestro operativo de descuentos por cliente, producto y vigencia, con cobertura
+            ampliada para campañas, segmentación y aprobaciones cuando el circuito lo necesita.
           </p>
         </div>
         <Button onClick={() => setIsFormOpen(true)}>
@@ -1036,7 +1113,7 @@ export default function DescuentosComercialesPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -1062,12 +1139,25 @@ export default function DescuentosComercialesPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Layers3 className="h-4 w-4" /> Cobertura legacy
+              <Layers3 className="h-4 w-4" /> Cobertura ampliada
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             {legacyConfigured} reglas ya documentan zona, canal, listas o campañas;{" "}
             {approvalsRequired} requieren aprobación y {combinables} permiten encadenamiento.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="h-4 w-4" /> Gobierno comercial
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {approvalsRequired} reglas requieren aprobación formal y {Math.max(
+              legacyConfigured - approvalsRequired,
+              0
+            )} ya pueden administrarse sin validación adicional.
           </CardContent>
         </Card>
       </div>
@@ -1122,35 +1212,37 @@ export default function DescuentosComercialesPage() {
           <CardTitle>Reglas de Descuento ({filtered.length})</CardTitle>
           <CardDescription>
             El modelo actual soporta alta real y deja preparada la ampliación a promociones más
-            complejas.
+            complejas y segmentación comercial adicional.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
+          <div className="w-full overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Porcentaje</TableHead>
                 <TableHead>Cliente</TableHead>
                 <TableHead>Producto</TableHead>
+                <TableHead>Alcance</TableHead>
                 <TableHead>Circuito</TableHead>
                 <TableHead>Desde</TableHead>
                 <TableHead>Hasta</TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead>Legado</TableHead>
+                <TableHead>Contexto</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                     Cargando...
                   </TableCell>
                 </TableRow>
               )}
               {!loading && filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                     <Percent className="mx-auto mb-2 h-8 w-8 opacity-50" />
                     No hay descuentos registrados
                   </TableCell>
@@ -1165,6 +1257,7 @@ export default function DescuentosComercialesPage() {
                   <TableCell className="font-bold text-lg">{descuento.porcentaje}%</TableCell>
                   <TableCell>{getCustomerName(descuento.terceroId)}</TableCell>
                   <TableCell>{getItemName(descuento.itemId)}</TableCell>
+                  <TableCell>{getDiscountScope(descuento)}</TableCell>
                   <TableCell className="max-w-65 text-sm text-muted-foreground">
                     {getValidityStatus(descuento)}
                   </TableCell>
@@ -1177,9 +1270,9 @@ export default function DescuentosComercialesPage() {
                   </TableCell>
                   <TableCell>
                     {legacyProfileByDiscountId.has(descuento.id) ? (
-                      <Badge variant="outline">Configurado</Badge>
+                      <Badge variant="outline">Ampliado</Badge>
                     ) : (
-                      <Badge variant="secondary">Base</Badge>
+                      <Badge variant="secondary">Base actual</Badge>
                     )}
                   </TableCell>
                   <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
@@ -1202,6 +1295,7 @@ export default function DescuentosComercialesPage() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 
@@ -1210,8 +1304,8 @@ export default function DescuentosComercialesPage() {
           <DialogHeader>
             <DialogTitle>Nuevo descuento comercial</DialogTitle>
             <DialogDescription>
-              Alta operativa sobre la API actual con estructura preparada para reglas heredadas más
-              complejas.
+              Alta operativa sobre la API actual con estructura preparada para segmentación,
+              aprobaciones y campañas más complejas.
             </DialogDescription>
           </DialogHeader>
           <DiscountForm
@@ -1252,7 +1346,7 @@ export default function DescuentosComercialesPage() {
                 className="bg-transparent"
                 onClick={() => setLegacyDiscount(detailDiscount)}
               >
-                Editar legado
+                Ampliar contexto
               </Button>
             ) : null}
             <Button
@@ -1274,10 +1368,10 @@ export default function DescuentosComercialesPage() {
       >
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Bloques legacy del descuento</DialogTitle>
+            <DialogTitle>Contexto ampliado del descuento</DialogTitle>
             <DialogDescription>
               Canal, zona, listas especiales, aprobación y encadenamiento persistidos sólo en el
-              frontend.
+              frontend mientras no exista un contrato específico.
             </DialogDescription>
           </DialogHeader>
           {legacyDiscount ? (

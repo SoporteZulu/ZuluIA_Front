@@ -1,21 +1,25 @@
 "use client"
 
-import React, { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
-  Plus,
-  Search,
-  Edit,
-  Trash2,
-  Eye,
-  Save,
-  X,
-  AlertTriangle,
-  RefreshCw,
   AlertCircle,
+  AlertTriangle,
+  Boxes,
+  CircleDollarSign,
+  Edit,
+  Eye,
+  PackagePlus,
+  RefreshCw,
+  Save,
+  Search,
+  ShieldCheck,
+  Tag,
+  Trash2,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -29,9 +33,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog"
 import {
   Select,
@@ -46,59 +50,138 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Switch } from "@/components/ui/switch"
 import { useItems, useItemsConfig } from "@/lib/hooks/useItems"
-import type { Item, CreateItemDto } from "@/lib/types/items"
+import type { CreateItemDto, Item, Moneda } from "@/lib/types/items"
+
+function formatMoney(value: number, currency = "ARS") {
+  return value.toLocaleString("es-AR", { style: "currency", currency })
+}
+
+function formatNumber(value: number) {
+  return value.toLocaleString("es-AR")
+}
+
+function formatPercent(value: number) {
+  return `${value.toFixed(1)}%`
+}
+
+function getMargin(item: Pick<Item, "precioCosto" | "precioVenta">) {
+  if (item.precioVenta <= 0) return null
+  return ((item.precioVenta - item.precioCosto) / item.precioVenta) * 100
+}
+
+function getMarkup(item: Pick<Item, "precioCosto" | "precioVenta">) {
+  if (item.precioCosto <= 0) return null
+  return (item.precioVenta / item.precioCosto - 1) * 100
+}
+
+function getMarginTone(item: Pick<Item, "precioCosto" | "precioVenta">) {
+  const margin = getMargin(item)
+
+  if (item.precioVenta <= 0) {
+    return {
+      label: "Precio pendiente",
+      description: "Todavía no hay precio de venta cargado.",
+    }
+  }
+
+  if (margin === null) {
+    return {
+      label: "Sin lectura de margen",
+      description: "No hay datos suficientes para calcular la rentabilidad.",
+    }
+  }
+
+  if (margin < 0) {
+    return {
+      label: "Rentabilidad negativa",
+      description: "El precio de venta está por debajo del costo visible.",
+    }
+  }
+
+  if (margin < 20) {
+    return {
+      label: "Margen ajustado",
+      description: "Conviene revisar precio, costo o política comercial.",
+    }
+  }
+
+  return {
+    label: "Margen saludable",
+    description: "La rentabilidad visible opera dentro de un rango cómodo.",
+  }
+}
+
+function getStock(item: Pick<Item, "stock">) {
+  return Number(item.stock ?? 0)
+}
+
+function getStockTone(item: Pick<Item, "manejaStock" | "stock" | "stockMinimo" | "stockMaximo">) {
+  const stock = getStock(item)
+  if (!item.manejaStock) {
+    return {
+      label: "No stockeable",
+      badge: "secondary" as const,
+      description: "El artículo opera sin control de existencias.",
+    }
+  }
+  if (stock <= item.stockMinimo) {
+    return {
+      label: "Reposición urgente",
+      badge: "destructive" as const,
+      description: "El stock está en o por debajo del mínimo operativo.",
+    }
+  }
+  if (item.stockMaximo !== null && stock > item.stockMaximo) {
+    return {
+      label: "Sobre stock",
+      badge: "outline" as const,
+      description: "La existencia visible supera el máximo sugerido.",
+    }
+  }
+  return {
+    label: "Cobertura sana",
+    badge: "default" as const,
+    description: "El stock visible opera dentro del rango esperado.",
+  }
+}
+
+function getCommercialProfile(item: Item) {
+  if (item.esProducto && item.esServicio) return "Producto + servicio"
+  if (item.esProducto) return "Producto"
+  if (item.esServicio) return "Servicio"
+  if (item.esFinanciero) return "Ítem financiero"
+  return "Ítem general"
+}
+
+function getCoverageLabels(item: Item) {
+  return [
+    item.categoriaDescripcion ? "Categoría visible" : "Sin categoría",
+    item.unidadMedidaDescripcion ? "Unidad comercial" : "Unidad pendiente",
+    item.codigoBarras ? "Código de barras" : "Sin código de barras",
+    item.codigoAfip ? "Código fiscal" : "Sin código fiscal",
+    item.manejaStock ? "Control de stock" : "Sin control de stock",
+    item.precioVenta > 0 ? "Precio de venta" : "Precio pendiente",
+  ]
+}
+
+function resolveCurrency(item: Pick<Item, "monedaId" | "monedaSimbol">, monedas: Moneda[]) {
+  return item.monedaSimbol ?? monedas.find((entry) => entry.id === item.monedaId)?.simbolo ?? "$"
+}
 
 function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
   return (
     <div className="grid gap-3 md:grid-cols-2">
       {fields.map((field) => (
-        <div key={field.label} className="rounded-lg bg-muted/40 p-3">
-          <span className="mb-1 block text-xs text-muted-foreground">{field.label}</span>
-          <p className="text-sm font-medium wrap-break-word">{field.value}</p>
+        <div key={field.label} className="rounded-xl border bg-muted/30 p-3">
+          <span className="mb-1 block text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+            {field.label}
+          </span>
+          <p className="text-sm font-medium wrap-break-word text-foreground">{field.value}</p>
         </div>
       ))}
     </div>
   )
 }
-
-function getLegacyCoverage(
-  item: Pick<
-    Item,
-    | "codigoBarras"
-    | "codigoAfip"
-    | "categoriaDescripcion"
-    | "unidadMedidaDescripcion"
-    | "precioVenta"
-    | "precioCosto"
-    | "manejaStock"
-    | "stockMinimo"
-    | "stockMaximo"
-  >
-) {
-  const available = [
-    item.categoriaDescripcion ? "Categoria visible" : null,
-    item.unidadMedidaDescripcion ? "Unidad visible" : null,
-    item.codigoBarras ? "Codigo de barras" : null,
-    item.codigoAfip ? "Codigo fiscal/AFIP" : null,
-    item.precioCosto > 0 ? "Costo operativo" : null,
-    item.precioVenta > 0 ? "Precio de venta" : null,
-    item.manejaStock ? "Control de stock" : "Item no stockeable",
-    item.stockMinimo >= 0 ? "Minimo operativo" : null,
-    item.stockMaximo !== null && item.stockMaximo !== undefined ? "Maximo visible" : null,
-  ].filter(Boolean) as string[]
-
-  const pending = [
-    "Atributos del articulo",
-    "Componentes y formulas",
-    "Importacion masiva a listas",
-    "Multiples unidades derivadas",
-    "Relacion proveedor-precio del legado",
-  ]
-
-  return { available, pending }
-}
-
-// --- Empty form ---
 
 const EMPTY_FORM: CreateItemDto = {
   codigo: "",
@@ -115,9 +198,34 @@ const EMPTY_FORM: CreateItemDto = {
   precioCosto: 0,
   precioVenta: 0,
   stockMinimo: 0,
+  stockMaximo: null,
+  codigoBarras: null,
+  codigoAfip: null,
 }
 
-// --- ProductForm ---
+function buildFormState(item: Item | null): CreateItemDto {
+  if (!item) return { ...EMPTY_FORM }
+
+  return {
+    codigo: item.codigo,
+    descripcion: item.descripcion,
+    descripcionAdicional: item.descripcionAdicional,
+    categoriaId: item.categoriaId,
+    unidadMedidaId: item.unidadMedidaId,
+    alicuotaIvaId: item.alicuotaIvaId,
+    monedaId: item.monedaId,
+    esProducto: item.esProducto,
+    esServicio: item.esServicio,
+    esFinanciero: item.esFinanciero,
+    manejaStock: item.manejaStock,
+    precioCosto: item.precioCosto,
+    precioVenta: item.precioVenta,
+    stockMinimo: item.stockMinimo,
+    stockMaximo: item.stockMaximo,
+    codigoBarras: item.codigoBarras,
+    codigoAfip: item.codigoAfip,
+  }
+}
 
 interface ProductFormProps {
   item: Item | null
@@ -129,673 +237,676 @@ interface ProductFormProps {
 
 function ProductForm({ item, onClose, onSaved, createItem, updateItem }: ProductFormProps) {
   const { categorias, unidades, alicuotas, monedas } = useItemsConfig()
-  const [form, setForm] = useState<CreateItemDto>(
-    item
-      ? {
-          codigo: item.codigo,
-          descripcion: item.descripcion,
-          descripcionAdicional: item.descripcionAdicional,
-          categoriaId: item.categoriaId,
-          unidadMedidaId: item.unidadMedidaId,
-          alicuotaIvaId: item.alicuotaIvaId,
-          monedaId: item.monedaId,
-          esProducto: item.esProducto,
-          esServicio: item.esServicio,
-          esFinanciero: item.esFinanciero,
-          manejaStock: item.manejaStock,
-          precioCosto: item.precioCosto,
-          precioVenta: item.precioVenta,
-          stockMinimo: item.stockMinimo,
-          stockMaximo: item.stockMaximo,
-          codigoBarras: item.codigoBarras,
-          codigoAfip: item.codigoAfip,
-        }
-      : { ...EMPTY_FORM }
-  )
+  const [tab, setTab] = useState("identificacion")
+  const [form, setForm] = useState<CreateItemDto>(() => buildFormState(item))
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const set = (k: keyof CreateItemDto, v: unknown) => setForm((prev) => ({ ...prev, [k]: v }))
+  useEffect(() => {
+    setForm(buildFormState(item))
+  }, [item])
 
-  const validate = (): string | null => {
-    if (!form.codigo.trim()) return "El código es requerido"
-    if (!form.descripcion.trim()) return "La descripción es requerida"
+  useEffect(() => {
+    if (item) return
+
+    setForm((current) => ({
+      ...current,
+      unidadMedidaId: current.unidadMedidaId || unidades[0]?.id || 0,
+      alicuotaIvaId: current.alicuotaIvaId || alicuotas[0]?.id || 0,
+      monedaId: current.monedaId || monedas[0]?.id || 0,
+    }))
+  }, [alicuotas, item, monedas, unidades])
+
+  const set = (key: keyof CreateItemDto, value: string | number | boolean | null) => {
+    setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const margin =
+    form.precioVenta > 0 ? ((form.precioVenta - form.precioCosto) / form.precioVenta) * 100 : null
+  const markup = form.precioCosto > 0 ? (form.precioVenta / form.precioCosto - 1) * 100 : null
+  const contribution = form.precioVenta - form.precioCosto
+  const marginTone = getMarginTone(form)
+
+  const validate = () => {
+    if (!form.codigo.trim()) return "El código interno es obligatorio"
+    if (!form.descripcion.trim()) return "La descripción comercial es obligatoria"
+    if (!form.unidadMedidaId) return "Debe seleccionar una unidad de medida"
+    if (!form.alicuotaIvaId) return "Debe seleccionar una alícuota de IVA"
+    if (!form.monedaId) return "Debe seleccionar una moneda"
+    if (!form.esProducto && !form.esServicio && !form.esFinanciero) {
+      return "El ítem debe tener al menos un perfil operativo activo"
+    }
+    if (form.stockMaximo !== null && form.stockMaximo < form.stockMinimo) {
+      return "El stock máximo no puede ser menor que el mínimo"
+    }
     return null
   }
 
   const handleSave = async () => {
-    const err = validate()
-    if (err) {
-      setFormError(err)
+    const error = validate()
+    if (error) {
+      setFormError(error)
       return
     }
+
     setSaving(true)
     setFormError(null)
     const ok = item ? await updateItem(item.id, form) : await createItem(form)
     setSaving(false)
+
     if (ok) onSaved()
     else setFormError("No se pudo guardar el producto")
   }
 
   return (
-    <div className="space-y-4">
-      <Tabs defaultValue="basicos" className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-5">
-          <TabsTrigger value="basicos">Datos Basicos</TabsTrigger>
-          <TabsTrigger value="comercial">Comercial/Fiscal</TabsTrigger>
-          <TabsTrigger value="precios">Precios</TabsTrigger>
-          <TabsTrigger value="inventario">Inventario</TabsTrigger>
-          <TabsTrigger value="legado">Legado</TabsTrigger>
+    <div className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-3">
+        <Card className="border-sky-200 bg-sky-50/70">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-sky-700">Ficha</p>
+            <p className="text-base font-semibold text-sky-950 wrap-break-word">
+              {form.descripcion || "Nuevo producto"}
+            </p>
+            <p className="text-xs text-sky-800">{form.codigo || "Definí el código comercial"}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-emerald-200 bg-emerald-50/70">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-700">Precio</p>
+            <p className="text-base font-semibold text-emerald-950">
+              {formatMoney(form.precioVenta || 0)}
+            </p>
+            <p className="text-xs text-emerald-800">
+              {margin !== null
+                ? `${marginTone.label} · ${formatPercent(margin)}`
+                : marginTone.description}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-amber-200 bg-amber-50/70">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-amber-700">Operación</p>
+            <p className="text-base font-semibold text-amber-950">
+              {getCommercialProfile({
+                ...item,
+                ...form,
+                id: item?.id ?? 0,
+                stock: item?.stock,
+                activo: item?.activo ?? true,
+                createdAt: item?.createdAt ?? new Date().toISOString(),
+                sucursalId: item?.sucursalId ?? null,
+              } as Item)}
+            </p>
+            <p className="text-xs text-amber-800">
+              {form.manejaStock ? "Con control de stock" : "Sin control de existencias"}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 md:grid-cols-4">
+          <TabsTrigger value="identificacion" className="py-2 text-xs">
+            Identificación
+          </TabsTrigger>
+          <TabsTrigger value="fiscal" className="py-2 text-xs">
+            Fiscal y comercial
+          </TabsTrigger>
+          <TabsTrigger value="precios" className="py-2 text-xs">
+            Precios
+          </TabsTrigger>
+          <TabsTrigger value="stock" className="py-2 text-xs">
+            Stock
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="basicos" className="space-y-4 mt-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>
-                Codigo (SKU) <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                placeholder="PROD-001"
-                value={form.codigo}
-                onChange={(e) => set("codigo", e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>
-                Descripcion <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                placeholder="Nombre del producto"
-                value={form.descripcion}
-                onChange={(e) => set("descripcion", e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Categoria</Label>
-              <Select
-                value={form.categoriaId ? String(form.categoriaId) : "__none__"}
-                onValueChange={(v) => set("categoriaId", v !== "__none__" ? Number(v) : null)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar categoria" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Sin categoria</SelectItem>
-                  {categorias.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.descripcion}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Unidad de Medida</Label>
-              <Select
-                value={form.unidadMedidaId ? String(form.unidadMedidaId) : ""}
-                onValueChange={(v) => set("unidadMedidaId", v ? Number(v) : 0)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar unidad" />
-                </SelectTrigger>
-                <SelectContent>
-                  {unidades.map((u) => (
-                    <SelectItem key={u.id} value={String(u.id)}>
-                      {u.descripcion} ({u.codigo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Alicuota IVA</Label>
-              <Select
-                value={form.alicuotaIvaId ? String(form.alicuotaIvaId) : ""}
-                onValueChange={(v) => set("alicuotaIvaId", v ? Number(v) : 0)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar IVA" />
-                </SelectTrigger>
-                <SelectContent>
-                  {alicuotas.map((a) => (
-                    <SelectItem key={a.id} value={String(a.id)}>
-                      {a.descripcion} ({a.porcentaje}%)
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Moneda</Label>
-              <Select
-                value={form.monedaId ? String(form.monedaId) : ""}
-                onValueChange={(v) => set("monedaId", v ? Number(v) : 0)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar moneda" />
-                </SelectTrigger>
-                <SelectContent>
-                  {monedas.map((m) => (
-                    <SelectItem key={m.id} value={String(m.id)}>
-                      {m.descripcion} ({m.simbolo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Codigo de Barras</Label>
-              <Input
-                placeholder="7790000000000"
-                value={form.codigoBarras ?? ""}
-                onChange={(e) => set("codigoBarras", e.target.value || null)}
-              />
-            </div>
-            <div className="space-y-2 col-span-2">
-              <Label>Descripcion Adicional</Label>
-              <Textarea
-                placeholder="Descripcion detallada del producto"
-                value={form.descripcionAdicional ?? ""}
-                onChange={(e) => set("descripcionAdicional", e.target.value || null)}
-                rows={3}
-              />
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-6 pt-2">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="esProducto"
-                checked={form.esProducto}
-                onCheckedChange={(v) => set("esProducto", v)}
-              />
-              <Label htmlFor="esProducto">Es Producto</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="esServicio"
-                checked={form.esServicio}
-                onCheckedChange={(v) => set("esServicio", v)}
-              />
-              <Label htmlFor="esServicio">Es Servicio</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="manejaStock"
-                checked={form.manejaStock}
-                onCheckedChange={(v) => set("manejaStock", v)}
-              />
-              <Label htmlFor="manejaStock">Maneja Stock</Label>
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="comercial" className="space-y-4 mt-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Codigo AFIP</Label>
-              <Input
-                placeholder="Codigo fiscal o interno"
-                value={form.codigoAfip ?? ""}
-                onChange={(e) => set("codigoAfip", e.target.value || null)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Codigo de Barras</Label>
-              <Input
-                placeholder="7790000000000"
-                value={form.codigoBarras ?? ""}
-                onChange={(e) => set("codigoBarras", e.target.value || null)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Moneda</Label>
-              <Select
-                value={form.monedaId ? String(form.monedaId) : ""}
-                onValueChange={(v) => set("monedaId", v ? Number(v) : 0)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar moneda" />
-                </SelectTrigger>
-                <SelectContent>
-                  {monedas.map((m) => (
-                    <SelectItem key={m.id} value={String(m.id)}>
-                      {m.descripcion} ({m.simbolo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Alicuota IVA</Label>
-              <Select
-                value={form.alicuotaIvaId ? String(form.alicuotaIvaId) : ""}
-                onValueChange={(v) => set("alicuotaIvaId", v ? Number(v) : 0)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar IVA" />
-                </SelectTrigger>
-                <SelectContent>
-                  {alicuotas.map((a) => (
-                    <SelectItem key={a.id} value={String(a.id)}>
-                      {a.descripcion} ({a.porcentaje}%)
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="precios" className="space-y-4 mt-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Precio Costo</Label>
-              <Input
-                type="number"
-                placeholder="0.00"
-                value={form.precioCosto}
-                onChange={(e) => set("precioCosto", parseFloat(e.target.value) || 0)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Precio de Venta</Label>
-              <Input
-                type="number"
-                placeholder="0.00"
-                value={form.precioVenta}
-                onChange={(e) => set("precioVenta", parseFloat(e.target.value) || 0)}
-              />
-            </div>
-          </div>
-          {form.precioCosto > 0 && form.precioVenta > 0 && (
-            <Card className="bg-muted/50">
-              <CardContent className="pt-6">
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Margen</span>
-                    <p className="text-lg font-bold text-orange-600">
-                      {(((form.precioVenta - form.precioCosto) / form.precioVenta) * 100).toFixed(
-                        1
-                      )}
-                      %
-                    </p>
+        <TabsContent value="identificacion" className="mt-4 space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(260px,0.9fr)]">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Datos principales</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>
+                    Código interno <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    placeholder="PROD-001"
+                    value={form.codigo}
+                    onChange={(event) => set("codigo", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Categoría</Label>
+                  <Select
+                    value={form.categoriaId ? String(form.categoriaId) : "__none__"}
+                    onValueChange={(value) =>
+                      set("categoriaId", value === "__none__" ? null : Number(value))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar categoría" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sin categoría</SelectItem>
+                      {categorias.map((categoria) => (
+                        <SelectItem key={categoria.id} value={String(categoria.id)}>
+                          {categoria.descripcion}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label>
+                    Descripción comercial <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    placeholder="Nombre visible para ventas, listas y documentos"
+                    value={form.descripcion}
+                    onChange={(event) => set("descripcion", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label>Descripción extendida</Label>
+                  <Textarea
+                    className="h-28 resize-none"
+                    placeholder="Detalle útil para vendedores, backoffice o facturación"
+                    value={form.descripcionAdicional ?? ""}
+                    onChange={(event) => set("descripcionAdicional", event.target.value || null)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Unidad de medida</Label>
+                  <Select
+                    value={form.unidadMedidaId ? String(form.unidadMedidaId) : "__none__"}
+                    onValueChange={(value) =>
+                      set("unidadMedidaId", value === "__none__" ? 0 : Number(value))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar unidad" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Seleccionar unidad</SelectItem>
+                      {unidades.map((unidad) => (
+                        <SelectItem key={unidad.id} value={String(unidad.id)}>
+                          {unidad.descripcion} ({unidad.codigo})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Código de barras</Label>
+                  <Input
+                    placeholder="7790000000000"
+                    value={form.codigoBarras ?? ""}
+                    onChange={(event) => set("codigoBarras", event.target.value || null)}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-3 md:col-span-2">
+                  <div className="flex items-center gap-2 rounded-xl border px-3 py-2">
+                    <Switch
+                      id="es-producto"
+                      checked={form.esProducto}
+                      onCheckedChange={(checked) => set("esProducto", checked)}
+                    />
+                    <Label htmlFor="es-producto">Es producto</Label>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Ganancia Unitaria</span>
-                    <p className="text-lg font-bold text-green-600">
-                      {form.precioVenta != null && form.precioCosto != null
-                        ? (form.precioVenta - form.precioCosto).toLocaleString("es-AR", {
-                            minimumFractionDigits: 2,
-                          })
-                        : "-"}
-                    </p>
+                  <div className="flex items-center gap-2 rounded-xl border px-3 py-2">
+                    <Switch
+                      id="es-servicio"
+                      checked={form.esServicio}
+                      onCheckedChange={(checked) => set("esServicio", checked)}
+                    />
+                    <Label htmlFor="es-servicio">Es servicio</Label>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Markup</span>
-                    <p className="text-lg font-bold">
-                      {((form.precioVenta / form.precioCosto - 1) * 100).toFixed(1)}%
-                    </p>
+                  <div className="flex items-center gap-2 rounded-xl border px-3 py-2">
+                    <Switch
+                      id="es-financiero"
+                      checked={form.esFinanciero}
+                      onCheckedChange={(checked) => set("esFinanciero", checked)}
+                    />
+                    <Label htmlFor="es-financiero">Es financiero</Label>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl border px-3 py-2">
+                    <Switch
+                      id="maneja-stock"
+                      checked={form.manejaStock}
+                      onCheckedChange={(checked) => set("manejaStock", checked)}
+                    />
+                    <Label htmlFor="maneja-stock">Maneja stock</Label>
                   </div>
                 </div>
               </CardContent>
             </Card>
-          )}
-        </TabsContent>
 
-        <TabsContent value="inventario" className="space-y-4 mt-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Stock Minimo</Label>
-              <Input
-                type="number"
-                placeholder="0"
-                value={form.stockMinimo}
-                onChange={(e) => set("stockMinimo", parseInt(e.target.value) || 0)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Stock Maximo</Label>
-              <Input
-                type="number"
-                placeholder="Sin limite"
-                value={form.stockMaximo ?? ""}
-                onChange={(e) =>
-                  set("stockMaximo", e.target.value ? parseInt(e.target.value) : null)
-                }
-              />
-            </div>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Lectura rápida</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em]">Cobertura</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {[
+                      form.categoriaId ? "Categoría" : "Sin categoría",
+                      form.unidadMedidaId ? "Unidad" : "Falta unidad",
+                      form.codigoBarras ? "Barras" : "Sin barras",
+                      form.codigoAfip ? "Fiscal" : "Sin fiscal",
+                    ].map((entry) => (
+                      <Badge key={entry} variant="outline" className="max-w-full wrap-break-word">
+                        {entry}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em]">Texto comercial</p>
+                  <p className="mt-2 wrap-break-word text-foreground">
+                    {form.descripcionAdicional?.trim() || "Todavía no hay descripción extendida."}
+                  </p>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em]">Perfil</p>
+                  <p className="mt-2 font-medium text-foreground">
+                    {form.esProducto
+                      ? "Listo para catálogo y documentos"
+                      : "Configuración especial"}
+                  </p>
+                  <p className="mt-1 text-xs">
+                    La ficha usa textos simples y consistentes para ventas, listas y facturación.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 
-        <TabsContent value="legado" className="space-y-4 mt-4">
+        <TabsContent value="fiscal" className="mt-4 space-y-4">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Cobertura del maestro legacy</CardTitle>
-              <CardDescription>
-                La ficha ya cubre identificación, fiscalidad básica, precios y stock visibles hoy.
-              </CardDescription>
+              <CardTitle className="text-base">Datos fiscales y comerciales</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4 text-sm">
-              <div>
-                <p className="font-medium">Disponible en el backend actual</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {[
-                    "Categoria",
-                    "Unidad",
-                    "IVA",
-                    "Moneda",
-                    "Codigo de barras",
-                    "Codigo AFIP",
-                    "Costo/Venta",
-                    "Stock y minimos",
-                  ].map((item) => (
-                    <Badge key={item} variant="outline">
-                      {item}
-                    </Badge>
-                  ))}
-                </div>
+            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="space-y-1.5">
+                <Label>Moneda</Label>
+                <Select
+                  value={form.monedaId ? String(form.monedaId) : "__none__"}
+                  onValueChange={(value) =>
+                    set("monedaId", value === "__none__" ? 0 : Number(value))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar moneda" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Seleccionar moneda</SelectItem>
+                    {monedas.map((moneda) => (
+                      <SelectItem key={moneda.id} value={String(moneda.id)}>
+                        {moneda.descripcion} ({moneda.simbolo})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  Atributos, componentes, unidades derivadas, importación de listas y relaciones
-                  proveedor-artículo del legacy siguen reservados para cuando exista backend.
-                </AlertDescription>
-              </Alert>
+              <div className="space-y-1.5">
+                <Label>Alícuota IVA</Label>
+                <Select
+                  value={form.alicuotaIvaId ? String(form.alicuotaIvaId) : "__none__"}
+                  onValueChange={(value) =>
+                    set("alicuotaIvaId", value === "__none__" ? 0 : Number(value))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar IVA" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Seleccionar IVA</SelectItem>
+                    {alicuotas.map((alicuota) => (
+                      <SelectItem key={alicuota.id} value={String(alicuota.id)}>
+                        {alicuota.descripcion} ({alicuota.porcentaje}%)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 xl:col-span-2">
+                <Label>Código fiscal o AFIP</Label>
+                <Input
+                  placeholder="Código externo, fiscal o interno complementario"
+                  value={form.codigoAfip ?? ""}
+                  onChange={(event) => set("codigoAfip", event.target.value || null)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+          <Alert>
+            <ShieldCheck className="h-4 w-4" />
+            <AlertDescription>
+              Esta ficha concentra los datos fiscales y comerciales realmente soportados hoy por la
+              API, sin mezclar etiquetas técnicas innecesarias en la interfaz.
+            </AlertDescription>
+          </Alert>
+        </TabsContent>
+
+        <TabsContent value="precios" className="mt-4 space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.9fr)]">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Costos y precio de venta</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Precio costo</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={form.precioCosto}
+                    onChange={(event) => set("precioCosto", parseFloat(event.target.value) || 0)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Precio venta</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={form.precioVenta}
+                    onChange={(event) => set("precioVenta", parseFloat(event.target.value) || 0)}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Resumen de rentabilidad</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em]">Margen</p>
+                  <p className="mt-1 text-2xl font-semibold text-foreground">
+                    {margin !== null ? formatPercent(margin) : "-"}
+                  </p>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em]">Contribución unitaria</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">
+                    {formatMoney(contribution || 0)}
+                  </p>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em]">Markup</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">
+                    {markup !== null ? formatPercent(markup) : "-"}
+                  </p>
+                </div>
+                <p
+                  className={`text-xs ${margin !== null && margin < 0 ? "text-red-600" : "text-muted-foreground"}`}
+                >
+                  {marginTone.description}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="stock" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Política de stock</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label>Stock mínimo</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.stockMinimo}
+                  onChange={(event) => set("stockMinimo", parseInt(event.target.value, 10) || 0)}
+                  disabled={!form.manejaStock}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Stock máximo</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.stockMaximo ?? ""}
+                  onChange={(event) =>
+                    set("stockMaximo", event.target.value ? parseInt(event.target.value, 10) : null)
+                  }
+                  disabled={!form.manejaStock}
+                />
+              </div>
+              <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
+                <p className="text-[11px] uppercase tracking-[0.16em]">Lectura operativa</p>
+                <p className="mt-2 font-medium text-foreground">
+                  {form.manejaStock
+                    ? "Se controlan mínimos y máximos visibles."
+                    : "El artículo no exige política de stock."}
+                </p>
+                <p className="mt-1 wrap-break-word">
+                  La unidad comercial queda preparada para documentos y para lectura de inventario
+                  cuando exista stock asociado.
+                </p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {formError && (
-        <p className="text-sm text-red-500 flex items-center gap-1">
-          <AlertCircle className="h-4 w-4" /> {formError}
+      {formError ? (
+        <p className="flex items-center gap-2 text-sm text-red-600">
+          <AlertCircle className="h-4 w-4" />
+          {formError}
         </p>
-      )}
+      ) : null}
 
-      <div className="flex justify-end gap-2 pt-2 border-t">
+      <div className="flex justify-end gap-2 border-t pt-3">
         <Button variant="outline" onClick={onClose} className="bg-transparent">
-          <X className="h-4 w-4 mr-2" />
-          Cancelar
+          <X className="mr-2 h-4 w-4" /> Cancelar
         </Button>
         <Button onClick={handleSave} disabled={saving}>
-          <Save className="h-4 w-4 mr-2" />
-          {saving ? "Guardando..." : item ? "Guardar Cambios" : "Crear Producto"}
+          <Save className="mr-2 h-4 w-4" />
+          {saving ? "Guardando..." : item ? "Guardar cambios" : "Crear producto"}
         </Button>
       </div>
     </div>
   )
 }
 
-// --- Detail Dialog ---
-
 function ProductDetail({
   item,
+  monedas,
   onClose,
   onEdit,
 }: {
   item: Item
+  monedas: Moneda[]
   onClose: () => void
   onEdit: () => void
 }) {
-  const stock = item.stock ?? 0
-  const margen =
-    item.precioVenta > 0 && item.precioCosto > 0
-      ? (((item.precioVenta - item.precioCosto) / item.precioVenta) * 100).toFixed(1)
-      : "0"
-  const legacyCoverage = getLegacyCoverage(item)
-  const commercialFields = [
-    { label: "Categoria", value: item.categoriaDescripcion || "Sin categoría" },
+  const [tab, setTab] = useState("resumen")
+  const stockTone = getStockTone(item)
+  const margin = getMargin(item)
+  const markup = getMarkup(item)
+  const marginTone = getMarginTone(item)
+  const currency = resolveCurrency(item, monedas)
+  const stock = getStock(item)
+
+  const summaryFields = [
+    { label: "Código", value: item.codigo },
+    { label: "Descripción", value: item.descripcion },
+    { label: "Categoría", value: item.categoriaDescripcion || "Sin categoría" },
+    { label: "Perfil", value: getCommercialProfile(item) },
     { label: "Unidad", value: item.unidadMedidaDescripcion || "Sin unidad" },
-    { label: "Código AFIP", value: item.codigoAfip || "Sin código" },
-    { label: "Código de barras", value: item.codigoBarras || "Sin código" },
-    { label: "Moneda", value: item.monedaSimbolo || `#${item.monedaId}` },
+    { label: "Estado", value: item.activo ? "Activo" : "Inactivo" },
+  ]
+
+  const fiscalFields = [
+    { label: "Moneda", value: `${currency} · ${item.monedaId}` },
     { label: "IVA", value: item.alicuotaIvaDescripcion || `#${item.alicuotaIvaId}` },
+    { label: "Código de barras", value: item.codigoBarras || "Sin código" },
+    { label: "Código fiscal", value: item.codigoAfip || "Sin código" },
+  ]
+
+  const priceFields = [
+    { label: "Costo", value: formatMoney(item.precioCosto) },
+    { label: "Venta", value: formatMoney(item.precioVenta) },
+    { label: "Margen", value: margin !== null ? formatPercent(margin) : "-" },
+    { label: "Markup", value: markup !== null ? formatPercent(markup) : "-" },
+  ]
+
+  const stockFields = [
+    { label: "Stock visible", value: item.manejaStock ? formatNumber(stock) : "No aplica" },
     {
-      label: "Circuito operativo",
-      value: item.esProducto
-        ? item.esServicio
-          ? "Producto y servicio"
-          : "Producto comercial"
-        : item.esServicio
-          ? "Servicio"
-          : "Otro artículo",
+      label: "Stock mínimo",
+      value: item.manejaStock ? formatNumber(item.stockMinimo) : "No aplica",
     },
     {
-      label: "Cobertura actual",
-      value: item.manejaStock ? "Controla stock y precios" : "Artículo no stockeable",
+      label: "Stock máximo",
+      value: item.manejaStock
+        ? item.stockMaximo !== null
+          ? formatNumber(item.stockMaximo)
+          : "Sin tope"
+        : "No aplica",
     },
+    { label: "Lectura", value: stockTone.description },
   ]
 
   return (
-    <Tabs defaultValue="general" className="w-full">
-      <TabsList className="grid h-auto w-full grid-cols-5">
-        <TabsTrigger value="general">General</TabsTrigger>
-        <TabsTrigger value="comercial">Comercial/Fiscal</TabsTrigger>
-        <TabsTrigger value="precios">Precios y Costos</TabsTrigger>
-        <TabsTrigger value="inventario">Inventario</TabsTrigger>
-        <TabsTrigger value="legado">Legado</TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="general" className="space-y-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Informacion General</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground block mb-1">Nombre</span>
-                <p className="font-medium">{item.descripcion}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">SKU</span>
-                <p className="font-mono font-medium">{item.codigo}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">Categoria</span>
-                <p className="font-medium">{item.categoriaDescripcion || "-"}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">Unidad de Medida</span>
-                <p className="font-medium uppercase">{item.unidadMedidaDescripcion || "-"}</p>
-              </div>
-              {item.codigoBarras && (
-                <div>
-                  <span className="text-muted-foreground block mb-1">Codigo de Barras</span>
-                  <p className="font-mono font-medium">{item.codigoBarras}</p>
-                </div>
-              )}
-              <div className="flex gap-2 flex-wrap col-span-2">
-                {item.esProducto && <Badge variant="outline">Producto</Badge>}
-                {item.esServicio && <Badge variant="outline">Servicio</Badge>}
-                {item.manejaStock && <Badge variant="outline">Maneja Stock</Badge>}
-                <Badge
-                  variant="secondary"
-                  className={
-                    item.activo ? "bg-green-500/10 text-green-600" : "bg-gray-500/10 text-gray-500"
-                  }
-                >
-                  {item.activo ? "Activo" : "Inactivo"}
-                </Badge>
-              </div>
-              {item.descripcionAdicional && (
-                <div className="col-span-2">
-                  <span className="text-muted-foreground block mb-1">Descripcion</span>
-                  <p className="text-sm">{item.descripcionAdicional}</p>
-                </div>
-              )}
-            </div>
+    <div className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-4">
+        <Card className="border-sky-200 bg-sky-50/70 md:col-span-2">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-sky-700">
+              Producto enfocado
+            </p>
+            <p className="text-xl font-semibold text-sky-950 wrap-break-word">{item.descripcion}</p>
+            <p className="text-xs text-sky-800 wrap-break-word">
+              {item.descripcionAdicional || "Sin descripción comercial ampliada."}
+            </p>
           </CardContent>
         </Card>
-      </TabsContent>
-
-      <TabsContent value="comercial" className="space-y-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Lectura comercial y fiscal</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DetailFieldGrid fields={commercialFields} />
+        <Card className="border-emerald-200 bg-emerald-50/70">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-700">Venta</p>
+            <p className="text-lg font-semibold text-emerald-950">
+              {formatMoney(item.precioVenta)}
+            </p>
+            <p className="text-xs text-emerald-800">
+              {marginTone.label} · costo {formatMoney(item.precioCosto)}
+            </p>
           </CardContent>
         </Card>
-      </TabsContent>
+        <Card className="border-amber-200 bg-amber-50/70">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-amber-700">Stock</p>
+            <p className="text-lg font-semibold text-amber-950">
+              {item.manejaStock ? formatNumber(stock) : "N/A"}
+            </p>
+            <p className="text-xs text-amber-800">{stockTone.label}</p>
+          </CardContent>
+        </Card>
+      </div>
 
-      <TabsContent value="precios" className="space-y-4">
-        <div className="grid grid-cols-3 gap-4">
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 md:grid-cols-4">
+          <TabsTrigger value="resumen" className="py-2 text-xs">
+            Resumen
+          </TabsTrigger>
+          <TabsTrigger value="fiscal" className="py-2 text-xs">
+            Fiscal
+          </TabsTrigger>
+          <TabsTrigger value="precios" className="py-2 text-xs">
+            Precios
+          </TabsTrigger>
+          <TabsTrigger value="stock" className="py-2 text-xs">
+            Stock
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="resumen" className="mt-4 space-y-4">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm text-muted-foreground">Costo</CardTitle>
+              <CardTitle className="text-base">Ficha principal</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-blue-600">
-                {item.precioCosto != null
-                  ? item.precioCosto.toLocaleString("es-AR", { minimumFractionDigits: 2 })
-                  : "-"}
-              </p>
+              <DetailFieldGrid fields={summaryFields} />
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm text-muted-foreground">Precio de Venta</CardTitle>
+              <CardTitle className="text-base">Cobertura visible</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-purple-600">
-                {item.precioVenta != null
-                  ? item.precioVenta.toLocaleString("es-AR", { minimumFractionDigits: 2 })
-                  : "-"}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm text-muted-foreground">Margen</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-orange-600">{margen}%</p>
-            </CardContent>
-          </Card>
-        </div>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Analisis de Rentabilidad</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Ganancia Unitaria:</span>
-                <span className="font-semibold">
-                  {item.precioVenta != null && item.precioCosto != null
-                    ? (item.precioVenta - item.precioCosto).toLocaleString("es-AR", {
-                        minimumFractionDigits: 2,
-                      })
-                    : "-"}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Valor Stock al Costo:</span>
-                <span className="font-semibold">
-                  {item.precioCosto != null && stock != null
-                    ? (item.precioCosto * stock).toLocaleString("es-AR", {
-                        minimumFractionDigits: 2,
-                      })
-                    : "-"}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Valor Stock al Precio:</span>
-                <span className="font-semibold text-green-600">
-                  {item.precioVenta != null && stock != null
-                    ? (item.precioVenta * stock).toLocaleString("es-AR", {
-                        minimumFractionDigits: 2,
-                      })
-                    : "-"}
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </TabsContent>
-
-      <TabsContent value="inventario" className="space-y-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Stock Actual</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-4xl font-bold text-green-600">{stock}</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {item.unidadMedidaDescripcion || "unidades"}
-                </p>
-              </div>
-              {item.manejaStock && stock <= item.stockMinimo && (
-                <Alert className="w-50">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription className="text-xs">
-                    Stock por debajo del minimo
-                  </AlertDescription>
-                </Alert>
-              )}
-            </div>
-            <div className="mt-4 text-sm text-muted-foreground">
-              Stock minimo: {item.stockMinimo}
-            </div>
-          </CardContent>
-        </Card>
-      </TabsContent>
-
-      <TabsContent value="legado" className="space-y-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Cobertura visible del legacy</CardTitle>
-            <CardDescription>
-              Se expone lo que hoy existe en el contrato del artículo sin simular catálogos o
-              relaciones no publicadas.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <p className="mb-2 text-sm font-medium">Cubierto hoy</p>
               <div className="flex flex-wrap gap-2">
-                {legacyCoverage.available.map((entry) => (
-                  <Badge key={entry} variant="secondary">
+                {getCoverageLabels(item).map((entry) => (
+                  <Badge key={entry} variant="outline" className="max-w-full wrap-break-word">
                     {entry}
                   </Badge>
                 ))}
               </div>
-            </div>
-            <div>
-              <p className="mb-2 text-sm font-medium">Reservado para próxima fase</p>
-              <div className="flex flex-wrap gap-2">
-                {legacyCoverage.pending.map((entry) => (
-                  <Badge key={entry} variant="outline">
-                    {entry}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </TabsContent>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <DialogFooter className="gap-2 mt-4">
-        <Button variant="outline" onClick={onClose}>
+        <TabsContent value="fiscal" className="mt-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Información fiscal y comercial</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DetailFieldGrid fields={fiscalFields} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="precios" className="mt-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Lectura económica</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DetailFieldGrid fields={priceFields} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="stock" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Existencias y umbrales</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DetailFieldGrid fields={stockFields} />
+            </CardContent>
+          </Card>
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{stockTone.description}</AlertDescription>
+          </Alert>
+        </TabsContent>
+      </Tabs>
+
+      <DialogFooter className="gap-2">
+        <Button variant="outline" onClick={onClose} className="bg-transparent">
           Cerrar
         </Button>
         <Button onClick={onEdit}>
-          <Edit className="h-4 w-4 mr-2" />
-          Editar
+          <Edit className="mr-2 h-4 w-4" /> Editar producto
         </Button>
       </DialogFooter>
-    </Tabs>
+    </div>
   )
 }
 
-// --- Main Page ---
-
-const ProductosPage = () => {
+export default function ProductosPage() {
   const {
     items,
     loading,
@@ -810,489 +921,640 @@ const ProductosPage = () => {
     deleteItem,
     refetch,
   } = useItems()
+  const { categorias, monedas } = useItemsConfig()
 
   const [searchTerm, setSearchTerm] = useState("")
+  const [categoryFilter, setCategoryFilter] = useState("todos")
+  const [typeFilter, setTypeFilter] = useState("todos")
+  const [stockFilter, setStockFilter] = useState("todos")
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
+  const [editingItemId, setEditingItemId] = useState<number | null>(null)
+  const [detailItemId, setDetailItemId] = useState<number | null>(null)
+  const [deleteItemId, setDeleteItemId] = useState<number | null>(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [detailItemId, setDetailItemId] = useState<number | null>(null)
-  const [editingItemId, setEditingItemId] = useState<number | null>(null)
-  const [itemToDeleteId, setItemToDeleteId] = useState<number | null>(null)
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const detailItem = React.useMemo(
-    () => items.find((item) => item.id === detailItemId) ?? null,
-    [detailItemId, items]
-  )
-  const editingItem = React.useMemo(
-    () => items.find((item) => item.id === editingItemId) ?? null,
-    [editingItemId, items]
-  )
-  const itemToDelete = React.useMemo(
-    () => items.find((item) => item.id === itemToDeleteId) ?? null,
-    [itemToDeleteId, items]
-  )
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      const matchesCategory =
+        categoryFilter === "todos" || String(item.categoriaId ?? "sin-categoria") === categoryFilter
 
-  const handleSearchChange = (val: string) => {
-    setSearchTerm(val)
-    setSearch(val)
-  }
+      const matchesType =
+        typeFilter === "todos" ||
+        (typeFilter === "producto" && item.esProducto && !item.esServicio) ||
+        (typeFilter === "servicio" && item.esServicio && !item.esProducto) ||
+        (typeFilter === "mixto" && item.esProducto && item.esServicio) ||
+        (typeFilter === "financiero" && item.esFinanciero)
 
-  const handleViewDetail = (item: Item) => {
-    setDetailItemId(item.id)
-    setIsDetailOpen(true)
-  }
+      const stock = getStock(item)
+      const margin = getMargin(item) ?? 0
+      const matchesStock =
+        stockFilter === "todos" ||
+        (stockFilter === "critico" && item.manejaStock && stock <= item.stockMinimo) ||
+        (stockFilter === "sin-stock" && item.manejaStock && stock === 0) ||
+        (stockFilter === "rentabilidad" && margin < 20) ||
+        (stockFilter === "sin-control" && !item.manejaStock)
 
-  const handleEdit = (item: Item) => {
-    setEditingItemId(item.id)
-    setIsFormOpen(true)
-  }
+      return matchesCategory && matchesType && matchesStock
+    })
+  }, [categoryFilter, items, stockFilter, typeFilter])
 
-  const handleDelete = (item: Item) => {
-    setItemToDeleteId(item.id)
-    setIsDeleteDialogOpen(true)
-  }
+  const selectedItem =
+    filteredItems.find((item) => item.id === selectedItemId) ?? filteredItems[0] ?? null
+  const detailItem = items.find((item) => item.id === detailItemId) ?? null
+  const editingItem = items.find((item) => item.id === editingItemId) ?? null
+  const deletingItem = items.find((item) => item.id === deleteItemId) ?? null
 
-  const confirmDelete = async () => {
-    if (!itemToDelete) return
-    setDeleting(true)
-    const ok = await deleteItem(itemToDelete.id)
-    setDeleting(false)
+  const kpis = useMemo(() => {
+    const visible = filteredItems
+    const stockAlerts = visible.filter(
+      (item) => item.manejaStock && getStock(item) <= item.stockMinimo
+    )
+    const active = visible.filter((item) => item.activo).length
+    const marginAverage =
+      visible.length > 0
+        ? visible.reduce((sum, item) => sum + (getMargin(item) ?? 0), 0) / visible.length
+        : 0
 
-    if (!ok) return
+    return {
+      visible: visible.length,
+      active,
+      stockAlerts: stockAlerts.length,
+      marginAverage,
+      totalValue: visible.reduce((sum, item) => sum + item.precioCosto * getStock(item), 0),
+      noCategory: visible.filter((item) => !item.categoriaDescripcion).length,
+    }
+  }, [filteredItems])
 
-    setIsDeleteDialogOpen(false)
-    setItemToDeleteId(null)
-    refetch()
+  const categorySummary = useMemo(() => {
+    const groups = new Map<string, { count: number; value: number }>()
+
+    filteredItems.forEach((item) => {
+      const key = item.categoriaDescripcion || "Sin categoría"
+      const current = groups.get(key) ?? { count: 0, value: 0 }
+      current.count += 1
+      current.value += item.precioCosto * getStock(item)
+      groups.set(key, current)
+    })
+
+    return Array.from(groups.entries())
+      .map(([label, values]) => ({ label, ...values }))
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 5)
+  }, [filteredItems])
+
+  const alerts = useMemo(() => {
+    return filteredItems
+      .map((item) => {
+        const stock = getStock(item)
+        const margin = getMargin(item) ?? 0
+
+        if (item.manejaStock && stock <= item.stockMinimo && margin < 20) {
+          return {
+            id: item.id,
+            title: item.descripcion,
+            subtitle: item.codigo,
+            note: "Stock crítico y margen corto",
+          }
+        }
+        if (item.manejaStock && stock <= item.stockMinimo) {
+          return {
+            id: item.id,
+            title: item.descripcion,
+            subtitle: item.codigo,
+            note: "Requiere reposición",
+          }
+        }
+        if (margin < 20) {
+          return {
+            id: item.id,
+            title: item.descripcion,
+            subtitle: item.codigo,
+            note: "Margen por debajo del umbral",
+          }
+        }
+        return null
+      })
+      .filter(
+        (entry): entry is { id: number; title: string; subtitle: string; note: string } =>
+          entry !== null
+      )
+      .slice(0, 6)
+  }, [filteredItems])
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    setSearch(value)
   }
 
   const handleSaved = () => {
     setIsFormOpen(false)
     setEditingItemId(null)
-    refetch()
+    void refetch()
+  }
+
+  const openCreate = () => {
+    setEditingItemId(null)
+    setIsFormOpen(true)
+  }
+
+  const openEdit = (item: Item) => {
+    setEditingItemId(item.id)
+    setIsFormOpen(true)
+  }
+
+  const openDetail = (item: Item) => {
+    setSelectedItemId(item.id)
+    setDetailItemId(item.id)
+    setIsDetailOpen(true)
+  }
+
+  const openDelete = (item: Item) => {
+    setDeleteItemId(item.id)
+    setIsDeleteOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!deletingItem) return
+
+    setDeleting(true)
+    const ok = await deleteItem(deletingItem.id)
+    setDeleting(false)
+
+    if (!ok) return
+
+    setIsDeleteOpen(false)
+    setDeleteItemId(null)
+    if (selectedItemId === deletingItem.id) setSelectedItemId(null)
+    void refetch()
   }
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5065"
 
-  const catalogSummary = React.useMemo(() => {
-    const stockBajo = items.filter(
-      (item) => item.manejaStock && (item.stock ?? 0) <= item.stockMinimo
-    )
-    const margenPromedio =
-      items.length > 0
-        ? items.reduce(
-            (sum, item) =>
-              sum +
-              (item.precioVenta > 0
-                ? ((item.precioVenta - item.precioCosto) / item.precioVenta) * 100
-                : 0),
-            0
-          ) / items.length
-        : 0
-
-    return {
-      stockBajo,
-      valorStock: items.reduce((sum, item) => sum + item.precioCosto * (item.stock ?? 0), 0),
-      margenPromedio,
-      activos: items.filter((item) => item.activo).length,
-      servicios: items.filter((item) => item.esServicio).length,
-      sinCategoria: items.filter((item) => !item.categoriaDescripcion).length,
-      margenBajo: items.filter(
-        (item) =>
-          item.precioVenta > 0 &&
-          ((item.precioVenta - item.precioCosto) / item.precioVenta) * 100 < 20
-      ).length,
-    }
-  }, [items])
-
-  const categoryCoverage = React.useMemo(() => {
-    const groups = new Map<
-      string,
-      { cantidad: number; valorStock: number; margenPromedio: number }
-    >()
-
-    items.forEach((item) => {
-      const key = item.categoriaDescripcion || "Sin categoria"
-      const current = groups.get(key) ?? { cantidad: 0, valorStock: 0, margenPromedio: 0 }
-      const margen =
-        item.precioVenta > 0 ? ((item.precioVenta - item.precioCosto) / item.precioVenta) * 100 : 0
-      current.cantidad += 1
-      current.valorStock += item.precioCosto * (item.stock ?? 0)
-      current.margenPromedio += margen
-      groups.set(key, current)
-    })
-
-    return Array.from(groups.entries())
-      .map(([categoria, values]) => ({
-        categoria,
-        cantidad: values.cantidad,
-        valorStock: values.valorStock,
-        margenPromedio: values.margenPromedio / Math.max(values.cantidad, 1),
-      }))
-      .sort((left, right) => right.cantidad - left.cantidad)
-      .slice(0, 6)
-  }, [items])
-
-  const catalogAlerts = React.useMemo(() => {
-    return items
-      .map((item) => {
-        const margen =
-          item.precioVenta > 0
-            ? ((item.precioVenta - item.precioCosto) / item.precioVenta) * 100
-            : 0
-        const stock = item.stock ?? 0
-        let motivo: string | null = null
-
-        if (item.manejaStock && stock <= item.stockMinimo && margen < 20) {
-          motivo = "Stock bajo y margen corto"
-        } else if (item.manejaStock && stock <= item.stockMinimo) {
-          motivo = "Stock por debajo del minimo"
-        } else if (margen < 20) {
-          motivo = "Margen por debajo del umbral"
-        }
-
-        if (!motivo) return null
-
-        return {
-          id: item.id,
-          codigo: item.codigo,
-          descripcion: item.descripcion,
-          motivo,
-          margen,
-          stock,
-        }
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null)
-      .slice(0, 8)
-  }, [items])
-
   return (
     <div className="space-y-6 pb-6">
-      <div className="flex justify-between items-start">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight">Productos</h1>
-          <p className="text-muted-foreground">Catalogo de productos y gestion de precios</p>
+          <p className="max-w-3xl text-muted-foreground">
+            Maestro comercial de productos para ventas, con catálogo claro, lectura operativa útil y
+            formularios alineados al contrato actual de ítems.
+          </p>
         </div>
-        <Button
-          onClick={() => {
-            setEditingItem(null)
-            setIsFormOpen(true)
-          }}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Nuevo Producto
+        <Button onClick={openCreate}>
+          <PackagePlus className="mr-2 h-4 w-4" /> Nuevo producto
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">En pantalla</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{kpis.visible}</div>
+            <p className="mt-1 text-xs text-muted-foreground">{kpis.active} activos en la vista</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Productos
+              Stock crítico
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{kpis.stockAlerts}</div>
+            <p className="mt-1 text-xs text-muted-foreground">Con reposición pendiente</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Valor visible
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold">{formatMoney(kpis.totalValue)}</div>
+            <p className="mt-1 text-xs text-muted-foreground">Valorizado al costo</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Margen promedio
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-emerald-600">
+              {formatPercent(kpis.marginAverage)}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">Promedio del conjunto visible</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Sin categoría
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-amber-600">{kpis.noCategory}</div>
+            <p className="mt-1 text-xs text-muted-foreground">Pendientes de orden comercial</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total general
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalCount}</div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {catalogSummary.activos} activos en catalogo
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Stock Bajo</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">
-              {catalogSummary.stockBajo.length}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">Items en tension de reposicion</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Valor Total Stock
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              ${catalogSummary.valorStock.toLocaleString("es-AR")}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">Valuado al costo visible</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Margen Promedio
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{catalogSummary.margenPromedio.toFixed(1)}%</div>
-            <p className="mt-1 text-xs text-muted-foreground">Sobre todos los items visibles</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Servicios</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{catalogSummary.servicios}</div>
-            <p className="mt-1 text-xs text-muted-foreground">Items no stockeables o mixtos</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Margen Bajo</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{catalogSummary.margenBajo}</div>
-            <p className="mt-1 text-xs text-muted-foreground">Items por debajo del 20%</p>
+            <p className="mt-1 text-xs text-muted-foreground">Conteo reportado por API</p>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-5">
-        <Card className="xl:col-span-3">
-          <CardHeader>
-            <CardTitle className="text-base">Cobertura por Categoria</CardTitle>
-            <CardDescription>Lectura comercial del catalogo visible</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead className="text-right">Items</TableHead>
-                  <TableHead className="text-right">Valor Stock</TableHead>
-                  <TableHead className="text-right">Margen Prom.</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {categoryCoverage.map((category) => (
-                  <TableRow key={category.categoria}>
-                    <TableCell className="font-medium">{category.categoria}</TableCell>
-                    <TableCell className="text-right">{category.cantidad}</TableCell>
-                    <TableCell className="text-right">
-                      ${category.valorStock.toLocaleString("es-AR")}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {category.margenPromedio.toFixed(1)}%
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card className="xl:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">Señales de Catalogo</CardTitle>
-            <CardDescription>Productos que piden revision comercial o de stock</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {catalogAlerts.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No hay alertas relevantes en el set visible.
-                </p>
-              )}
-              {catalogAlerts.map((alertItem) => (
-                <div key={alertItem.id} className="rounded-lg border p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{alertItem.descripcion}</p>
-                      <p className="text-xs text-muted-foreground font-mono">{alertItem.codigo}</p>
-                    </div>
-                    <Badge variant="outline">{alertItem.motivo}</Badge>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Margen {alertItem.margen.toFixed(1)}%</span>
-                    <span>Stock {alertItem.stock}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardContent className="pt-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por SKU o nombre..."
-              value={searchTerm}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-          {!loading && !error && (
-            <p className="text-xs text-muted-foreground mt-2">{totalCount} productos encontrados</p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="pt-0">
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-muted-foreground">Cargando productos...</span>
-            </div>
-          )}
-
-          {error && !loading && (
-            <div className="flex flex-col items-center gap-3 py-12">
-              <div className="flex items-center gap-2 text-red-500">
-                <AlertCircle className="h-5 w-5" />
-                <p className="text-sm font-medium">
-                  {error.includes("fetch") || error.includes("network") || error.includes("Failed")
-                    ? "No se pudo conectar con el servidor. Verifica que el backend este corriendo en " +
-                      apiUrl +
-                      "."
-                    : error}
+      {selectedItem ? (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.8fr)]">
+          <Card className="border-sky-200 bg-linear-to-br from-sky-50 via-white to-cyan-50">
+            <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-2">
+                <CardDescription>Producto seleccionado</CardDescription>
+                <CardTitle className="text-2xl wrap-break-word">
+                  {selectedItem.descripcion}
+                </CardTitle>
+                <p className="max-w-3xl text-sm text-muted-foreground wrap-break-word">
+                  {selectedItem.descripcionAdicional ||
+                    "Sin descripción comercial ampliada. El producto ya puede leerse con código, precio, datos fiscales y política de stock visibles."}
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={refetch}>
-                <RefreshCw className="h-4 w-4 mr-2" /> Reintentar
-              </Button>
-            </div>
-          )}
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={getStockTone(selectedItem).badge}>
+                  {getStockTone(selectedItem).label}
+                </Badge>
+                <Badge variant="outline">{getCommercialProfile(selectedItem)}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border bg-white/80 p-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Código
+                </p>
+                <p className="mt-1 font-semibold wrap-break-word">{selectedItem.codigo}</p>
+              </div>
+              <div className="rounded-xl border bg-white/80 p-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Venta
+                </p>
+                <p className="mt-1 font-semibold">{formatMoney(selectedItem.precioVenta)}</p>
+              </div>
+              <div className="rounded-xl border bg-white/80 p-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Margen
+                </p>
+                <p className="mt-1 font-semibold">
+                  {getMargin(selectedItem) !== null
+                    ? formatPercent(getMargin(selectedItem) ?? 0)
+                    : "-"}
+                </p>
+              </div>
+              <div className="rounded-xl border bg-white/80 p-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Stock
+                </p>
+                <p className="mt-1 font-semibold">
+                  {selectedItem.manejaStock ? formatNumber(getStock(selectedItem)) : "N/A"}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
-          {!loading && !error && (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Nombre</TableHead>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead className="text-right">Stock</TableHead>
-                    <TableHead className="text-right">Costo</TableHead>
-                    <TableHead className="text-right">Precio</TableHead>
-                    <TableHead className="text-right">Margen</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                        No se encontraron productos
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    items.map((item) => {
-                      const stock = item.stock ?? 0
-                      const bajStock = item.manejaStock && stock <= item.stockMinimo
-                      const margen =
-                        item.precioVenta > 0 && item.precioCosto > 0
-                          ? (
-                              ((item.precioVenta - item.precioCosto) / item.precioVenta) *
-                              100
-                            ).toFixed(1)
-                          : "-"
-                      return (
-                        <TableRow
-                          key={item.id}
-                          onClick={() => handleViewDetail(item)}
-                          className="cursor-pointer hover:bg-muted/50"
-                        >
-                          <TableCell className="font-mono text-sm">{item.codigo}</TableCell>
-                          <TableCell className="font-medium">{item.descripcion}</TableCell>
-                          <TableCell>{item.categoriaDescripcion || "-"}</TableCell>
-                          <TableCell className="text-right">
-                            {item.manejaStock ? (
-                              <Badge variant={bajStock ? "destructive" : "outline"}>
-                                {stock} {item.unidadMedidaDescripcion || ""}
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">N/A</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {item.precioCosto != null
-                              ? item.precioCosto.toLocaleString("es-AR")
-                              : "-"}
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {item.precioVenta != null
-                              ? item.precioVenta.toLocaleString("es-AR")
-                              : "-"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {margen !== "-" ? margen + "%" : "-"}
-                          </TableCell>
-                          <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleViewDetail(item)}
-                                title="Ver detalle"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleEdit(item)}
-                                title="Editar"
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDelete(item)}
-                                title="Eliminar"
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
-
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between pt-4 border-t">
-                  <p className="text-sm text-muted-foreground">
-                    Pagina {page} de {totalPages}
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={page <= 1}
-                      onClick={() => setPage(page - 1)}
-                    >
-                      Anterior
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={page >= totalPages}
-                      onClick={() => setPage(page + 1)}
-                    >
-                      Siguiente
-                    </Button>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Atención prioritaria</CardTitle>
+              <CardDescription>Productos que hoy conviene revisar primero.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {alerts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No hay alertas relevantes dentro del conjunto filtrado.
+                </p>
+              ) : (
+                alerts.map((alert) => (
+                  <div key={alert.id} className="rounded-xl border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium wrap-break-word">{alert.title}</p>
+                        <p className="text-xs text-muted-foreground">{alert.subtitle}</p>
+                      </div>
+                      <Badge variant="outline" className="max-w-40 wrap-break-word text-right">
+                        {alert.note}
+                      </Badge>
+                    </div>
                   </div>
-                </div>
+                ))
               )}
-            </>
-          )}
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Filtros</CardTitle>
+          <CardDescription>
+            Buscá por código o descripción y recortá la vista según perfil, categoría o cobertura.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px_220px_220px_auto]">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por código o descripción..."
+                value={searchTerm}
+                onChange={(event) => handleSearchChange(event.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Categoría" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todas las categorías</SelectItem>
+                <SelectItem value="sin-categoria">Sin categoría</SelectItem>
+                {categorias.map((categoria) => (
+                  <SelectItem key={categoria.id} value={String(categoria.id)}>
+                    {categoria.descripcion}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Perfil" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los perfiles</SelectItem>
+                <SelectItem value="producto">Producto</SelectItem>
+                <SelectItem value="servicio">Servicio</SelectItem>
+                <SelectItem value="mixto">Producto + servicio</SelectItem>
+                <SelectItem value="financiero">Financiero</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={stockFilter} onValueChange={setStockFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Stock" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Toda la cobertura</SelectItem>
+                <SelectItem value="critico">Stock crítico</SelectItem>
+                <SelectItem value="sin-stock">Sin stock</SelectItem>
+                <SelectItem value="rentabilidad">Margen bajo</SelectItem>
+                <SelectItem value="sin-control">Sin control de stock</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" className="bg-transparent" onClick={() => void refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Recargar
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
-      {/* Detail Dialog */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,0.8fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Catálogo visible ({filteredItems.length})</CardTitle>
+            <CardDescription>
+              La tabla prioriza lectura rápida, precios y cobertura operativa sin romper la
+              composición visual.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="flex items-center justify-center py-14 text-muted-foreground">
+                <RefreshCw className="mr-2 h-5 w-5 animate-spin" /> Cargando productos...
+              </div>
+            ) : error ? (
+              <div className="space-y-3 px-6 py-10 text-center">
+                <p className="text-sm text-red-600 wrap-break-word">
+                  {error.includes("fetch") || error.includes("network") || error.includes("Failed")
+                    ? `No se pudo conectar con el backend. Verificá que la API esté disponible en ${apiUrl}.`
+                    : error}
+                </p>
+                <Button variant="outline" className="bg-transparent" onClick={() => void refetch()}>
+                  <RefreshCw className="mr-2 h-4 w-4" /> Reintentar
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <Table className="min-w-245">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Código</TableHead>
+                        <TableHead>Producto</TableHead>
+                        <TableHead>Categoría</TableHead>
+                        <TableHead>Perfil</TableHead>
+                        <TableHead className="text-right">Stock</TableHead>
+                        <TableHead className="text-right">Venta</TableHead>
+                        <TableHead className="text-right">Margen</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredItems.length === 0 ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={8}
+                            className="py-12 text-center text-muted-foreground"
+                          >
+                            No se encontraron productos para los filtros actuales.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredItems.map((item) => {
+                          const margin = getMargin(item)
+                          const stockTone = getStockTone(item)
+
+                          return (
+                            <TableRow
+                              key={item.id}
+                              className="cursor-pointer hover:bg-muted/40"
+                              onClick={() => {
+                                setSelectedItemId(item.id)
+                              }}
+                            >
+                              <TableCell className="font-mono text-xs font-semibold">
+                                {item.codigo}
+                              </TableCell>
+                              <TableCell>
+                                <div className="min-w-0">
+                                  <p className="font-medium wrap-break-word">{item.descripcion}</p>
+                                  <p className="text-xs text-muted-foreground wrap-break-word">
+                                    {item.descripcionAdicional ||
+                                      item.codigoBarras ||
+                                      "Sin detalle comercial adicional"}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>{item.categoriaDescripcion || "Sin categoría"}</TableCell>
+                              <TableCell>{getCommercialProfile(item)}</TableCell>
+                              <TableCell className="text-right">
+                                <Badge
+                                  variant={stockTone.badge}
+                                  className="max-w-full wrap-break-word"
+                                >
+                                  {item.manejaStock
+                                    ? `${formatNumber(getStock(item))} u.`
+                                    : "No aplica"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {formatMoney(item.precioVenta)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {margin !== null ? formatPercent(margin) : "-"}
+                              </TableCell>
+                              <TableCell
+                                className="text-right"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <div className="flex justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => openDetail(item)}
+                                    title="Ver detalle"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => openEdit(item)}
+                                    title="Editar"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => openDelete(item)}
+                                    title="Eliminar"
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {totalPages > 1 ? (
+                  <div className="flex items-center justify-between border-t px-6 py-4">
+                    <p className="text-sm text-muted-foreground">
+                      Página {page} de {totalPages}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page <= 1}
+                        onClick={() => setPage(page - 1)}
+                      >
+                        Anterior
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page >= totalPages}
+                        onClick={() => setPage(page + 1)}
+                      >
+                        Siguiente
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Cobertura por categoría</CardTitle>
+              <CardDescription>Resumen comercial del conjunto filtrado.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {categorySummary.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No hay categorías visibles para resumir.
+                </p>
+              ) : (
+                categorySummary.map((category) => (
+                  <div key={category.label} className="rounded-xl border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-medium wrap-break-word">{category.label}</p>
+                      <Badge variant="outline">{category.count}</Badge>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Valor al costo {formatMoney(category.value)}
+                    </p>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Alcance actual</CardTitle>
+              <CardDescription>
+                Se muestran sólo campos y formularios sostenidos por el backend actual.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <div className="flex items-start gap-3 rounded-xl border p-3">
+                <Tag className="mt-0.5 h-4 w-4 text-sky-600" />
+                <p className="wrap-break-word">
+                  Identificación comercial clara con código, nombre, categoría, unidad y
+                  descripciones.
+                </p>
+              </div>
+              <div className="flex items-start gap-3 rounded-xl border p-3">
+                <ShieldCheck className="mt-0.5 h-4 w-4 text-emerald-600" />
+                <p className="wrap-break-word">
+                  Datos fiscales y comerciales reales: IVA, moneda, código de barras y código
+                  fiscal.
+                </p>
+              </div>
+              <div className="flex items-start gap-3 rounded-xl border p-3">
+                <CircleDollarSign className="mt-0.5 h-4 w-4 text-amber-600" />
+                <p className="wrap-break-word">
+                  Formación de precio con lectura inmediata de margen, markup y contribución.
+                </p>
+              </div>
+              <div className="flex items-start gap-3 rounded-xl border p-3">
+                <Boxes className="mt-0.5 h-4 w-4 text-rose-600" />
+                <p className="wrap-break-word">
+                  Política de stock con mínimos, máximos y alertas visuales de reposición.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
       <Dialog
         open={isDetailOpen}
         onOpenChange={(open) => {
@@ -1300,28 +1562,19 @@ const ProductosPage = () => {
           if (!open) setDetailItemId(null)
         }}
       >
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              {detailItem?.descripcion}
-              {detailItem && (
-                <Badge
-                  variant="secondary"
-                  className={
-                    detailItem.activo
-                      ? "bg-green-500/10 text-green-600"
-                      : "bg-gray-500/10 text-gray-500"
-                  }
-                >
-                  {detailItem.activo ? "Activo" : "Inactivo"}
-                </Badge>
-              )}
-            </DialogTitle>
-            <DialogDescription>SKU: {detailItem?.codigo}</DialogDescription>
+            <DialogTitle>Detalle del producto</DialogTitle>
+            <DialogDescription>
+              {detailItem
+                ? `${detailItem.codigo} · ${detailItem.descripcion}`
+                : "Cargando detalle..."}
+            </DialogDescription>
           </DialogHeader>
-          {detailItem && (
+          {detailItem ? (
             <ProductDetail
               item={detailItem}
+              monedas={monedas}
               onClose={() => {
                 setIsDetailOpen(false)
                 setDetailItemId(null)
@@ -1329,34 +1582,35 @@ const ProductosPage = () => {
               onEdit={() => {
                 setIsDetailOpen(false)
                 setDetailItemId(null)
-                handleEdit(detailItem)
+                openEdit(detailItem)
               }}
             />
+          ) : (
+            <div className="py-10 text-center text-muted-foreground">
+              No fue posible cargar el detalle del producto.
+            </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Form Dialog */}
       <Dialog
         open={isFormOpen}
         onOpenChange={(open) => {
-          if (!open) {
-            setIsFormOpen(false)
-            setEditingItemId(null)
-          }
+          setIsFormOpen(open)
+          if (!open) setEditingItemId(null)
         }}
       >
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingItem ? "Editar Producto" : "Nuevo Producto"}</DialogTitle>
+            <DialogTitle>{editingItem ? "Editar producto" : "Nuevo producto"}</DialogTitle>
             <DialogDescription>
               {editingItem
-                ? "Editando " + editingItem.descripcion
-                : "Completa los datos para crear un nuevo producto"}
+                ? "Actualizá la ficha comercial y operativa del producto seleccionado."
+                : "Completá los campos necesarios para incorporar un producto al maestro de ventas."}
             </DialogDescription>
           </DialogHeader>
           <ProductForm
-            key={`${editingItem?.id ?? "new-product"}-${isFormOpen ? "open" : "closed"}`}
+            key={`${editingItem?.id ?? "new-item"}-${isFormOpen ? "open" : "closed"}`}
             item={editingItem}
             onClose={() => {
               setIsFormOpen(false)
@@ -1369,61 +1623,54 @@ const ProductosPage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
       <Dialog
-        open={isDeleteDialogOpen}
+        open={isDeleteOpen}
         onOpenChange={(open) => {
-          setIsDeleteDialogOpen(open)
-          if (!open) setItemToDeleteId(null)
+          setIsDeleteOpen(open)
+          if (!open) setDeleteItemId(null)
         }}
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              Confirmar Eliminacion
+              <AlertTriangle className="h-5 w-5 text-destructive" /> Confirmar desactivación
             </DialogTitle>
             <DialogDescription>
-              Esta accion no se puede deshacer. El producto sera eliminado permanentemente.
+              El producto se desactivará desde el maestro actual y dejará de operar como activo.
             </DialogDescription>
           </DialogHeader>
-          {itemToDelete && (
+          {deletingItem ? (
             <Card>
-              <CardContent className="pt-6">
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">SKU:</span>
-                    <span className="font-mono font-medium">{itemToDelete.codigo}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Nombre:</span>
-                    <span className="font-medium">{itemToDelete.descripcion}</span>
-                  </div>
-                  {itemToDelete.manejaStock && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Stock:</span>
-                      <span className="font-medium">
-                        {itemToDelete.stock ?? 0} {itemToDelete.unidadMedidaDescripcion || ""}
-                      </span>
-                    </div>
-                  )}
+              <CardContent className="space-y-2 p-4 text-sm">
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Código</span>
+                  <span className="font-mono font-medium">{deletingItem.codigo}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Producto</span>
+                  <span className="text-right font-medium wrap-break-word">
+                    {deletingItem.descripcion}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Categoría</span>
+                  <span className="text-right wrap-break-word">
+                    {deletingItem.categoriaDescripcion || "Sin categoría"}
+                  </span>
                 </div>
               </CardContent>
             </Card>
-          )}
+          ) : null}
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => {
-                setIsDeleteDialogOpen(false)
-                setItemToDeleteId(null)
-              }}
+              onClick={() => setIsDeleteOpen(false)}
+              className="bg-transparent"
             >
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
-              <Trash2 className="h-4 w-4 mr-2" />
-              {deleting ? "Eliminando..." : "Eliminar Producto"}
+            <Button variant="destructive" onClick={() => void confirmDelete()} disabled={deleting}>
+              <Trash2 className="mr-2 h-4 w-4" /> {deleting ? "Desactivando..." : "Desactivar"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1431,5 +1678,3 @@ const ProductosPage = () => {
     </div>
   )
 }
-
-export default ProductosPage

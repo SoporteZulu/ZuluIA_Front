@@ -1,12 +1,38 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  AlertCircle,
+  Building2,
+  CheckCircle,
+  Copy,
+  Eye,
+  Fingerprint,
+  MapPin,
+  PenSquare,
+  Plus,
+  ReceiptText,
+  RefreshCw,
+  Search,
+  Settings2,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -15,15 +41,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
   Table,
   TableBody,
   TableCell,
@@ -31,21 +48,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  MapPin,
-  Eye,
-  CheckCircle,
-  XCircle,
-  Plus,
-  Edit,
-  Search,
-  ReceiptText,
-  Landmark,
-  AlertCircle,
-} from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { usePuntosFacturacion, useTiposPuntoFacturacion } from "@/lib/hooks/usePuntosFacturacion"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
-import type { CreatePuntoFacturacionDto, PuntoFacturacion } from "@/lib/types/puntos-facturacion"
+import type {
+  CreatePuntoFacturacionDto,
+  PuntoFacturacion,
+  TipoPuntoFacturacion,
+} from "@/lib/types/puntos-facturacion"
 
 const EMPTY_FORM: CreatePuntoFacturacionDto = {
   sucursalId: 0,
@@ -54,32 +65,62 @@ const EMPTY_FORM: CreatePuntoFacturacionDto = {
   tipoPuntoFacturacionId: 0,
 }
 
-function getOperationalStatus(punto: PuntoFacturacion) {
-  if (!punto.activo) return "Punto inactivo"
-  return "Punto disponible para emisión"
+function formatPointNumber(numero: number) {
+  return String(numero).padStart(4, "0")
 }
 
-function getNumberingStatus(
-  nextNumber: number | null,
-  loadingNextNumber: boolean,
-  punto: PuntoFacturacion
-) {
+function getOperationalStatus(punto: PuntoFacturacion) {
+  if (!punto.activo) return "Punto inactivo"
+  if (!punto.tipoPuntoFacturacionId) return "Activo, pero sin tipo definido"
+  return "Punto listo para emisión"
+}
+
+function getNumberingStatus(nextNumber: number | null, loading: boolean, punto: PuntoFacturacion) {
   if (!punto.activo) return "Numeración detenida por baja"
-  if (loadingNextNumber) return "Consultando numeración"
-  if (nextNumber === null) return "Sin numeración consultada"
+  if (loading) return "Consultando numeración"
+  if (nextNumber === null) return "Sin vista previa disponible"
   return `Próximo comprobante ${nextNumber}`
 }
 
 function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2">
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {fields.map((field) => (
-        <div key={field.label} className="rounded-lg bg-muted/40 p-3">
-          <span className="mb-1 block text-xs text-muted-foreground">{field.label}</span>
-          <p className="text-sm font-medium wrap-break-word">{field.value}</p>
+        <div key={field.label} className="rounded-xl border bg-muted/30 p-3">
+          <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-muted-foreground">
+            {field.label}
+          </span>
+          <p className="text-sm font-medium wrap-break-word text-foreground">{field.value}</p>
         </div>
       ))}
     </div>
+  )
+}
+
+function DashboardKpi({
+  icon: Icon,
+  label,
+  value,
+  description,
+}: {
+  icon: typeof MapPin
+  label: string
+  value: string
+  description: string
+}) {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-3 p-4">
+        <div className="rounded-xl border bg-muted/40 p-2">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+          <p className="truncate text-lg font-semibold text-foreground">{value}</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -93,7 +134,7 @@ interface PuntoFormProps {
 function createPuntoFormState(
   punto: PuntoFacturacion | null,
   sucursalId: number | undefined,
-  tipos: Array<{ id: number; descripcion: string; porDefecto: boolean }>
+  tipos: TipoPuntoFacturacion[]
 ): CreatePuntoFacturacionDto {
   if (punto) {
     return {
@@ -112,28 +153,70 @@ function createPuntoFormState(
 }
 
 function PuntoForm({ punto, sucursalId, onClose, onSaved }: PuntoFormProps) {
+  const { sucursales } = useSucursales()
   const { tipos } = useTiposPuntoFacturacion()
-  const { crear, actualizar } = usePuntosFacturacion(sucursalId)
+  const { tipos: tiposComprobante } = useComprobantesConfig()
+  const { crear, actualizar, getProximoNumero } = usePuntosFacturacion(sucursalId)
   const [form, setForm] = useState<CreatePuntoFacturacionDto>(() =>
     createPuntoFormState(punto, sucursalId, tipos)
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [previewTipoId, setPreviewTipoId] = useState<number>(0)
+  const [nextNumber, setNextNumber] = useState<number | null>(null)
+  const [loadingNextNumber, setLoadingNextNumber] = useState(false)
+  const ventaTypes = useMemo(
+    () => tiposComprobante.filter((tipo) => tipo.esVenta),
+    [tiposComprobante]
+  )
+  const effectivePreviewTipoId = previewTipoId || ventaTypes[0]?.id || 0
+  const selectedTipo = tipos.find((tipo) => tipo.id === form.tipoPuntoFacturacionId)
+  const selectedSucursal = sucursales.find((entry) => entry.id === form.sucursalId)
 
-  const set = (key: keyof CreatePuntoFacturacionDto, value: string | number) => {
-    setForm((prev) => ({ ...prev, [key]: value }))
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadPreview() {
+      if (!punto || !effectivePreviewTipoId) {
+        setNextNumber(null)
+        setLoadingNextNumber(false)
+        return
+      }
+
+      setLoadingNextNumber(true)
+      const value = await getProximoNumero(punto.id, effectivePreviewTipoId)
+      if (!cancelled) {
+        setNextNumber(value)
+        setLoadingNextNumber(false)
+      }
+    }
+
+    void loadPreview()
+
+    return () => {
+      cancelled = true
+    }
+  }, [effectivePreviewTipoId, getProximoNumero, punto])
+
+  const setField = <K extends keyof CreatePuntoFacturacionDto>(
+    key: K,
+    value: CreatePuntoFacturacionDto[K]
+  ) => {
+    setForm((current) => ({ ...current, [key]: value }))
   }
 
-  const selectedTipo = tipos.find((tipo) => tipo.id === form.tipoPuntoFacturacionId)
+  const validate = () => {
+    if (!form.sucursalId) return "Debe seleccionar una sucursal"
+    if (!form.numero || form.numero <= 0) return "El número del punto debe ser mayor a cero"
+    if (!form.descripcion.trim()) return "La descripción es obligatoria"
+    if (!form.tipoPuntoFacturacionId) return "Debe seleccionar un tipo"
+    return null
+  }
 
   const handleSave = async () => {
-    if (
-      !form.sucursalId ||
-      !form.numero ||
-      !form.descripcion.trim() ||
-      !form.tipoPuntoFacturacionId
-    ) {
-      setError("Sucursal, número, descripción y tipo son obligatorios")
+    const validationError = validate()
+    if (validationError) {
+      setError(validationError)
       return
     }
 
@@ -141,10 +224,13 @@ function PuntoForm({ punto, sucursalId, onClose, onSaved }: PuntoFormProps) {
     setError(null)
     const ok = punto
       ? await actualizar(punto.id, {
-          descripcion: form.descripcion,
+          descripcion: form.descripcion.trim(),
           tipoPuntoFacturacionId: form.tipoPuntoFacturacionId,
         })
-      : await crear(form)
+      : await crear({
+          ...form,
+          descripcion: form.descripcion.trim(),
+        })
     setSaving(false)
 
     if (ok) onSaved()
@@ -152,98 +238,290 @@ function PuntoForm({ punto, sucursalId, onClose, onSaved }: PuntoFormProps) {
   }
 
   return (
-    <div className="space-y-4">
-      <Tabs defaultValue="principal" className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-3">
-          <TabsTrigger value="principal" className="py-2 text-xs">
-            Principal
+    <div className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-3">
+        <DashboardKpi
+          icon={MapPin}
+          label="Punto"
+          value={form.numero ? formatPointNumber(form.numero) : "Pendiente"}
+          description={form.descripcion || "Definí una descripción clara para el operador"}
+        />
+        <DashboardKpi
+          icon={ReceiptText}
+          label="Tipo"
+          value={selectedTipo?.descripcion ?? "Pendiente"}
+          description={
+            selectedTipo?.porDefecto ? "Tipo sugerido por defecto" : "Tipo operativo elegido"
+          }
+        />
+        <DashboardKpi
+          icon={Fingerprint}
+          label="Numeración"
+          value={
+            punto
+              ? loadingNextNumber
+                ? "Consultando..."
+                : nextNumber !== null
+                  ? `#${nextNumber}`
+                  : "Sin vista previa"
+              : "Se habilita al guardar"
+          }
+          description={
+            punto
+              ? "Vista previa sobre el punto ya existente"
+              : "El backend expone próximo número una vez creado"
+          }
+        />
+      </div>
+
+      <Tabs defaultValue="ficha" className="w-full">
+        <TabsList className="grid h-auto w-full grid-cols-3 gap-2">
+          <TabsTrigger value="ficha" className="py-2 text-xs">
+            Ficha
           </TabsTrigger>
-          <TabsTrigger value="emision" className="py-2 text-xs">
-            Emisión
+          <TabsTrigger value="numeracion" className="py-2 text-xs">
+            Numeración
           </TabsTrigger>
-          <TabsTrigger value="legado" className="py-2 text-xs">
-            Legado
+          <TabsTrigger value="operacion" className="py-2 text-xs">
+            Operación
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="principal" className="mt-4 space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Sucursal</Label>
-              <Input value={String(form.sucursalId || "")} readOnly />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Número</Label>
-              <Input
-                type="number"
-                min={1}
-                value={form.numero || ""}
-                onChange={(event) => set("numero", Number(event.target.value) || 0)}
-                readOnly={!!punto}
-              />
-            </div>
-            <div className="space-y-1.5 md:col-span-2">
-              <Label>Descripción</Label>
-              <Input
-                value={form.descripcion}
-                onChange={(event) => set("descripcion", event.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5 md:col-span-2">
-              <Label>Tipo</Label>
-              <Select
-                value={form.tipoPuntoFacturacionId ? String(form.tipoPuntoFacturacionId) : ""}
-                onValueChange={(value) => set("tipoPuntoFacturacionId", Number(value))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {tipos.map((tipo) => (
-                    <SelectItem key={tipo.id} value={String(tipo.id)}>
-                      {tipo.descripcion}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        <TabsContent value="ficha" className="mt-4 space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_320px]">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Identificación del punto</CardTitle>
+                <CardDescription>
+                  Los únicos datos persistibles hoy son sucursal, número, descripción y tipo.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Sucursal</Label>
+                  <Select
+                    value={form.sucursalId ? String(form.sucursalId) : "__none__"}
+                    onValueChange={(value) =>
+                      setField("sucursalId", value === "__none__" ? 0 : Number(value))
+                    }
+                    disabled={Boolean(punto)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar sucursal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Seleccionar sucursal</SelectItem>
+                      {sucursales.map((sucursal) => (
+                        <SelectItem key={sucursal.id} value={String(sucursal.id)}>
+                          {sucursal.descripcion}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {punto ? (
+                    <p className="text-xs text-muted-foreground">
+                      La sucursal no es editable sobre el contrato actual.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Número</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={form.numero || ""}
+                    onChange={(event) => setField("numero", Number(event.target.value) || 0)}
+                    readOnly={Boolean(punto)}
+                  />
+                  {punto ? (
+                    <p className="text-xs text-muted-foreground">
+                      El número queda fijo luego del alta para no romper la trazabilidad.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label>Descripción visible</Label>
+                  <Input
+                    placeholder="Ej. Casa central, mostrador, ecommerce, sucursal norte"
+                    value={form.descripcion}
+                    onChange={(event) => setField("descripcion", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label>Tipo de punto</Label>
+                  <Select
+                    value={
+                      form.tipoPuntoFacturacionId ? String(form.tipoPuntoFacturacionId) : "__none__"
+                    }
+                    onValueChange={(value) =>
+                      setField("tipoPuntoFacturacionId", value === "__none__" ? 0 : Number(value))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Seleccionar tipo</SelectItem>
+                      {tipos.map((tipo) => (
+                        <SelectItem key={tipo.id} value={String(tipo.id)}>
+                          {tipo.descripcion}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Lectura rápida</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                    Sucursal
+                  </p>
+                  <p className="mt-1 text-sm font-semibold wrap-break-word text-foreground">
+                    {selectedSucursal?.descripcion ?? "Sin sucursal definida"}
+                  </p>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                    Estado
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">
+                    {punto ? getOperationalStatus(punto) : "Alta pendiente"}
+                  </p>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                    Punto visible
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">
+                    {form.numero ? formatPointNumber(form.numero) : "Sin numeración"}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 
-        <TabsContent value="emision" className="mt-4 space-y-4">
-          <Card>
-            <CardContent className="pt-6">
-              <DetailFieldGrid
-                fields={[
-                  { label: "Sucursal operativa", value: String(form.sucursalId || "Sin sucursal") },
-                  {
-                    label: "Número visible",
-                    value: form.numero ? String(form.numero).padStart(4, "0") : "Sin numeración",
-                  },
-                  { label: "Tipo configurado", value: selectedTipo?.descripcion ?? "Sin tipo" },
-                  {
-                    label: "Modo de edición",
-                    value: punto ? "Mantenimiento de punto existente" : "Alta de nuevo punto",
-                  },
-                ]}
-              />
-            </CardContent>
-          </Card>
+        <TabsContent value="numeracion" className="mt-4 space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_340px]">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Vista previa de numeración</CardTitle>
+                <CardDescription>
+                  El backend actual solo permite consultar el próximo número para puntos ya
+                  existentes.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                  <div className="space-y-1.5">
+                    <Label>Tipo de comprobante para control</Label>
+                    <Select
+                      value={effectivePreviewTipoId ? String(effectivePreviewTipoId) : "__none__"}
+                      onValueChange={(value) =>
+                        setPreviewTipoId(value === "__none__" ? 0 : Number(value))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleccionar tipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Seleccionar tipo</SelectItem>
+                        {ventaTypes.map((tipo) => (
+                          <SelectItem key={tipo.id} value={String(tipo.id)}>
+                            {tipo.codigo} · {tipo.descripcion}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="rounded-xl border bg-muted/30 px-3 py-2">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                      Próximo número
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      {punto
+                        ? loadingNextNumber
+                          ? "Consultando..."
+                          : nextNumber !== null
+                            ? `#${nextNumber}`
+                            : "No disponible"
+                        : "Disponible luego del alta"}
+                    </p>
+                  </div>
+                </div>
+                <DetailFieldGrid
+                  fields={[
+                    {
+                      label: "Modo de numeración",
+                      value: punto
+                        ? "Consulta en vivo por API"
+                        : "Se habilita al persistir el punto",
+                    },
+                    {
+                      label: "Control por sucursal",
+                      value: selectedSucursal?.descripcion ?? "Sin sucursal asignada",
+                    },
+                    {
+                      label: "Tipo visible",
+                      value: selectedTipo?.descripcion ?? "Sin tipo seleccionado",
+                    },
+                  ]}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Alcance actual</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  La configuración contable, reportes de impresión, copias y cierres periódicos
+                  sigue fuera del contrato expuesto por la API.
+                </p>
+                <p>
+                  Esta vista cubre el núcleo operativo real: sucursal, número, tipo y consulta de
+                  próximo comprobante.
+                </p>
+                <p>No se simulan campos no persistibles para evitar una ficha engañosa.</p>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
-        <TabsContent value="legado" className="mt-4 space-y-4">
+        <TabsContent value="operacion" className="mt-4 space-y-4">
           <Card>
-            <CardContent className="pt-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Resumen operativo</CardTitle>
+            </CardHeader>
+            <CardContent>
               <DetailFieldGrid
                 fields={[
-                  { label: "Descripción operativa", value: form.descripcion || "Sin descripción" },
-                  { label: "Tipo por defecto", value: selectedTipo?.porDefecto ? "Sí" : "No" },
-                  { label: "Numerador editable", value: punto ? "No" : "Sí" },
                   {
-                    label: "Cobertura actual",
-                    value: form.tipoPuntoFacturacionId
-                      ? "Punto tipificado para emitir"
-                      : "Requiere tipo para operar",
+                    label: "Alta o mantenimiento",
+                    value: punto ? "Mantenimiento de punto existente" : "Alta de nuevo punto",
+                  },
+                  {
+                    label: "Tipificación",
+                    value: selectedTipo?.porDefecto
+                      ? "Tipo sugerido por defecto"
+                      : "Tipo manual seleccionado",
+                  },
+                  {
+                    label: "Integridad mínima",
+                    value:
+                      form.sucursalId &&
+                      form.numero &&
+                      form.descripcion.trim() &&
+                      form.tipoPuntoFacturacionId
+                        ? "Lista para guardar"
+                        : "Faltan datos obligatorios",
                   },
                 ]}
               />
@@ -252,14 +530,14 @@ function PuntoForm({ punto, sucursalId, onClose, onSaved }: PuntoFormProps) {
         </TabsContent>
       </Tabs>
 
-      {error && (
-        <p className="flex items-center gap-1 text-sm text-red-500">
+      {error ? (
+        <p className="flex items-center gap-2 text-sm text-destructive">
           <AlertCircle className="h-4 w-4" />
           {error}
         </p>
-      )}
+      ) : null}
 
-      <div className="flex justify-end gap-2 border-t pt-3">
+      <div className="flex justify-end gap-2 border-t pt-4">
         <Button variant="outline" className="bg-transparent" onClick={onClose}>
           Cancelar
         </Button>
@@ -274,148 +552,172 @@ function PuntoForm({ punto, sucursalId, onClose, onSaved }: PuntoFormProps) {
 export default function PuntosFacturacionPage() {
   const defaultSucursalId = useDefaultSucursalId()
   const { sucursales } = useSucursales()
-  const [sucursalId, setSucursalId] = useState<number | undefined>()
-  const { puntos, loading, error, eliminar, getProximoNumero, refetch } =
-    usePuntosFacturacion(sucursalId)
   const { tipos } = useTiposPuntoFacturacion()
+  const { tipos: tiposComprobante } = useComprobantesConfig()
+  const [selectedSucursalId, setSelectedSucursalId] = useState<number | undefined>()
+  const currentSucursalId = selectedSucursalId ?? defaultSucursalId
+  const { puntos, loading, error, eliminar, getProximoNumero, refetch } =
+    usePuntosFacturacion(currentSucursalId)
   const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState("todos")
+  const [typeFilter, setTypeFilter] = useState("todos")
   const [selected, setSelected] = useState<PuntoFacturacion | null>(null)
   const [editing, setEditing] = useState<PuntoFacturacion | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [detailPreviewTypeId, setDetailPreviewTypeId] = useState<number>(0)
   const [nextNumber, setNextNumber] = useState<number | null>(null)
   const [loadingNextNumber, setLoadingNextNumber] = useState(false)
+  const ventaTypes = useMemo(
+    () => tiposComprobante.filter((tipo) => tipo.esVenta),
+    [tiposComprobante]
+  )
+  const effectiveDetailPreviewTypeId = detailPreviewTypeId || ventaTypes[0]?.id || 0
   const tipoDescripcionById = useMemo(
     () => new Map(tipos.map((tipo) => [tipo.id, tipo.descripcion])),
     [tipos]
   )
 
   const getTipoDescripcion = useCallback(
-    (id?: number) => (id ? (tipoDescripcionById.get(id) ?? String(id)) : "-"),
+    (id?: number) => (id ? (tipoDescripcionById.get(id) ?? String(id)) : "Sin tipo"),
     [tipoDescripcionById]
   )
-  const getSucursalDescripcion = (id?: number) =>
-    sucursales.find((sucursal) => sucursal.id === id)?.descripcion ?? `#${id ?? "-"}`
 
-  useEffect(() => {
-    if (!sucursalId && defaultSucursalId) {
-      setSucursalId(defaultSucursalId)
-    }
-  }, [defaultSucursalId, sucursalId])
+  const getSucursalDescripcion = useCallback(
+    (id?: number) =>
+      sucursales.find((sucursal) => sucursal.id === id)?.descripcion ?? `#${id ?? "-"}`,
+    [sucursales]
+  )
 
   const filtered = useMemo(() => {
     const term = searchTerm.toLowerCase().trim()
-    return puntos.filter(
-      (punto) =>
+
+    return puntos.filter((punto) => {
+      const matchesSearch =
         term === "" ||
         punto.descripcion.toLowerCase().includes(term) ||
-        String(punto.numero).padStart(4, "0").includes(term) ||
+        formatPointNumber(punto.numero).includes(term) ||
         getTipoDescripcion(punto.tipoPuntoFacturacionId).toLowerCase().includes(term)
-    )
-  }, [getTipoDescripcion, puntos, searchTerm])
+
+      const matchesStatus =
+        statusFilter === "todos" ||
+        (statusFilter === "activos" && punto.activo) ||
+        (statusFilter === "inactivos" && !punto.activo)
+
+      const matchesType =
+        typeFilter === "todos" || String(punto.tipoPuntoFacturacionId ?? 0) === typeFilter
+
+      return matchesSearch && matchesStatus && matchesType
+    })
+  }, [getTipoDescripcion, puntos, searchTerm, statusFilter, typeFilter])
 
   const activos = puntos.filter((punto) => punto.activo).length
   const inactivos = puntos.filter((punto) => !punto.activo).length
   const conTipo = puntos.filter((punto) => Boolean(punto.tipoPuntoFacturacionId)).length
-  const sinTipo = puntos.length - conTipo
-  const coverageLabel = sucursalId
-    ? `${filtered.length} puntos visibles en ${getSucursalDescripcion(sucursalId)}`
-    : "Seleccione una sucursal para cargar el maestro operativo"
+  const highlightedPoint = useMemo(
+    () =>
+      [...filtered]
+        .sort((left, right) => {
+          if (Number(right.activo) !== Number(left.activo)) {
+            return Number(right.activo) - Number(left.activo)
+          }
+          return left.numero - right.numero
+        })
+        .at(0) ?? null,
+    [filtered]
+  )
 
-  const highlightedPoint = useMemo(() => {
-    return [...filtered]
-      .sort((left, right) => {
-        if (Number(right.activo) !== Number(left.activo)) {
-          return Number(right.activo) - Number(left.activo)
-        }
-        return left.numero - right.numero
-      })
-      .at(0)
-  }, [filtered])
+  const typeCoverage = useMemo(
+    () =>
+      Array.from(
+        puntos.reduce((acc, punto) => {
+          const key = getTipoDescripcion(punto.tipoPuntoFacturacionId)
+          acc.set(key, (acc.get(key) ?? 0) + 1)
+          return acc
+        }, new Map<string, number>())
+      )
+        .map(([tipo, cantidad]) => ({ tipo, cantidad }))
+        .sort((left, right) => right.cantidad - left.cantidad)
+        .slice(0, 6),
+    [getTipoDescripcion, puntos]
+  )
 
-  const typeCoverage = useMemo(() => {
-    return Array.from(
-      puntos.reduce((acc, punto) => {
-        const key = getTipoDescripcion(punto.tipoPuntoFacturacionId)
-        acc.set(key, (acc.get(key) ?? 0) + 1)
-        return acc
-      }, new Map<string, number>())
-    )
-      .map(([tipo, cantidad]) => ({ tipo, cantidad }))
-      .sort((a, b) => b.cantidad - a.cantidad)
-      .slice(0, 4)
-  }, [getTipoDescripcion, puntos])
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadPreview() {
+      if (!selected || !effectiveDetailPreviewTypeId) {
+        setNextNumber(null)
+        setLoadingNextNumber(false)
+        return
+      }
+
+      setLoadingNextNumber(true)
+      const value = await getProximoNumero(selected.id, effectiveDetailPreviewTypeId)
+      if (!cancelled) {
+        setNextNumber(value)
+        setLoadingNextNumber(false)
+      }
+    }
+
+    void loadPreview()
+
+    return () => {
+      cancelled = true
+    }
+  }, [effectiveDetailPreviewTypeId, getProximoNumero, selected])
 
   const handleDeactivate = async (id: number) => {
     await eliminar(id)
-    refetch()
+    await refetch()
   }
 
-  const openDetail = async (punto: PuntoFacturacion) => {
+  const openDetail = (punto: PuntoFacturacion) => {
     setSelected(punto)
     setNextNumber(null)
     setIsDetailOpen(true)
-
-    if (!punto.tipoPuntoFacturacionId) {
-      setLoadingNextNumber(false)
-      return
-    }
-
-    setLoadingNextNumber(true)
-    try {
-      const value = await getProximoNumero(punto.id, punto.tipoPuntoFacturacionId)
-      setNextNumber(value)
-    } finally {
-      setLoadingNextNumber(false)
-    }
   }
 
-  const principalFields = selected
+  const detailFields = selected
     ? [
-        { label: "Número", value: String(selected.numero).padStart(4, "0") },
+        { label: "Número", value: formatPointNumber(selected.numero) },
         { label: "Descripción", value: selected.descripcion },
+        { label: "Sucursal", value: getSucursalDescripcion(selected.sucursalId) },
         { label: "Tipo", value: getTipoDescripcion(selected.tipoPuntoFacturacionId) },
         { label: "Estado", value: selected.activo ? "Activo" : "Inactivo" },
+        { label: "ID interno", value: String(selected.id) },
       ]
     : []
 
-  const emisionFields = selected
-    ? [
-        { label: "Sucursal", value: getSucursalDescripcion(selected.sucursalId) },
-        {
-          label: "Próximo Número",
-          value: loadingNextNumber ? "Consultando..." : String(nextNumber ?? "-"),
-        },
-        { label: "ID Punto", value: String(selected.id) },
-        { label: "Tipo de Numerador", value: getTipoDescripcion(selected.tipoPuntoFacturacionId) },
-      ]
-    : []
-
-  const circuitFields = selected
+  const operationFields = selected
     ? [
         { label: "Estado operativo", value: getOperationalStatus(selected) },
         {
-          label: "Estado de numeración",
+          label: "Numeración actual",
           value: getNumberingStatus(nextNumber, loadingNextNumber, selected),
         },
         {
-          label: "Cobertura de sucursal",
-          value: getSucursalDescripcion(selected.sucursalId),
-        },
-        {
-          label: "Tipo configurado",
-          value: getTipoDescripcion(selected.tipoPuntoFacturacionId),
+          label: "Tipo consultado",
+          value:
+            ventaTypes.find((tipo) => tipo.id === effectiveDetailPreviewTypeId)?.descripcion ??
+            "Sin tipo de control",
         },
       ]
     : []
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Puntos de Facturación</h1>
-          <p className="text-muted-foreground mt-1">
-            Configuración modernizada de puntos de venta con base en la operatoria legacy
+    <div className="space-y-6 pb-6">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">Ventas</Badge>
+            <Badge variant="secondary">Puntos de facturación</Badge>
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">Puntos de facturación</h1>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            Consola operativa para administrar puntos por sucursal, revisar tipificación y validar
+            la numeración disponible para emisión sin inventar configuraciones que todavía no expone
+            la API.
           </p>
         </div>
         <Button
@@ -423,78 +725,102 @@ export default function PuntosFacturacionPage() {
             setEditing(null)
             setIsFormOpen(true)
           }}
-          disabled={!sucursalId}
+          disabled={!currentSucursalId}
         >
           <Plus className="mr-2 h-4 w-4" />
           Nuevo punto
         </Button>
       </div>
 
-      {error && (
+      {error ? (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
-      )}
+      ) : null}
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total</CardTitle>
-            <MapPin className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{puntos.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">Puntos configurados</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Activos</CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{activos}</div>
-            <p className="text-xs text-muted-foreground mt-1">En uso</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Inactivos</CardTitle>
-            <XCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{inactivos}</div>
-            <p className="text-xs text-muted-foreground mt-1">Deshabilitados</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Sucursal</CardTitle>
-            <ReceiptText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-lg font-semibold">
-              {sucursalId ? getSucursalDescripcion(sucursalId) : "Sin selección"}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">Contexto operativo</p>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <DashboardKpi
+          icon={MapPin}
+          label="Puntos"
+          value={String(puntos.length)}
+          description="Configurados en la sucursal actual"
+        />
+        <DashboardKpi
+          icon={CheckCircle}
+          label="Activos"
+          value={String(activos)}
+          description="Disponibles para operar"
+        />
+        <DashboardKpi
+          icon={XCircle}
+          label="Inactivos"
+          value={String(inactivos)}
+          description="Fuera de circulación"
+        />
+        <DashboardKpi
+          icon={Settings2}
+          label="Tipificados"
+          value={String(conTipo)}
+          description="Con tipo explícito asignado"
+        />
+        <DashboardKpi
+          icon={Building2}
+          label="Sucursal"
+          value={currentSucursalId ? getSucursalDescripcion(currentSucursalId) : "Pendiente"}
+          description="Contexto de trabajo actual"
+        />
       </div>
+
+      {highlightedPoint ? (
+        <Card className="overflow-hidden border-border/70 bg-linear-to-r from-slate-50 to-white">
+          <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-2">
+              <CardDescription>Punto destacado</CardDescription>
+              <CardTitle className="text-xl wrap-break-word">
+                {formatPointNumber(highlightedPoint.numero)} · {highlightedPoint.descripcion}
+              </CardTitle>
+              <p className="max-w-3xl text-sm text-muted-foreground wrap-break-word">
+                {getTipoDescripcion(highlightedPoint.tipoPuntoFacturacionId)} en{" "}
+                {getSucursalDescripcion(highlightedPoint.sucursalId)}. Se prioriza como referencia
+                por estar más listo para operación dentro de la selección actual.
+              </p>
+            </div>
+            <Badge variant={highlightedPoint.activo ? "default" : "secondary"}>
+              {highlightedPoint.activo ? "Activo" : "Inactivo"}
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <DetailFieldGrid
+              fields={[
+                { label: "Estado", value: getOperationalStatus(highlightedPoint) },
+                {
+                  label: "Cobertura",
+                  value: highlightedPoint.tipoPuntoFacturacionId
+                    ? "Tipificado para emitir"
+                    : "Requiere tipificación",
+                },
+                { label: "Sucursal", value: getSucursalDescripcion(highlightedPoint.sucursalId) },
+              ]}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
+          <CardDescription>
+            Cruzá sucursal, estado, tipo y búsqueda libre para revisar el maestro operativo sin
+            ruido.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-[260px_1fr]">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[260px_220px_260px_minmax(0,1fr)_auto]">
             <Select
-              value={sucursalId ? String(sucursalId) : "__none__"}
+              value={currentSucursalId ? String(currentSucursalId) : "__none__"}
               onValueChange={(value) =>
-                setSucursalId(value === "__none__" ? undefined : Number(value))
+                setSelectedSucursalId(value === "__none__" ? undefined : Number(value))
               }
             >
               <SelectTrigger>
@@ -509,234 +835,216 @@ export default function PuntosFacturacionPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="activos">Activos</SelectItem>
+                <SelectItem value="inactivos">Inactivos</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los tipos</SelectItem>
+                {tipos.map((tipo) => (
+                  <SelectItem key={tipo.id} value={String(tipo.id)}>
+                    {tipo.descripcion}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                className="pl-10"
                 placeholder="Buscar por número, descripción o tipo..."
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                className="pl-10"
               />
             </div>
+            <Button variant="outline" className="bg-transparent" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Recargar
+            </Button>
           </div>
         </CardContent>
       </Card>
 
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_360px]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Puntos visibles ({filtered.length})</CardTitle>
+            <CardDescription>
+              Maestro operativo de la sucursal con foco en número, descripción, tipo y estado real.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ScrollArea className="w-full whitespace-nowrap rounded-b-xl border-t">
+              <div className="min-w-220">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Número</TableHead>
+                      <TableHead>Descripción</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead>Lectura</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                          <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                          Cargando puntos de facturación...
+                        </TableCell>
+                      </TableRow>
+                    ) : !currentSucursalId ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                          Seleccioná una sucursal para operar el maestro.
+                        </TableCell>
+                      </TableRow>
+                    ) : filtered.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                          No hay puntos visibles para los filtros elegidos.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filtered.map((punto) => (
+                        <TableRow
+                          key={punto.id}
+                          className="cursor-pointer hover:bg-muted/40"
+                          onClick={() => openDetail(punto)}
+                        >
+                          <TableCell className="font-mono font-semibold">
+                            {formatPointNumber(punto.numero)}
+                          </TableCell>
+                          <TableCell className="max-w-70 whitespace-normal wrap-break-word font-medium">
+                            {punto.descripcion}
+                          </TableCell>
+                          <TableCell className="max-w-55 whitespace-normal wrap-break-word text-sm text-muted-foreground">
+                            {getTipoDescripcion(punto.tipoPuntoFacturacionId)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={punto.activo ? "default" : "secondary"}>
+                              {punto.activo ? "Activo" : "Inactivo"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="max-w-60 whitespace-normal wrap-break-word text-sm text-muted-foreground">
+                            {getOperationalStatus(punto)}
+                          </TableCell>
+                          <TableCell
+                            className="text-right"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => openDetail(punto)}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  setEditing(punto)
+                                  setIsFormOpen(true)
+                                }}
+                              >
+                                <PenSquare className="h-4 w-4" />
+                              </Button>
+                              {punto.activo ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeactivate(punto.id)}
+                                >
+                                  Baja
+                                </Button>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Panel operativo</CardTitle>
+            <CardDescription>
+              Lectura rápida del estado actual y de lo que realmente cubre la API hoy.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm text-muted-foreground">
+            <div className="rounded-xl border bg-muted/30 p-4">
+              <div className="flex items-start gap-3">
+                <Building2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="font-semibold text-foreground">Cobertura por sucursal</p>
+                  <p className="wrap-break-word">
+                    {currentSucursalId
+                      ? `${filtered.length} punto(s) visibles en ${getSucursalDescripcion(currentSucursalId)}.`
+                      : "Sin sucursal seleccionada."}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border bg-muted/30 p-4">
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="font-semibold text-foreground">Tipificación</p>
+                  <p>{conTipo} punto(s) tienen tipo operativo explícito cargado.</p>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border bg-muted/30 p-4">
+              <div className="flex items-start gap-3">
+                <Copy className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="font-semibold text-foreground">Configuraciones avanzadas</p>
+                  <p>
+                    Prefijos contables, reportes, copias y cierres siguen siendo materia de backend.
+                    Esta vista no los simula para no prometer persistencia que hoy no existe.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
-          <CardTitle>Puntos de Facturación</CardTitle>
+          <CardTitle>Distribución por tipo</CardTitle>
           <CardDescription>
-            {sucursalId
-              ? `${filtered.length} puntos en la sucursal seleccionada`
-              : "Seleccione una sucursal para operar o revise el maestro completo"}
+            Cómo se reparte el maestro visible según la tipificación cargada.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Número</TableHead>
-                <TableHead>Descripción</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    Cargando...
-                  </TableCell>
-                </TableRow>
-              ) : !sucursalId ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    Seleccione una sucursal para ver los puntos de facturación
-                  </TableCell>
-                </TableRow>
-              ) : filtered.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    No hay puntos de facturación para esta sucursal
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filtered.map((punto) => (
-                  <TableRow
-                    key={punto.id}
-                    className="cursor-pointer hover:bg-muted/40"
-                    onClick={() => void openDetail(punto)}
-                  >
-                    <TableCell className="font-medium">
-                      {String(punto.numero).padStart(4, "0")}
-                    </TableCell>
-                    <TableCell>{punto.descripcion}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {getTipoDescripcion(punto.tipoPuntoFacturacionId)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={punto.activo ? "default" : "secondary"}>
-                        {punto.activo ? "Activo" : "Inactivo"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => void openDetail(punto)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setEditing(punto)
-                            setIsFormOpen(true)
-                          }}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeactivate(punto.id)}
-                        >
-                          Baja
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ReceiptText className="h-4 w-4" /> Cobertura operativa
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">{coverageLabel}.</CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <CheckCircle className="h-4 w-4" /> Configuración actual
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {activos} activos y {conTipo} con tipo explícito para sostener la operatoria visible
-            hoy.
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Landmark className="h-4 w-4" /> Segunda fase
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {sinTipo > 0
-              ? `${sinTipo} puntos todavía no tienen tipo explícito y son el principal hueco operativo visible.`
-              : "Todos los puntos visibles tienen tipo asignado dentro del contrato actual."}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Punto destacado</CardTitle>
-            <CardDescription>
-              Referencia operativa priorizada dentro de la sucursal activa, alineada con el flujo de
-              selección obligatoria del legacy.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {!sucursalId ? (
-              <p className="text-sm text-muted-foreground">
-                Seleccione una sucursal para identificar el punto operativo a usar en emisión.
-              </p>
-            ) : !highlightedPoint ? (
-              <p className="text-sm text-muted-foreground">
-                No hay puntos visibles en la sucursal seleccionada.
-              </p>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            {typeCoverage.length > 0 ? (
+              typeCoverage.map((row) => (
+                <div key={row.tipo} className="rounded-xl border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                    {row.tipo}
+                  </p>
+                  <p className="mt-1 text-2xl font-bold text-foreground">{row.cantidad}</p>
+                </div>
+              ))
             ) : (
-              <div className="rounded-xl border bg-muted/30 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Punto visible</p>
-                    <h3 className="mt-1 text-lg font-semibold">
-                      {String(highlightedPoint.numero).padStart(4, "0")} ·{" "}
-                      {highlightedPoint.descripcion}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {getTipoDescripcion(highlightedPoint.tipoPuntoFacturacionId)} ·{" "}
-                      {getSucursalDescripcion(highlightedPoint.sucursalId)}
-                    </p>
-                  </div>
-                  <Badge variant={highlightedPoint.activo ? "default" : "secondary"}>
-                    {highlightedPoint.activo ? "Activo" : "Inactivo"}
-                  </Badge>
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-lg border bg-background p-3 text-sm">
-                    <p className="text-muted-foreground">Estado operativo</p>
-                    <p className="mt-1 font-semibold">{getOperationalStatus(highlightedPoint)}</p>
-                  </div>
-                  <div className="rounded-lg border bg-background p-3 text-sm">
-                    <p className="text-muted-foreground">Cobertura</p>
-                    <p className="mt-1 font-semibold">
-                      {highlightedPoint.tipoPuntoFacturacionId ? "Tipificado" : "Sin tipo"}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border bg-background p-3 text-sm">
-                    <p className="text-muted-foreground">Contexto legacy</p>
-                    <p className="mt-1 font-semibold">Selección lista para emisión</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Regla operativa</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>
-              La emisión legacy arranca desde sucursal y punto válidos; por eso esta consola ahora
-              toma la sucursal por defecto cuando existe.
-            </p>
-            <p>
-              La tipificación y la numeración siguen siendo los dos datos críticos ya visibles hoy.
-            </p>
-            <p>
-              CAE/CAI, restricciones fiscales ampliadas y caja asociada siguen dependiendo de
-              backend y no se simulan desde frontend.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Tipificación operativa</CardTitle>
-          <CardDescription>Distribución real de puntos según el tipo configurado</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {typeCoverage.map((row) => (
-              <div key={row.tipo} className="rounded-lg border bg-muted/30 p-3">
-                <p className="text-xs text-muted-foreground">{row.tipo}</p>
-                <p className="mt-1 text-2xl font-bold">{row.cantidad}</p>
-              </div>
-            ))}
-            {typeCoverage.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 No hay puntos tipificados en la selección actual.
               </p>
@@ -746,151 +1054,178 @@ export default function PuntosFacturacionPage() {
       </Card>
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editing ? "Editar punto de facturación" : "Nuevo punto de facturación"}
-            </DialogTitle>
-            <DialogDescription>
-              Alta y mantenimiento del punto de venta sobre la API actual, conservando la estructura
-              operativa del legado.
-            </DialogDescription>
-          </DialogHeader>
-          <PuntoForm
-            key={
-              editing
-                ? `edit-${editing.id}`
-                : `new-${sucursalId ?? 0}-${tipos.find((tipo) => tipo.porDefecto)?.id ?? tipos[0]?.id ?? 0}`
-            }
-            punto={editing}
-            sucursalId={sucursalId}
-            onClose={() => setIsFormOpen(false)}
-            onSaved={() => {
-              setIsFormOpen(false)
-              setEditing(null)
-              refetch()
-            }}
-          />
+        <DialogContent className="max-h-[92vh] max-w-6xl overflow-hidden p-0">
+          <div className="flex h-full max-h-[92vh] flex-col">
+            <DialogHeader className="border-b px-6 py-5">
+              <DialogTitle>
+                {editing ? "Editar punto de facturación" : "Nuevo punto de facturación"}
+              </DialogTitle>
+              <DialogDescription>
+                Ficha operativa del punto, con soporte real del contrato actual y lectura de
+                numeración en vivo.
+              </DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="flex-1 px-6 py-5">
+              <PuntoForm
+                key={editing ? `edit-${editing.id}` : `new-${currentSucursalId ?? 0}`}
+                punto={editing}
+                sucursalId={currentSucursalId}
+                onClose={() => setIsFormOpen(false)}
+                onSaved={async () => {
+                  setIsFormOpen(false)
+                  setEditing(null)
+                  await refetch()
+                }}
+              />
+            </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" /> Punto{" "}
-              {selected ? String(selected.numero).padStart(4, "0") : ""}
-            </DialogTitle>
-            <DialogDescription>{selected?.descripcion}</DialogDescription>
-          </DialogHeader>
+      <Dialog
+        open={isDetailOpen}
+        onOpenChange={(open) => {
+          setIsDetailOpen(open)
+          if (!open) {
+            setSelected(null)
+            setNextNumber(null)
+          }
+        }}
+      >
+        <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden p-0">
+          <div className="flex h-full max-h-[92vh] flex-col">
+            <DialogHeader className="border-b px-6 py-5">
+              <DialogTitle className="flex items-center gap-2">
+                <MapPin className="h-5 w-5" />
+                {selected ? `Punto ${formatPointNumber(selected.numero)}` : "Detalle del punto"}
+              </DialogTitle>
+              <DialogDescription>{selected?.descripcion ?? "Cargando..."}</DialogDescription>
+            </DialogHeader>
 
-          {selected && (
-            <Tabs defaultValue="principal" className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="principal">Principal</TabsTrigger>
-                <TabsTrigger value="circuito">Circuito</TabsTrigger>
-                <TabsTrigger value="emision">Emisión</TabsTrigger>
-                <TabsTrigger value="legado">Legado</TabsTrigger>
-              </TabsList>
+            <ScrollArea className="flex-1 px-6 py-5">
+              {selected ? (
+                <Tabs defaultValue="ficha" className="w-full">
+                  <TabsList className="grid h-auto w-full grid-cols-3 gap-2">
+                    <TabsTrigger value="ficha">Ficha</TabsTrigger>
+                    <TabsTrigger value="numeracion">Numeración</TabsTrigger>
+                    <TabsTrigger value="operacion">Operación</TabsTrigger>
+                  </TabsList>
 
-              <TabsContent value="principal" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <ReceiptText className="h-4 w-4" /> Datos del Punto
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <DetailFieldGrid fields={principalFields} />
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                  <TabsContent value="ficha" className="space-y-4 pt-4">
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Datos del punto</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <DetailFieldGrid fields={detailFields} />
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
 
-              <TabsContent value="circuito" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <CheckCircle className="h-4 w-4" /> Estado operativo
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <DetailFieldGrid fields={circuitFields} />
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                  <TabsContent value="numeracion" className="space-y-4 pt-4">
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Vista previa de numeración</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                          <div className="space-y-1.5">
+                            <Label>Tipo de comprobante</Label>
+                            <Select
+                              value={
+                                effectiveDetailPreviewTypeId
+                                  ? String(effectiveDetailPreviewTypeId)
+                                  : "__none__"
+                              }
+                              onValueChange={(value) =>
+                                setDetailPreviewTypeId(value === "__none__" ? 0 : Number(value))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Seleccionar tipo" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">Seleccionar tipo</SelectItem>
+                                {ventaTypes.map((tipo) => (
+                                  <SelectItem key={tipo.id} value={String(tipo.id)}>
+                                    {tipo.codigo} · {tipo.descripcion}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="rounded-xl border bg-muted/30 px-3 py-2">
+                            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                              Próximo número
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-foreground">
+                              {loadingNextNumber
+                                ? "Consultando..."
+                                : nextNumber !== null
+                                  ? `#${nextNumber}`
+                                  : "No disponible"}
+                            </p>
+                          </div>
+                        </div>
+                        <DetailFieldGrid fields={operationFields} />
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
 
-              <TabsContent value="emision" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <MapPin className="h-4 w-4" /> Operación
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <DetailFieldGrid fields={emisionFields} />
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                  <TabsContent value="operacion" className="space-y-4 pt-4">
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Lectura operativa</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <DetailFieldGrid
+                          fields={[
+                            {
+                              label: "Circuito",
+                              value: selected.activo
+                                ? "Disponible para emisión"
+                                : "Punto fuera de operación",
+                            },
+                            {
+                              label: "Tipificación",
+                              value: selected.tipoPuntoFacturacionId ? "Definida" : "Pendiente",
+                            },
+                            {
+                              label: "Alcance de la API",
+                              value:
+                                "Alta, edición básica, baja lógica y consulta de próximo número",
+                            },
+                          ]}
+                        />
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                </Tabs>
+              ) : (
+                <p className="py-8 text-center text-muted-foreground">
+                  No se pudo cargar el detalle del punto.
+                </p>
+              )}
+            </ScrollArea>
 
-              <TabsContent value="legado" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <Landmark className="h-4 w-4" /> Estructura heredada
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <DetailFieldGrid
-                      fields={[
-                        {
-                          label: "Estado del punto",
-                          value: selected.activo ? "Activo" : "Inactivo",
-                        },
-                        {
-                          label: "Tipo configurado",
-                          value: getTipoDescripcion(selected.tipoPuntoFacturacionId),
-                        },
-                        {
-                          label: "Numeración siguiente",
-                          value: loadingNextNumber ? "Consultando..." : String(nextNumber ?? "-"),
-                        },
-                        {
-                          label: "Sucursal asociada",
-                          value: getSucursalDescripcion(selected.sucursalId),
-                        },
-                      ]}
-                    />
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          )}
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsDetailOpen(false)
-                setSelected(null)
-                setNextNumber(null)
-              }}
-            >
-              Cerrar
-            </Button>
-            {selected && (
-              <Button
-                onClick={() => {
-                  setIsDetailOpen(false)
-                  setNextNumber(null)
-                  setEditing(selected)
-                  setIsFormOpen(true)
-                }}
-              >
-                <Edit className="mr-2 h-4 w-4" />
-                Editar punto
+            <DialogFooter className="border-t px-6 py-4">
+              <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
+                Cerrar
               </Button>
-            )}
-          </DialogFooter>
+              {selected ? (
+                <Button
+                  onClick={() => {
+                    setIsDetailOpen(false)
+                    setEditing(selected)
+                    setIsFormOpen(true)
+                  }}
+                >
+                  <PenSquare className="mr-2 h-4 w-4" />
+                  Editar punto
+                </Button>
+              ) : null}
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

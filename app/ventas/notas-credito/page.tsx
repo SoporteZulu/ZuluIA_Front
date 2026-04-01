@@ -21,6 +21,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
   DialogContent,
@@ -110,22 +111,38 @@ function parseOperationalObservation(value?: string | null) {
     .map((part) => part.trim())
     .filter(Boolean)
 
-  const motivo = parts.find((part) => part.startsWith("Motivo: "))?.replace("Motivo: ", "")
-  const alcance = parts.find((part) => part.startsWith("Alcance: "))?.replace("Alcance: ", "")
-  const referencia = parts
-    .find((part) => part.startsWith("Comprobante referencia: "))
-    ?.replace("Comprobante referencia: ", "")
+  const readPart = (prefix: string) =>
+    parts.find((part) => part.startsWith(prefix))?.replace(prefix, "")
+
+  const motivo = readPart("Motivo: ")
+  const alcance = readPart("Alcance: ")
+  const referencia = readPart("Comprobante referencia: ")
+  const canal = readPart("Canal: ")
+  const vendedor = readPart("Vendedor: ")
+  const cobrador = readPart("Cobrador: ")
+  const moneda = readPart("Moneda: ")
+  const vencimientoBase = readPart("Vencimiento base: ")
   const detalle = parts.filter(
     (part) =>
       !part.startsWith("Motivo: ") &&
       !part.startsWith("Alcance: ") &&
-      !part.startsWith("Comprobante referencia: ")
+      !part.startsWith("Comprobante referencia: ") &&
+      !part.startsWith("Canal: ") &&
+      !part.startsWith("Vendedor: ") &&
+      !part.startsWith("Cobrador: ") &&
+      !part.startsWith("Moneda: ") &&
+      !part.startsWith("Vencimiento base: ")
   )
 
   return {
     motivo: motivo || "No informado",
     alcance: alcance || "No informado",
     referencia: referencia || "Sin referencia explícita",
+    canal: canal || "No informado",
+    vendedor: vendedor || "No informado",
+    cobrador: cobrador || "No informado",
+    moneda: moneda || "No informada",
+    vencimientoBase: vencimientoBase || "No informado",
     detalle: detalle.length > 0 ? detalle.join(" | ") : "Sin detalle operativo",
   }
 }
@@ -138,15 +155,27 @@ function getNoteDocumentStatus(note: ComprobanteDetalle) {
   return "Documento emitido en circuito comercial"
 }
 
-function getApplicationStatus(note: ComprobanteDetalle) {
+function getApplicationStatus(note: ComprobanteDetalle, kind: NoteKind) {
   if (note.estado === "ANULADO") return "Sin aplicación vigente"
-  if (note.saldo <= 0 || note.estado === "PAGADO") return "Aplicada sin saldo pendiente"
+  if (note.saldo <= 0 || note.estado === "PAGADO") {
+    return kind === "debito"
+      ? "Cargo compensado sin saldo pendiente"
+      : "Aplicada sin saldo pendiente"
+  }
   const daysPastDue = getDaysPastDue(note.fechaVto)
   if (daysPastDue !== null && daysPastDue > 0) {
-    return `Saldo pendiente con ${daysPastDue} días de mora`
+    return kind === "debito"
+      ? `Cargo pendiente con ${daysPastDue} días de mora`
+      : `Saldo pendiente con ${daysPastDue} días de mora`
   }
-  if (note.fechaVto) return `Saldo pendiente hasta ${formatDate(note.fechaVto)}`
-  return "Saldo pendiente sin vencimiento informado"
+  if (note.fechaVto) {
+    return kind === "debito"
+      ? `Cargo pendiente hasta ${formatDate(note.fechaVto)}`
+      : `Saldo pendiente hasta ${formatDate(note.fechaVto)}`
+  }
+  return kind === "debito"
+    ? "Cargo pendiente sin vencimiento informado"
+    : "Saldo pendiente sin vencimiento informado"
 }
 
 const STATUS_CONFIG: Record<
@@ -161,6 +190,93 @@ const STATUS_CONFIG: Record<
 }
 
 type NoteKind = "credito" | "debito"
+
+type NoteMotiveOption = {
+  value: string
+  label: string
+}
+
+type NoteKindConfig = {
+  singular: string
+  plural: string
+  shortLabel: string
+  ctaLabel: string
+  highlightedLabel: string
+  totalLabel: string
+  balanceLabel: string
+  applicationLabel: string
+  emptyTableLabel: string
+  emptyItemsLabel: string
+  detailPlaceholder: string
+  operationalPlaceholder: string
+  scopeSummary: string
+  nextPhaseSummary: string
+  topDescription: string
+  defaultMotive: string
+  motiveOptions: NoteMotiveOption[]
+}
+
+function getKindConfig(kind: NoteKind): NoteKindConfig {
+  if (kind === "debito") {
+    return {
+      singular: "nota de débito",
+      plural: "notas de débito",
+      shortLabel: "Débito",
+      ctaLabel: "Nueva Nota de Débito",
+      highlightedLabel: "Débito destacado",
+      totalLabel: "Total debitado",
+      balanceLabel: "Cargos con saldo",
+      applicationLabel: "Impacto",
+      emptyTableLabel: "No se encontraron notas de débito para los filtros actuales.",
+      emptyItemsLabel: "Agregá conceptos para emitir la nota de débito.",
+      detailPlaceholder: "Sin detalle operativo registrado para este cargo.",
+      operationalPlaceholder:
+        "Recargo, diferencia de precio, interés, reimputación o respaldo comercial del débito",
+      scopeSummary:
+        "Recargos, diferencias y referencias operativas ya quedan visibles; la imputación exacta contra documento origen sigue pendiente de integración formal.",
+      nextPhaseSummary:
+        "Quedan para la siguiente fase la vinculación exacta con comprobante base, los motivos fiscales específicos y la aplicación automática sobre saldo origen.",
+      topDescription:
+        "Recargos, intereses, diferencias y reimputaciones comerciales documentadas sobre ventas con emisión real.",
+      defaultMotive: "recargo",
+      motiveOptions: [
+        { value: "recargo", label: "Recargo comercial" },
+        { value: "interes", label: "Interés por mora" },
+        { value: "diferencia", label: "Diferencia de precio" },
+        { value: "reimputacion", label: "Reimputación / ajuste" },
+      ],
+    }
+  }
+
+  return {
+    singular: "nota de crédito",
+    plural: "notas de crédito",
+    shortLabel: "Crédito",
+    ctaLabel: "Nueva Nota de Crédito",
+    highlightedLabel: "Crédito destacado",
+    totalLabel: "Total acreditado",
+    balanceLabel: "Créditos con saldo",
+    applicationLabel: "Aplicación",
+    emptyTableLabel: "No se encontraron notas de crédito para los filtros actuales.",
+    emptyItemsLabel: "Agregá conceptos para emitir la nota de crédito.",
+    detailPlaceholder: "Sin detalle operativo registrado para esta devolución o bonificación.",
+    operationalPlaceholder:
+      "Devolución, bonificación, corrección comercial o respaldo operativo del crédito",
+    scopeSummary:
+      "Devoluciones, bonificaciones y referencias operativas ya quedan visibles; la vinculación exacta contra factura origen sigue pendiente de integración formal.",
+    nextPhaseSummary:
+      "Quedan para la siguiente fase la relación exacta por renglón, el motivo fiscal específico y la aplicación automática contra comprobante origen.",
+    topDescription:
+      "Ajustes por devolución, bonificación o corrección comercial con emisión real sobre ventas.",
+    defaultMotive: "devolucion",
+    motiveOptions: [
+      { value: "devolucion", label: "Devolución" },
+      { value: "descuento", label: "Bonificación / descuento" },
+      { value: "error", label: "Corrección documental" },
+      { value: "anulacion", label: "Anulación parcial" },
+    ],
+  }
+}
 
 interface VentasNotasPageProps {
   defaultKind?: NoteKind
@@ -228,6 +344,7 @@ function CreditDebitNoteForm({
   const { sucursales } = useSucursales()
   const { terceros: clientes } = useTerceros()
   const { items } = useItems()
+  const kindConfig = getKindConfig(kind)
   const [tab, setTab] = useState("principal")
   const [form, setForm] = useState<EmitirComprobanteDto>(() =>
     createCreditDebitFormState(defaultSucursalId, availableTypes)
@@ -235,10 +352,76 @@ function CreditDebitNoteForm({
   const [lineItems, setLineItems] = useState<NoteFormItem[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [motivo, setMotivo] = useState(kind === "credito" ? "devolucion" : "recargo")
+  const [motivo, setMotivo] = useState(kindConfig.defaultMotive)
   const [alcance, setAlcance] = useState("parcial")
   const [comprobanteReferenciaId, setComprobanteReferenciaId] = useState<string>("none")
   const [detalleOperativo, setDetalleOperativo] = useState("")
+  const [deliveryChannel, setDeliveryChannel] = useState<"mail" | "manual">("manual")
+  const [inheritReferenceDueDate, setInheritReferenceDueDate] = useState(kind === "debito")
+
+  const selectedCustomer = useMemo(
+    () => clientes.find((cliente) => cliente.id === form.terceroId) ?? null,
+    [clientes, form.terceroId]
+  )
+
+  const selectedSucursal = useMemo(
+    () => sucursales.find((sucursal) => sucursal.id === form.sucursalId) ?? null,
+    [form.sucursalId, sucursales]
+  )
+
+  const filteredReferenceDocuments = useMemo(() => {
+    if (!form.terceroId) return referenceDocuments
+    return referenceDocuments.filter((document) => document.terceroId === form.terceroId)
+  }, [form.terceroId, referenceDocuments])
+
+  const selectedReference = useMemo(
+    () =>
+      filteredReferenceDocuments.find(
+        (document) => String(document.id) === comprobanteReferenciaId
+      ) ?? null,
+    [comprobanteReferenciaId, filteredReferenceDocuments]
+  )
+  const referenceDaysPastDue = getDaysPastDue(selectedReference?.fechaVto)
+
+  const formWarnings = useMemo(() => {
+    const warnings: string[] = []
+
+    if (!form.terceroId) warnings.push("Falta seleccionar el cliente de la nota.")
+    if (!form.sucursalId) warnings.push("Falta seleccionar la sucursal emisora.")
+    if (lineItems.length === 0) warnings.push("Agregá al menos un renglón antes de emitir.")
+    if (alcance === "parcial" && !selectedReference) {
+      warnings.push("Para un ajuste parcial conviene vincular un comprobante de referencia.")
+    }
+    if (!detalleOperativo.trim()) {
+      warnings.push(
+        "Conviene describir el motivo operativo para facilitar auditoría y seguimiento."
+      )
+    }
+    if (kind === "debito" && deliveryChannel === "mail" && !selectedCustomer?.email) {
+      warnings.push("El cliente no tiene email informado para enviar la nota de débito.")
+    }
+    if (
+      kind === "debito" &&
+      inheritReferenceDueDate &&
+      selectedReference &&
+      !selectedReference.fechaVto
+    ) {
+      warnings.push("El comprobante base no tiene vencimiento informado para replicar.")
+    }
+
+    return warnings
+  }, [
+    alcance,
+    detalleOperativo,
+    deliveryChannel,
+    form.sucursalId,
+    form.terceroId,
+    inheritReferenceDueDate,
+    kind,
+    lineItems.length,
+    selectedCustomer?.email,
+    selectedReference,
+  ])
 
   const addItem = (itemId: string) => {
     const item = items.find((current) => current.id === Number(itemId))
@@ -298,14 +481,24 @@ function CreditDebitNoteForm({
       return
     }
 
-    const reference = referenceDocuments.find(
-      (current) => String(current.id) === comprobanteReferenciaId
-    )
     const observationParts = [
       `Motivo: ${motivo}`,
       `Alcance: ${alcance}`,
-      reference
-        ? `Comprobante referencia: ${reference.nroComprobante ?? `#${reference.id}`}`
+      selectedReference
+        ? `Comprobante referencia: ${selectedReference.nroComprobante ?? `#${selectedReference.id}`}`
+        : null,
+      kind === "debito" ? `Canal: ${deliveryChannel}` : null,
+      kind === "debito" && selectedCustomer?.vendedorNombre
+        ? `Vendedor: ${selectedCustomer.vendedorNombre}`
+        : null,
+      kind === "debito" && selectedCustomer?.cobradorNombre
+        ? `Cobrador: ${selectedCustomer.cobradorNombre}`
+        : null,
+      kind === "debito" && selectedCustomer?.monedaDescripcion
+        ? `Moneda: ${selectedCustomer.monedaDescripcion}`
+        : null,
+      kind === "debito" && inheritReferenceDueDate && selectedReference?.fechaVto
+        ? `Vencimiento base: ${formatDate(selectedReference.fechaVto)}`
         : null,
       detalleOperativo.trim() || null,
       form.observacion?.trim() || null,
@@ -331,11 +524,53 @@ function CreditDebitNoteForm({
     setSaving(false)
 
     if (ok) onSaved()
-    else setError(`No se pudo emitir la nota de ${kind}`)
+    else setError(`No se pudo emitir la ${kindConfig.singular}`)
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-4">
+        <Card className="border-slate-200 bg-slate-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Documento</p>
+            <p className="text-base font-semibold text-slate-900">{kindConfig.shortLabel}</p>
+            <p className="text-xs text-slate-600">
+              {availableTypes.find((tipo) => tipo.id === form.tipoComprobanteId)?.descripcion ??
+                "Seleccioná el tipo documental"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-emerald-200 bg-emerald-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Cliente</p>
+            <p className="text-base font-semibold text-emerald-950 wrap-break-word">
+              {selectedCustomer?.razonSocial ?? "Sin cliente seleccionado"}
+            </p>
+            <p className="text-xs text-emerald-800">
+              {selectedCustomer?.condicionIvaDescripcion ?? "Condición fiscal pendiente"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-sky-200 bg-sky-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-sky-700">Referencia</p>
+            <p className="text-base font-semibold text-sky-950 wrap-break-word">
+              {selectedReference?.nroComprobante ?? "Sin comprobante base"}
+            </p>
+            <p className="text-xs text-sky-800">
+              {alcance === "total" ? "Ajuste total" : "Ajuste parcial"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-amber-200 bg-amber-50/80">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Totales</p>
+            <p className="text-base font-semibold text-amber-950">{formatMoney(totals.total)}</p>
+            <p className="text-xs text-amber-800">{lineItems.length} renglón(es) informados</p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="grid h-auto w-full grid-cols-4">
           <TabsTrigger value="principal" className="py-2 text-xs">
@@ -348,11 +583,31 @@ function CreditDebitNoteForm({
             Totales
           </TabsTrigger>
           <TabsTrigger value="legado" className="py-2 text-xs">
-            Legado
+            Alcance actual
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="principal" className="mt-4 space-y-4">
+          {formWarnings.length > 0 ? (
+            <Card className="border-amber-200 bg-amber-50/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base text-amber-950">
+                  <AlertCircle className="h-4 w-4" /> Validación operativa previa
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-2 md:grid-cols-2">
+                {formWarnings.map((warning) => (
+                  <div
+                    key={warning}
+                    className="rounded-lg border border-amber-200 bg-background/80 px-3 py-2 text-sm text-slate-700"
+                  >
+                    {warning}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Sucursal</Label>
@@ -375,7 +630,7 @@ function CreditDebitNoteForm({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Tipo de nota</Label>
+              <Label>Tipo de {kindConfig.singular}</Label>
               <Select
                 value={form.tipoComprobanteId ? String(form.tipoComprobanteId) : ""}
                 onValueChange={(value) =>
@@ -398,9 +653,22 @@ function CreditDebitNoteForm({
               <Label>Cliente</Label>
               <Select
                 value={form.terceroId ? String(form.terceroId) : ""}
-                onValueChange={(value) =>
-                  setForm((prev) => ({ ...prev, terceroId: Number(value) }))
-                }
+                onValueChange={(value) => {
+                  const terceroId = Number(value)
+                  const selectedClient = clientes.find((cliente) => cliente.id === terceroId)
+                  setForm((prev) => ({ ...prev, terceroId }))
+                  if (kind === "debito") {
+                    setDeliveryChannel(selectedClient?.email ? "mail" : "manual")
+                  }
+                  setComprobanteReferenciaId((prev) => {
+                    const currentReference = referenceDocuments.find(
+                      (document) => String(document.id) === prev
+                    )
+                    return currentReference && currentReference.terceroId !== terceroId
+                      ? "none"
+                      : prev
+                  })
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar cliente" />
@@ -439,12 +707,11 @@ function CreditDebitNoteForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={kind === "credito" ? "devolucion" : "recargo"}>
-                    {kind === "credito" ? "Devolución / Ajuste" : "Recargo / Diferencia"}
-                  </SelectItem>
-                  <SelectItem value="descuento">Descuento / Bonificación</SelectItem>
-                  <SelectItem value="error">Corrección documental</SelectItem>
-                  <SelectItem value="anulacion">Anulación parcial</SelectItem>
+                  {kindConfig.motiveOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -460,15 +727,71 @@ function CreditDebitNoteForm({
                 </SelectContent>
               </Select>
             </div>
+            {kind === "debito" ? (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-4 md:col-span-2">
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="flex items-start justify-between gap-4 rounded-lg border bg-background p-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">Replicar vencimiento base</p>
+                      <p className="text-xs text-muted-foreground">
+                        Toma el vencimiento del comprobante origen cuando existe, como en el flujo operativo legacy.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={inheritReferenceDueDate}
+                      onCheckedChange={(checked) => {
+                        setInheritReferenceDueDate(checked)
+                        if (checked && selectedReference?.fechaVto) {
+                          setForm((prev) => ({
+                            ...prev,
+                            fechaVto: selectedReference.fechaVto?.slice(0, 10) ?? null,
+                          }))
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-start justify-between gap-4 rounded-lg border bg-background p-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">Enviar copia por mail</p>
+                      <p className="text-xs text-muted-foreground">
+                        Registra el canal de entrega del débito. Usa el email del cliente cuando está disponible.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={deliveryChannel === "mail"}
+                      onCheckedChange={(checked) =>
+                        setDeliveryChannel(checked && selectedCustomer?.email ? "mail" : "manual")
+                      }
+                      disabled={!selectedCustomer?.email}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <div className="space-y-1.5 md:col-span-2">
               <Label>Comprobante de referencia</Label>
-              <Select value={comprobanteReferenciaId} onValueChange={setComprobanteReferenciaId}>
+              <Select
+                value={comprobanteReferenciaId}
+                onValueChange={(value) => {
+                  setComprobanteReferenciaId(value)
+                  if (!inheritReferenceDueDate || value === "none") return
+                  const reference = filteredReferenceDocuments.find(
+                    (document) => String(document.id) === value
+                  )
+                  if (reference?.fechaVto) {
+                    setForm((prev) => ({
+                      ...prev,
+                      fechaVto: reference.fechaVto?.slice(0, 10) ?? null,
+                    }))
+                  }
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar documento base" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Sin referencia explícita</SelectItem>
-                  {referenceDocuments.map((document) => (
+                  {filteredReferenceDocuments.map((document) => (
                     <SelectItem key={document.id} value={String(document.id)}>
                       {(document.nroComprobante ?? `#${document.id}`) +
                         " · " +
@@ -484,7 +807,7 @@ function CreditDebitNoteForm({
                 value={detalleOperativo}
                 onChange={(event) => setDetalleOperativo(event.target.value)}
                 rows={3}
-                placeholder="Motivo comercial, devolución, diferencia o respaldo operativo"
+                placeholder={kindConfig.operationalPlaceholder}
               />
             </div>
             <div className="space-y-1.5 md:col-span-2">
@@ -498,11 +821,165 @@ function CreditDebitNoteForm({
               />
             </div>
           </div>
+
+          <div className={`grid gap-4 ${kind === "debito" ? "xl:grid-cols-3" : "xl:grid-cols-2"}`}>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Cliente y cabecera</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2 text-sm">
+                <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Cliente
+                  </p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.razonSocial ?? "Sin cliente seleccionado"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Sucursal
+                  </p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedSucursal?.descripcion ?? "Sin sucursal"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">IVA</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.condicionIvaDescripcion ?? "Sin condición"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">CUIT</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.nroDocumento ?? "Sin documento"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Contacto
+                  </p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer?.telefono ?? selectedCustomer?.email ?? "Sin contacto"}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Documento base y aplicación</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2 text-sm">
+                <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Referencia
+                  </p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedReference?.nroComprobante ?? "Sin comprobante base seleccionado"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Fecha base
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {selectedReference ? formatDate(selectedReference.fecha) : "-"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Total base
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {selectedReference ? formatMoney(selectedReference.total) : "-"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Saldo base
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {selectedReference ? formatMoney(selectedReference.saldo) : "-"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Motivo
+                  </p>
+                  <p className="mt-1 font-medium capitalize">{motivo}</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {kind === "debito" ? (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Condición comercial</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 md:grid-cols-2 text-sm">
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Moneda cliente
+                    </p>
+                    <p className="mt-1 font-medium wrap-break-word">
+                      {selectedCustomer?.monedaDescripcion ?? "Sin moneda configurada"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Canal entrega
+                    </p>
+                    <p className="mt-1 font-medium">
+                      {deliveryChannel === "mail" ? "Mail" : "Manual / mostrador"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Vendedor
+                    </p>
+                    <p className="mt-1 font-medium wrap-break-word">
+                      {selectedCustomer?.vendedorNombre ?? "Sin vendedor asignado"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Cobrador
+                    </p>
+                    <p className="mt-1 font-medium wrap-break-word">
+                      {selectedCustomer?.cobradorNombre ?? "Sin cobrador asignado"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Mora documento base
+                    </p>
+                    <p className="mt-1 font-medium">
+                      {referenceDaysPastDue === null
+                        ? "Sin vencimiento base"
+                        : referenceDaysPastDue > 0
+                          ? `${referenceDaysPastDue} días vencido`
+                          : "Al día"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Email entrega
+                    </p>
+                    <p className="mt-1 font-medium wrap-break-word">
+                      {selectedCustomer?.email ?? "Sin email informado"}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
         </TabsContent>
 
         <TabsContent value="items" className="mt-4 space-y-4">
           <div className="space-y-1.5">
-            <Label>Agregar producto</Label>
+            <Label>Agregar concepto</Label>
             <Select value="__none__" onValueChange={addItem}>
               <SelectTrigger>
                 <SelectValue placeholder="Seleccionar producto" />
@@ -518,89 +995,97 @@ function CreditDebitNoteForm({
             </Select>
           </div>
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Descripción</TableHead>
-                <TableHead className="text-right">Cantidad</TableHead>
-                <TableHead className="text-right">Precio</TableHead>
-                <TableHead className="text-right">Desc. %</TableHead>
-                <TableHead className="text-right">IVA %</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {lineItems.length === 0 ? (
+          <div className="w-full overflow-x-auto">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    Agregue items para emitir la nota.
-                  </TableCell>
+                  <TableHead>Descripción</TableHead>
+                  <TableHead className="text-right">Cantidad</TableHead>
+                  <TableHead className="text-right">Precio</TableHead>
+                  <TableHead className="text-right">Desc. %</TableHead>
+                  <TableHead className="text-right">IVA %</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              ) : (
-                lineItems.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.descripcion}</TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        className="ml-auto w-20 text-right"
-                        type="number"
-                        min={1}
-                        value={item.cantidad}
-                        onChange={(event) =>
-                          updateLineItem(
-                            item.id,
-                            "cantidad",
-                            Math.max(1, Number(event.target.value) || 1)
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        className="ml-auto w-28 text-right"
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={item.precioUnitario}
-                        onChange={(event) =>
-                          updateLineItem(
-                            item.id,
-                            "precioUnitario",
-                            parseFloat(event.target.value) || 0
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        className="ml-auto w-24 text-right"
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={0.01}
-                        value={item.descuento}
-                        onChange={(event) =>
-                          updateLineItem(item.id, "descuento", parseFloat(event.target.value) || 0)
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">{item.alicuotaIvaPct.toFixed(2)}%</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}>
-                        <Ban className="h-4 w-4 text-destructive" />
-                      </Button>
+              </TableHeader>
+              <TableBody>
+                {lineItems.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                      {kindConfig.emptyItemsLabel}
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  lineItems.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.descripcion}</TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          className="ml-auto w-20 text-right"
+                          type="number"
+                          min={1}
+                          value={item.cantidad}
+                          onChange={(event) =>
+                            updateLineItem(
+                              item.id,
+                              "cantidad",
+                              Math.max(1, Number(event.target.value) || 1)
+                            )
+                          }
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          className="ml-auto w-28 text-right"
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={item.precioUnitario}
+                          onChange={(event) =>
+                            updateLineItem(
+                              item.id,
+                              "precioUnitario",
+                              parseFloat(event.target.value) || 0
+                            )
+                          }
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          className="ml-auto w-24 text-right"
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={0.01}
+                          value={item.descuento}
+                          onChange={(event) =>
+                            updateLineItem(
+                              item.id,
+                              "descuento",
+                              parseFloat(event.target.value) || 0
+                            )
+                          }
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {item.alicuotaIvaPct.toFixed(2)}%
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}>
+                          <Ban className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </TabsContent>
 
         <TabsContent value="totales" className="mt-4 space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Totales de la nota</CardTitle>
+              <CardTitle className="text-base">Totales del documento</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
@@ -622,10 +1107,7 @@ function CreditDebitNoteForm({
         <TabsContent value="legado" className="mt-4 space-y-4">
           <Card>
             <CardContent className="pt-6 text-sm text-muted-foreground">
-              El sistema legado contemplaba autorización, relación exacta contra factura origen,
-              devolución por ítem, bonificación comercial y reimpresión fiscal. Esta etapa deja real
-              la emisión documental y preserva el contexto operativo en observaciones hasta que el
-              backend exponga la vinculación formal.
+              {kindConfig.scopeSummary} {kindConfig.nextPhaseSummary}
             </CardContent>
           </Card>
         </TabsContent>
@@ -643,7 +1125,7 @@ function CreditDebitNoteForm({
           Cancelar
         </Button>
         <Button onClick={handleSave} disabled={saving || availableTypes.length === 0}>
-          {saving ? "Emitiendo..." : `Emitir nota de ${kind}`}
+          {saving ? "Emitiendo..." : `Emitir ${kindConfig.singular}`}
         </Button>
       </div>
     </div>
@@ -651,12 +1133,14 @@ function CreditDebitNoteForm({
 }
 
 function NoteDetail({
+  kind,
   note,
   customerName,
   customer,
   typeName,
   sucursalName,
 }: {
+  kind: NoteKind
   note: ComprobanteDetalle
   customerName: string
   customer?: Tercero | null
@@ -664,6 +1148,7 @@ function NoteDetail({
   sucursalName: string
 }) {
   const operationalContext = parseOperationalObservation(note.observacion)
+  const kindConfig = getKindConfig(kind)
 
   const mainFields = [
     { label: "Comprobante", value: note.nroComprobante ?? `#${note.id}` },
@@ -681,16 +1166,21 @@ function NoteDetail({
     { label: "Neto No Gravado", value: formatMoney(note.netoNoGravado) },
     { label: "IVA RI", value: formatMoney(note.ivaRi) },
     { label: "IVA RNI", value: formatMoney(note.ivaRni) },
-    { label: "Saldo", value: formatMoney(note.saldo) },
+    { label: kind === "debito" ? "Saldo del cargo" : "Saldo", value: formatMoney(note.saldo) },
     { label: "Total", value: formatMoney(note.total) },
   ]
 
   const circuitFields = [
     { label: "Estado documental", value: getNoteDocumentStatus(note) },
-    { label: "Estado de aplicación", value: getApplicationStatus(note) },
+    { label: kindConfig.applicationLabel, value: getApplicationStatus(note, kind) },
     { label: "Motivo", value: operationalContext.motivo },
     { label: "Alcance", value: operationalContext.alcance },
     { label: "Referencia", value: operationalContext.referencia },
+    { label: "Canal entrega", value: operationalContext.canal },
+    { label: "Vendedor", value: operationalContext.vendedor },
+    { label: "Cobrador", value: operationalContext.cobrador },
+    { label: "Moneda cliente", value: operationalContext.moneda },
+    { label: "Vencimiento base", value: operationalContext.vencimientoBase },
     { label: "Detalle operativo", value: operationalContext.detalle },
     {
       label: "Renglones informados",
@@ -712,6 +1202,9 @@ function NoteDetail({
     { label: "Condición IVA", value: customer?.condicionIvaDescripcion ?? "-" },
     { label: "Domicilio", value: formatCustomerAddress(customer) },
     { label: "Contacto", value: customer?.email ?? customer?.telefono ?? customer?.celular ?? "-" },
+    { label: "Moneda", value: customer?.monedaDescripcion ?? "-" },
+    { label: "Vendedor", value: customer?.vendedorNombre ?? "-" },
+    { label: "Cobrador", value: customer?.cobradorNombre ?? "-" },
     {
       label: "Límite crédito",
       value:
@@ -727,7 +1220,7 @@ function NoteDetail({
         <TabsTrigger value="items">Items</TabsTrigger>
         <TabsTrigger value="totales">Totales</TabsTrigger>
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
-        <TabsTrigger value="legado">Legado</TabsTrigger>
+        <TabsTrigger value="legado">Cobertura</TabsTrigger>
       </TabsList>
 
       <TabsContent value="principal" className="space-y-4">
@@ -795,7 +1288,8 @@ function NoteDetail({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Package className="h-4 w-4" /> Totales aplicados
+              <Package className="h-4 w-4" />{" "}
+              {kind === "debito" ? "Totales del débito" : "Totales del crédito"}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -821,18 +1315,18 @@ function NoteDetail({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Landmark className="h-4 w-4" /> Pendientes del circuito clásico
+              <Landmark className="h-4 w-4" /> Cobertura e integración pendiente
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 text-sm text-muted-foreground md:grid-cols-2">
             <div className="rounded-lg border p-4">
-              Esta etapa ya deja visible motivo, alcance, referencia operativa y saldo;
-              autorización, relación exacta con factura original y control por renglón siguen
-              reservados.
+              Esta etapa ya deja visible motivo, alcance, referencia operativa y saldo; la
+              autorización formal, la relación exacta con factura original y el control por renglón
+              siguen reservados.
             </div>
             <div className="rounded-lg border p-4">
               Ajustes fiscales, motivo AFIP y reimpresión documental específica de notas quedan
-              reservados para la siguiente fase.
+              reservados para la integración siguiente.
             </div>
           </CardContent>
         </Card>
@@ -933,6 +1427,17 @@ export function VentasNotasPage({
   )
 
   const activeTypes = activeKind === "credito" ? creditTypes : debitTypes
+  const activeConfig = getKindConfig(activeKind)
+  const activeStats = useMemo(
+    () => ({
+      total: visibleNotes.length,
+      emitted: visibleNotes.filter((item) => item.estado === "EMITIDO").length,
+      draft: visibleNotes.filter((item) => item.estado === "BORRADOR").length,
+      withBalance: visibleNotes.filter((item) => item.saldo > 0 && item.estado !== "ANULADO")
+        .length,
+    }),
+    [visibleNotes]
+  )
 
   const getCustomerName = useCallback(
     (terceroId: number) =>
@@ -1006,7 +1511,10 @@ export function VentasNotasPage({
         },
         { label: "Vencimiento", value: formatDate(highlightedNote.fechaVto) },
         { label: "Total", value: formatMoney(highlightedNote.total) },
-        { label: "Aplicación", value: getApplicationStatus(highlightedNote as ComprobanteDetalle) },
+        {
+          label: activeConfig.applicationLabel,
+          value: getApplicationStatus(highlightedNote as ComprobanteDetalle, activeKind),
+        },
         {
           label: "Referencia",
           value: highlightedContext?.referencia ?? "Sin referencia explícita",
@@ -1064,29 +1572,29 @@ export function VentasNotasPage({
         </Alert>
       )}
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total</CardTitle>
+            <CardTitle className="text-sm font-medium capitalize">{activeConfig.plural}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{kpis.total}</div>
+            <div className="text-2xl font-bold">{activeStats.total}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Crédito</CardTitle>
+            <CardTitle className="text-sm font-medium">Emitidas</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">{kpis.creditos}</div>
+            <div className="text-2xl font-bold text-emerald-600">{activeStats.emitted}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Débito</CardTitle>
+            <CardTitle className="text-sm font-medium">{activeConfig.balanceLabel}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{kpis.debitos}</div>
+            <div className="text-2xl font-bold text-amber-600">{activeStats.withBalance}</div>
           </CardContent>
         </Card>
         <Card>
@@ -1094,7 +1602,7 @@ export function VentasNotasPage({
             <CardTitle className="text-sm font-medium">Borrador</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-600">{kpis.pendientes}</div>
+            <div className="text-2xl font-bold text-slate-600">{activeStats.draft}</div>
           </CardContent>
         </Card>
       </div>
@@ -1103,14 +1611,23 @@ export function VentasNotasPage({
         <Card className="border-primary/20 bg-primary/5">
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <CardDescription>Documento destacado</CardDescription>
+              <CardDescription>{activeConfig.highlightedLabel}</CardDescription>
               <CardTitle className="mt-1 text-xl">
                 {highlightedNote.nroComprobante ?? `#${highlightedNote.id}`} ·{" "}
                 {highlightedCustomer?.razonSocial ?? `Cliente #${highlightedNote.terceroId}`}
               </CardTitle>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                {highlightedContext?.detalle ?? "Sin detalle operativo registrado."}
+                {highlightedContext?.detalle ?? activeConfig.detailPlaceholder}
               </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge variant="outline">{highlightedContext?.alcance ?? "Sin alcance"}</Badge>
+                <Badge variant="outline">
+                  {highlightedNote.fechaVto
+                    ? `Vence ${formatDate(highlightedNote.fechaVto)}`
+                    : "Sin vencimiento"}
+                </Badge>
+                <Badge variant="outline">{formatMoney(highlightedNote.total)}</Badge>
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge
@@ -1193,7 +1710,10 @@ export function VentasNotasPage({
                 onAnnul={handleAnnul}
                 getCustomerName={getCustomerName}
                 getTypeName={getTypeName}
-                getApplicationStatus={(note) => getApplicationStatus(note as ComprobanteDetalle)}
+                emptyMessage={getKindConfig("credito").emptyTableLabel}
+                getApplicationStatus={(note) =>
+                  getApplicationStatus(note as ComprobanteDetalle, "credito")
+                }
               />
             </CardContent>
           </Card>
@@ -1216,7 +1736,10 @@ export function VentasNotasPage({
                 onAnnul={handleAnnul}
                 getCustomerName={getCustomerName}
                 getTypeName={getTypeName}
-                getApplicationStatus={(note) => getApplicationStatus(note as ComprobanteDetalle)}
+                emptyMessage={getKindConfig("debito").emptyTableLabel}
+                getApplicationStatus={(note) =>
+                  getApplicationStatus(note as ComprobanteDetalle, "debito")
+                }
               />
             </CardContent>
           </Card>
@@ -1257,30 +1780,32 @@ export function VentasNotasPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {kpis.total} notas detectadas en el motor documental actual, con {kpis.creditos} de
-            crédito y {kpis.debitos} de débito.
+            {activeStats.total} {activeConfig.plural} detectadas en el motor documental actual con
+            tipos reales expuestos por backend para el circuito activo.
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <FileText className="h-4 w-4" /> Contexto legado
+              <FileText className="h-4 w-4" /> Contexto operativo
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Motivo, alcance y referencia ya se leen desde la observación operativa; {kpis.conSaldo}{" "}
-            documentos conservan saldo pendiente visible en pantalla.
+            Motivo, alcance y referencia ya se leen desde la observación operativa;{" "}
+            {activeStats.withBalance} {activeConfig.plural} conservan{" "}
+            {activeConfig.balanceLabel.toLowerCase()} visible en pantalla.
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Landmark className="h-4 w-4" /> Próxima fase
+              <Landmark className="h-4 w-4" /> Integración pendiente
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {kpis.aplicadas} ya figuran como aplicadas; sigue pendiente la aplicación exacta contra
-            factura origen, devoluciones por renglón y motivo fiscal específico.
+            La emisión ya separa crédito y débito con identidad propia; sigue pendiente la
+            aplicación exacta contra factura origen, imputación por renglón y motivo fiscal
+            específico.
           </CardContent>
         </Card>
       </div>
@@ -1337,6 +1862,7 @@ export function VentasNotasPage({
           ) : detailNote && selectedNote ? (
             <NoteDetail
               note={detailNote}
+              kind={activeKind}
               customerName={getCustomerName(selectedNote.terceroId)}
               customer={getCustomer(selectedNote.terceroId)}
               typeName={getTypeName(
@@ -1387,6 +1913,7 @@ function NoteTable({
   loading,
   onOpen,
   onAnnul,
+  emptyMessage,
   getCustomerName,
   getTypeName,
   getApplicationStatus,
@@ -1395,85 +1922,88 @@ function NoteTable({
   loading: boolean
   onOpen: (note: Comprobante) => void
   onAnnul: (note: Comprobante) => void
+  emptyMessage: string
   getCustomerName: (terceroId: number) => string
   getTypeName: (tipoId: number, fallback?: string) => string
   getApplicationStatus: (note: Comprobante) => string
 }) {
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Comprobante</TableHead>
-          <TableHead>Tipo</TableHead>
-          <TableHead>Cliente</TableHead>
-          <TableHead>Fecha</TableHead>
-          <TableHead>Estado</TableHead>
-          <TableHead>Circuito</TableHead>
-          <TableHead className="text-right">Total</TableHead>
-          <TableHead className="text-right">Acciones</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {loading ? (
+    <div className="w-full overflow-x-auto">
+      <Table>
+        <TableHeader>
           <TableRow>
-            <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
-              <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
-              Cargando documentos...
-            </TableCell>
+            <TableHead>Comprobante</TableHead>
+            <TableHead>Tipo</TableHead>
+            <TableHead>Cliente</TableHead>
+            <TableHead>Fecha</TableHead>
+            <TableHead>Estado</TableHead>
+            <TableHead>Circuito</TableHead>
+            <TableHead className="text-right">Total</TableHead>
+            <TableHead className="text-right">Acciones</TableHead>
           </TableRow>
-        ) : notes.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
-              No se encontraron documentos en esta categoría.
-            </TableCell>
-          </TableRow>
-        ) : (
-          notes.map((note) => {
-            const status = STATUS_CONFIG[note.estado] ?? {
-              label: note.estado,
-              variant: "outline" as const,
-            }
+        </TableHeader>
+        <TableBody>
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                Cargando documentos...
+              </TableCell>
+            </TableRow>
+          ) : notes.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                {emptyMessage}
+              </TableCell>
+            </TableRow>
+          ) : (
+            notes.map((note) => {
+              const status = STATUS_CONFIG[note.estado] ?? {
+                label: note.estado,
+                variant: "outline" as const,
+              }
 
-            return (
-              <TableRow
-                key={note.id}
-                className="cursor-pointer hover:bg-muted/40"
-                onClick={() => onOpen(note)}
-              >
-                <TableCell className="font-mono font-semibold">
-                  {note.nroComprobante ?? `#${note.id}`}
-                </TableCell>
-                <TableCell>
-                  {getTypeName(note.tipoComprobanteId, note.tipoComprobanteDescripcion)}
-                </TableCell>
-                <TableCell>{getCustomerName(note.terceroId)}</TableCell>
-                <TableCell>{formatDate(note.fecha)}</TableCell>
-                <TableCell>
-                  <Badge variant={status.variant}>{status.label}</Badge>
-                </TableCell>
-                <TableCell className="max-w-65 text-sm text-muted-foreground">
-                  {getApplicationStatus(note)}
-                </TableCell>
-                <TableCell className="text-right font-semibold">
-                  {formatMoney(note.total)}
-                </TableCell>
-                <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => onOpen(note)}>
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    {note.estado !== "ANULADO" && (
-                      <Button variant="ghost" size="icon" onClick={() => onAnnul(note)}>
-                        <Ban className="h-4 w-4 text-destructive" />
+              return (
+                <TableRow
+                  key={note.id}
+                  className="cursor-pointer hover:bg-muted/40"
+                  onClick={() => onOpen(note)}
+                >
+                  <TableCell className="font-mono font-semibold">
+                    {note.nroComprobante ?? `#${note.id}`}
+                  </TableCell>
+                  <TableCell>
+                    {getTypeName(note.tipoComprobanteId, note.tipoComprobanteDescripcion)}
+                  </TableCell>
+                  <TableCell>{getCustomerName(note.terceroId)}</TableCell>
+                  <TableCell>{formatDate(note.fecha)}</TableCell>
+                  <TableCell>
+                    <Badge variant={status.variant}>{status.label}</Badge>
+                  </TableCell>
+                  <TableCell className="max-w-65 text-sm text-muted-foreground">
+                    {getApplicationStatus(note)}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {formatMoney(note.total)}
+                  </TableCell>
+                  <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" onClick={() => onOpen(note)}>
+                        <Eye className="h-4 w-4" />
                       </Button>
-                    )}
-                  </div>
-                </TableCell>
-              </TableRow>
-            )
-          })
-        )}
-      </TableBody>
-    </Table>
+                      {note.estado !== "ANULADO" && (
+                        <Button variant="ghost" size="icon" onClick={() => onAnnul(note)}>
+                          <Ban className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })
+          )}
+        </TableBody>
+      </Table>
+    </div>
   )
 }

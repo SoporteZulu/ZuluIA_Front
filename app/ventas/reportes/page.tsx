@@ -191,6 +191,30 @@ function buildPeriodoLabel(start: Date, end: Date) {
   return `${start.toLocaleDateString("es-AR")} - ${end.toLocaleDateString("es-AR")}`
 }
 
+function escapeCsvValue(value: string | number) {
+  const text = String(value ?? "")
+  if (text.includes('"') || text.includes(",") || text.includes("\n")) {
+    return `"${text.replace(/"/g, '""')}"`
+  }
+  return text
+}
+
+function downloadCsv(filename: string, headers: string[], rows: Array<Array<string | number>>) {
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => escapeCsvValue(cell)).join(","))
+    .join("\n")
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.setAttribute("download", filename)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
 export default function ReportesPage() {
   const { comprobantes } = useComprobantes({ esVenta: true })
   const { terceros } = useTerceros({ soloActivos: false })
@@ -474,6 +498,70 @@ export default function ReportesPage() {
     [customerHealth.activos, filteredComprobantes, ingresosPeriodo, margenPorProducto, variacion]
   )
 
+  const executiveExportRows = useMemo(
+    () => [
+      ["Periodo", periodoLabel],
+      ["Ingresos", Math.round(executiveKpis.ingresos)],
+      ["Variacion", executiveKpis.variacion.toFixed(2)],
+      ["Ticket promedio", Math.round(executiveKpis.ticketPromedio)],
+      ["Conversion cobrada", executiveKpis.conversion.toFixed(2)],
+      ["Clientes activos", executiveKpis.clientesActivos],
+      ["Margen promedio", executiveKpis.margenPromedio.toFixed(2)],
+      ["Comprobantes", executiveKpis.totalComprobantes],
+      ["Saldo pendiente", Math.round(cobranzasSummary.saldoPendiente)],
+      ["Saldo vencido", Math.round(cobranzasSummary.saldoVencido)],
+    ],
+    [cobranzasSummary.saldoPendiente, cobranzasSummary.saldoVencido, executiveKpis, periodoLabel]
+  )
+
+  const highlightedExecutiveNote = useMemo(() => {
+    if (cobranzasSummary.saldoVencido > 0) {
+      return `La prioridad operativa del período está en ${formatCompactCurrency(cobranzasSummary.saldoVencido)} vencidos que todavía siguen abiertos.`
+    }
+    if (executiveKpis.variacion >= 0) {
+      return `El período mantiene una variación positiva de ${executiveKpis.variacion.toFixed(1)}% con ${filteredComprobantes.length} comprobantes visibles.`
+    }
+    return `La facturación cayó ${Math.abs(executiveKpis.variacion).toFixed(1)}% frente al período anterior y conviene revisar cartera, surtido y cobranza.`
+  }, [cobranzasSummary.saldoVencido, executiveKpis.variacion, filteredComprobantes.length])
+
+  const handleExportExecutive = () => {
+    downloadCsv(
+      `ventas-reporte-ejecutivo-${periodoFilter}.csv`,
+      ["Indicador", "Valor"],
+      executiveExportRows
+    )
+  }
+
+  const handleExportLibroIva = () => {
+    downloadCsv(
+      `ventas-libro-iva-${start.toISOString().slice(0, 10)}-${end.toISOString().slice(0, 10)}.csv`,
+      [
+        "Fecha",
+        "Comprobante",
+        "Tipo",
+        "Razon social",
+        "CUIT",
+        "Condicion IVA",
+        "Neto",
+        "IVA 21",
+        "IVA 10.5",
+        "Total",
+      ],
+      libroIVA.map((item) => [
+        new Date(item.fecha).toLocaleDateString("es-AR"),
+        item.nroComprobante,
+        item.tipo,
+        item.razonSocial,
+        item.cuit,
+        item.condicionIva,
+        item.subtotal,
+        item.iva21,
+        item.iva105,
+        item.total,
+      ])
+    )
+  }
+
   return (
     <div className="space-y-6 pb-6">
       <div className="flex items-start justify-between">
@@ -496,12 +584,43 @@ export default function ReportesPage() {
               <SelectItem value="anual">Anual</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline">
+          <Button variant="outline" onClick={handleExportExecutive}>
             <Download className="mr-2 h-4 w-4" />
             Exportar
           </Button>
         </div>
       </div>
+
+      <Card className="border-primary/20 bg-primary/5">
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardDescription>Foco ejecutivo</CardDescription>
+            <CardTitle className="mt-1 text-xl">{periodoLabel}</CardTitle>
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{highlightedExecutiveNote}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">{filteredComprobantes.length} comprobantes</Badge>
+            <Badge variant="outline">{topClientes.length} clientes con movimiento</Badge>
+            <Badge variant="outline">{cobranzasSummary.comprobantesPendientes} pendientes</Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-lg border bg-background/80 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Facturación</p>
+              <p className="mt-2 text-sm font-medium">{formatCurrency(executiveKpis.ingresos)} en ingresos visibles para el período.</p>
+            </div>
+            <div className="rounded-lg border bg-background/80 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cobranza</p>
+              <p className="mt-2 text-sm font-medium">{formatCurrency(cobranzasSummary.saldoPendiente)} siguen abiertos y {cobranzasSummary.vencidos} ya están vencidos.</p>
+            </div>
+            <div className="rounded-lg border bg-background/80 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Rentabilidad</p>
+              <p className="mt-2 text-sm font-medium">Margen promedio visible de {executiveKpis.margenPromedio.toFixed(1)}% sobre el catálogo actual.</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
         {[
@@ -721,7 +840,7 @@ export default function ReportesPage() {
                 Período: {buildPeriodoLabel(start, end)} · comprobantes de venta no anulados
               </p>
             </div>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={handleExportLibroIva}>
               <Download className="mr-2 h-4 w-4" />
               Exportar a Excel
             </Button>
