@@ -17,10 +17,16 @@ export interface ComprobanteItem {
   itemId: number
   descripcion: string
   cantidad: number
+  cantidadBonificada?: number
   precioUnitario: number
   descuento: number
+  alicuotaIvaId?: number
   alicuotaIvaPct: number
   subtotal: number
+  totalLinea?: number
+  depositoId?: number | null
+  depositoDescripcion?: string | null
+  comprobanteItemOrigenId?: number | null
 }
 
 export interface Comprobante {
@@ -47,6 +53,19 @@ export interface Comprobante {
 }
 
 export interface ComprobanteDetalle extends Comprobante {
+  comprobanteOrigenId?: number | null
+  comprobanteOrigenNumero?: string | null
+  comprobanteOrigenTipo?: string | null
+  motivoDevolucion?: number | null
+  motivoDevolucionDescripcion?: string | null
+  tipoDevolucion?: number | null
+  tipoDevolucionDescripcion?: string | null
+  autorizadorDevolucionId?: number | null
+  autorizadorDevolucionNombre?: string | null
+  fechaAutorizacionDevolucion?: string | null
+  observacionDevolucion?: string | null
+  reingresaStock?: boolean
+  acreditaCuentaCorriente?: boolean
   items: ComprobanteItem[]
 }
 

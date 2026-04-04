@@ -53,12 +53,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useCobros } from "@/lib/hooks/useCobros"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
+import { useImputacionesHistorial } from "@/lib/hooks/useImputaciones"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
 import { useTerceros } from "@/lib/hooks/useTerceros"
 import type { Cobro } from "@/lib/types/cobros"
 import type { Comprobante } from "@/lib/types/comprobantes"
-import { legacySalesAllocations, type LegacySalesAllocation } from "@/lib/ventas-legacy-data"
+import type { ImputacionDto } from "@/lib/types/imputaciones"
+import type { LegacySalesAllocation } from "@/lib/ventas-legacy-data"
 import {
   buildLegacyAllocationProfile,
   type LegacyAllocationLine,
@@ -142,6 +144,78 @@ function buildSearchableText(row: LegacySalesAllocation, profile: LegacyAllocati
     .toLowerCase()
 }
 
+function buildLiveAllocationRow(
+  entry: ImputacionDto,
+  comprobanteById: Map<number, Comprobante>
+): LegacySalesAllocation {
+  const origin = comprobanteById.get(entry.comprobanteOrigenId)
+  const destination = comprobanteById.get(entry.comprobanteDestinoId)
+
+  return {
+    id: `backend-${entry.id}`,
+    cliente: "Cliente backend",
+    comprobante: `${entry.tipoComprobanteOrigen} ${entry.numeroOrigen}`,
+    cuenta:
+      destination?.tipoComprobanteDescripcion ??
+      origin?.tipoComprobanteDescripcion ??
+      "Cuenta corriente ventas",
+    centroCosto: entry.rolComprobante === "DESTINO" ? "Aplicación recibida" : "Aplicación emitida",
+    estado: entry.anulada ? "OBSERVADA" : "IMPUTADA",
+    fecha: entry.fecha,
+    importe: Number(entry.importe ?? 0),
+  }
+}
+
+function buildLiveAllocationProfile(
+  entry: ImputacionDto,
+  row: LegacySalesAllocation,
+  comprobanteById: Map<number, Comprobante>,
+  customerById: Map<number, { razonSocial: string }>,
+  sucursalById: Map<number, { descripcion: string }>
+): LegacyAllocationProfile {
+  const origin = comprobanteById.get(entry.comprobanteOrigenId)
+  const destination = comprobanteById.get(entry.comprobanteDestinoId)
+  const customer =
+    customerById.get(destination?.terceroId ?? origin?.terceroId ?? 0)?.razonSocial ?? row.cliente
+  const sucursal =
+    sucursalById.get(destination?.sucursalId ?? origin?.sucursalId ?? 0)?.descripcion ??
+    "Sucursal no informada"
+
+  return {
+    allocationId: row.id,
+    cliente: customer,
+    terceroId: destination?.terceroId ?? origin?.terceroId ?? null,
+    sucursalId: destination?.sucursalId ?? origin?.sucursalId ?? null,
+    estado: row.estado,
+    modalidad: entry.anulada ? "Desimputación" : "Manual",
+    fechaAplicacion: entry.fecha,
+    fechaOrigen: origin?.fecha ?? entry.fecha,
+    fechaDestino: destination?.fecha ?? entry.fecha,
+    origen: entry.rolComprobante === "DESTINO" ? "Historial recibido" : "Historial emitido",
+    sucursal,
+    prioridad: entry.anulada ? "Media" : "Alta",
+    conciliado: !entry.anulada,
+    permiteDesimputar: !entry.anulada,
+    cuentaPuente: row.cuenta,
+    comprobanteOrigen: `${entry.tipoComprobanteOrigen} ${entry.numeroOrigen}`,
+    comprobanteDestino: `${entry.tipoComprobanteDestino} ${entry.numeroDestino}`,
+    saldoComprobante: String(origin?.saldo ?? entry.importe),
+    saldoDestino: String(destination?.saldo ?? entry.importe),
+    importeAplicado: String(entry.importe),
+    operador: "Backend",
+    lote: "",
+    observaciones: entry.motivoDesimputacion ?? "Imputación registrada en backend.",
+    lineas: [
+      {
+        id: `allocation-line-backend-${entry.id}`,
+        referencia: `${entry.tipoComprobanteOrigen} ${entry.numeroOrigen} -> ${entry.tipoComprobanteDestino} ${entry.numeroDestino}`,
+        tipo: entry.anulada ? "Reversa" : "Aplicación",
+        importe: String(entry.importe),
+      },
+    ],
+  }
+}
+
 function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
   return (
     <div className="grid gap-3 md:grid-cols-2">
@@ -192,15 +266,16 @@ function LegacyAllocationDialog({
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <div className="space-y-1.5 xl:col-span-2">
           <Label>Cliente</Label>
-          <Input value={profile.cliente} onChange={(event) => setField("cliente", event.target.value)} />
+          <Input
+            value={profile.cliente}
+            onChange={(event) => setField("cliente", event.target.value)}
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Estado</Label>
           <Select
             value={profile.estado}
-            onValueChange={(value) =>
-              setField("estado", value as LegacySalesAllocation["estado"])
-            }
+            onValueChange={(value) => setField("estado", value as LegacySalesAllocation["estado"])}
           >
             <SelectTrigger>
               <SelectValue />
@@ -214,7 +289,12 @@ function LegacyAllocationDialog({
         </div>
         <div className="space-y-1.5">
           <Label>Modalidad</Label>
-          <Select value={profile.modalidad} onValueChange={(value) => setField("modalidad", value as LegacyAllocationProfile["modalidad"])}>
+          <Select
+            value={profile.modalidad}
+            onValueChange={(value) =>
+              setField("modalidad", value as LegacyAllocationProfile["modalidad"])
+            }
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -235,7 +315,12 @@ function LegacyAllocationDialog({
         </div>
         <div className="space-y-1.5">
           <Label>Prioridad</Label>
-          <Select value={profile.prioridad} onValueChange={(value) => setField("prioridad", value as LegacyAllocationProfile["prioridad"])}>
+          <Select
+            value={profile.prioridad}
+            onValueChange={(value) =>
+              setField("prioridad", value as LegacyAllocationProfile["prioridad"])
+            }
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -248,15 +333,24 @@ function LegacyAllocationDialog({
         </div>
         <div className="space-y-1.5">
           <Label>Origen operativo</Label>
-          <Input value={profile.origen} onChange={(event) => setField("origen", event.target.value)} />
+          <Input
+            value={profile.origen}
+            onChange={(event) => setField("origen", event.target.value)}
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Sucursal</Label>
-          <Input value={profile.sucursal} onChange={(event) => setField("sucursal", event.target.value)} />
+          <Input
+            value={profile.sucursal}
+            onChange={(event) => setField("sucursal", event.target.value)}
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Cuenta puente</Label>
-          <Input value={profile.cuentaPuente} onChange={(event) => setField("cuentaPuente", event.target.value)} />
+          <Input
+            value={profile.cuentaPuente}
+            onChange={(event) => setField("cuentaPuente", event.target.value)}
+          />
         </div>
         <div className="space-y-1.5 xl:col-span-2">
           <Label>Documento origen</Label>
@@ -267,7 +361,10 @@ function LegacyAllocationDialog({
         </div>
         <div className="space-y-1.5">
           <Label>Fecha origen</Label>
-          <Input value={profile.fechaOrigen} onChange={(event) => setField("fechaOrigen", event.target.value)} />
+          <Input
+            value={profile.fechaOrigen}
+            onChange={(event) => setField("fechaOrigen", event.target.value)}
+          />
         </div>
         <div className="space-y-1.5 xl:col-span-2">
           <Label>Documento destino</Label>
@@ -278,7 +375,10 @@ function LegacyAllocationDialog({
         </div>
         <div className="space-y-1.5">
           <Label>Fecha destino</Label>
-          <Input value={profile.fechaDestino} onChange={(event) => setField("fechaDestino", event.target.value)} />
+          <Input
+            value={profile.fechaDestino}
+            onChange={(event) => setField("fechaDestino", event.target.value)}
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Saldo origen</Label>
@@ -303,7 +403,10 @@ function LegacyAllocationDialog({
         </div>
         <div className="space-y-1.5">
           <Label>Operador</Label>
-          <Input value={profile.operador} onChange={(event) => setField("operador", event.target.value)} />
+          <Input
+            value={profile.operador}
+            onChange={(event) => setField("operador", event.target.value)}
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Lote</Label>
@@ -319,13 +422,16 @@ function LegacyAllocationDialog({
               Marca conciliación del lote o aplicación.
             </p>
           </div>
-          <Switch checked={profile.conciliado} onCheckedChange={(value) => setField("conciliado", value)} />
+          <Switch
+            checked={profile.conciliado}
+            onCheckedChange={(value) => setField("conciliado", value)}
+          />
         </div>
         <div className="flex items-center justify-between rounded-lg border p-3">
           <div>
             <p className="font-medium">Permite desimputar</p>
             <p className="text-sm text-muted-foreground">
-              Refleja el circuito de reversa del legado.
+              Habilita el circuito de reversa disponible para la imputación.
             </p>
           </div>
           <Switch
@@ -406,7 +512,11 @@ function LegacyAllocationDialog({
 
 export default function VentasImputacionesPage() {
   const defaultSucursalId = useDefaultSucursalId()
-  const { cobros, error: cobrosError, refetch: refetchCobros } = useCobros({
+  const {
+    cobros,
+    error: cobrosError,
+    refetch: refetchCobros,
+  } = useCobros({
     sucursalId: defaultSucursalId,
   })
   const {
@@ -416,6 +526,11 @@ export default function VentasImputacionesPage() {
   } = useComprobantes({ esVenta: true, sucursalId: defaultSucursalId })
   const { terceros: clientes } = useTerceros({ sucursalId: defaultSucursalId ?? null })
   const { sucursales } = useSucursales()
+  const {
+    imputaciones,
+    error: imputacionesError,
+    desimputar,
+  } = useImputacionesHistorial(comprobantes.map((row) => row.id))
   const { rows: legacyProfiles, setRows: setLegacyProfiles } =
     useLegacyLocalCollection<LegacyAllocationProfile>("ventas-imputaciones-legacy", [])
 
@@ -433,40 +548,71 @@ export default function VentasImputacionesPage() {
   const [draftFechaAplicacion, setDraftFechaAplicacion] = useState(
     new Date().toISOString().slice(0, 10)
   )
-  const [draftModalidad, setDraftModalidad] = useState<LegacyAllocationProfile["modalidad"]>(
-    "Manual"
-  )
+  const [draftModalidad, setDraftModalidad] =
+    useState<LegacyAllocationProfile["modalidad"]>("Manual")
   const [draftOperador, setDraftOperador] = useState("")
   const [draftImporte, setDraftImporte] = useState("")
   const [draftObservaciones, setDraftObservaciones] = useState("")
-  const effectiveDraftSucursalId = draftSucursalId || (defaultSucursalId ? String(defaultSucursalId) : "")
+  const effectiveDraftSucursalId =
+    draftSucursalId || (defaultSucursalId ? String(defaultSucursalId) : "")
 
-  const customerById = useMemo(() => new Map(clientes.map((cliente) => [cliente.id, cliente])), [clientes])
+  const customerById = useMemo(
+    () => new Map(clientes.map((cliente) => [cliente.id, cliente])),
+    [clientes]
+  )
   const sucursalById = useMemo(
     () => new Map(sucursales.map((sucursal) => [sucursal.id, sucursal])),
     [sucursales]
+  )
+  const comprobanteById = useMemo(
+    () => new Map(comprobantes.map((row) => [row.id, row])),
+    [comprobantes]
   )
   const profileById = useMemo(
     () => new Map(legacyProfiles.map((profile) => [profile.allocationId, profile])),
     [legacyProfiles]
   )
+  const liveRows = useMemo(
+    () => imputaciones.map((entry) => buildLiveAllocationRow(entry, comprobanteById)),
+    [imputaciones, comprobanteById]
+  )
+  const liveProfileById = useMemo(
+    () =>
+      new Map(
+        imputaciones.map((entry) => {
+          const row = buildLiveAllocationRow(entry, comprobanteById)
+          return [
+            row.id,
+            buildLiveAllocationProfile(entry, row, comprobanteById, customerById, sucursalById),
+          ]
+        })
+      ),
+    [imputaciones, comprobanteById, customerById, sucursalById]
+  )
 
   const localOnlyRows = useMemo(
     () =>
       legacyProfiles
-        .filter((profile) => !legacySalesAllocations.some((row) => row.id === profile.allocationId))
+        .filter((profile) => !profile.allocationId.startsWith("backend-"))
         .map(buildLocalAllocationRow),
     [legacyProfiles]
   )
 
   const allocations = useMemo(
-    () => [...localOnlyRows, ...legacySalesAllocations],
-    [localOnlyRows]
+    () =>
+      [...localOnlyRows, ...liveRows].sort((left, right) =>
+        `${right.fecha}-${right.id}`.localeCompare(`${left.fecha}-${left.id}`)
+      ),
+    [liveRows, localOnlyRows]
   )
 
   const getProfile = (row: LegacySalesAllocation) => {
-    return profileById.get(row.id) ?? buildLegacyAllocationProfile(row)
+    return (
+      liveProfileById.get(row.id) ?? profileById.get(row.id) ?? buildLegacyAllocationProfile(row)
+    )
   }
+
+  const isLiveRow = (row: LegacySalesAllocation) => liveProfileById.has(row.id)
 
   const saveProfile = (profile: LegacyAllocationProfile) => {
     setLegacyProfiles((prev) => {
@@ -482,9 +628,11 @@ export default function VentasImputacionesPage() {
     [comprobantes]
   )
 
-  const selectedDraftCliente = draftClienteId ? customerById.get(Number(draftClienteId)) ?? null : null
+  const selectedDraftCliente = draftClienteId
+    ? (customerById.get(Number(draftClienteId)) ?? null)
+    : null
   const selectedDraftSucursal = effectiveDraftSucursalId
-    ? sucursalById.get(Number(effectiveDraftSucursalId)) ?? null
+    ? (sucursalById.get(Number(effectiveDraftSucursalId)) ?? null)
     : null
   const availableCobros = useMemo(
     () =>
@@ -578,7 +726,8 @@ export default function VentasImputacionesPage() {
   const filtered = allocations.filter((row) => {
     const profile = getProfile(row)
     const matchesSearch =
-      normalizedSearchTerm === "" || buildSearchableText(row, profile).includes(normalizedSearchTerm)
+      normalizedSearchTerm === "" ||
+      buildSearchableText(row, profile).includes(normalizedSearchTerm)
     const matchesEstado = filterEstado === "todos" || profile.estado === filterEstado
     const matchesModalidad = filterModalidad === "todos" || profile.modalidad === filterModalidad
     const matchesCliente =
@@ -590,7 +739,10 @@ export default function VentasImputacionesPage() {
   })
 
   const highlighted =
-    filtered.find((row) => getProfile(row).estado === "PENDIENTE") ?? filtered[0] ?? allocations[0] ?? null
+    filtered.find((row) => getProfile(row).estado === "PENDIENTE") ??
+    filtered[0] ??
+    allocations[0] ??
+    null
 
   const totals = {
     total: allocations.length,
@@ -612,8 +764,14 @@ export default function VentasImputacionesPage() {
           { label: "Cliente", value: highlightedProfile.cliente || highlighted.cliente },
           { label: "Monto imputado", value: formatMoney(highlighted.importe) },
           { label: "Fecha aplicación", value: formatDate(highlightedProfile.fechaAplicacion) },
-          { label: "Documento origen", value: highlightedProfile.comprobanteOrigen || highlighted.comprobante },
-          { label: "Documento destino", value: highlightedProfile.comprobanteDestino || "Pendiente de definición" },
+          {
+            label: "Documento origen",
+            value: highlightedProfile.comprobanteOrigen || highlighted.comprobante,
+          },
+          {
+            label: "Documento destino",
+            value: highlightedProfile.comprobanteDestino || "Pendiente de definición",
+          },
           { label: "Modalidad", value: highlightedProfile.modalidad },
           { label: "Cuenta puente", value: highlightedProfile.cuentaPuente || highlighted.cuenta },
           { label: "Operador", value: highlightedProfile.operador || "Sin operador asignado" },
@@ -626,8 +784,8 @@ export default function VentasImputacionesPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Imputaciones</h1>
           <p className="mt-1 text-muted-foreground">
-            Mesa operativa para cruzar cobros y comprobantes con saldo, siguiendo la lógica del
-            legado mientras el backend aún no expone un servicio dedicado de imputación.
+            Mesa operativa para seguir imputaciones reales del backend y documentar armados sobre
+            cobros cuando la aplicación definitiva depende del alta del cobro.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -656,9 +814,9 @@ export default function VentasImputacionesPage() {
       <Alert>
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
-          La aplicación efectiva de cobros sigue dependiendo del backend. Esta pantalla cubre la
-          lectura operativa, el armado de origen y destino, y la trazabilidad local de la
-          imputación o desimputación.
+          El historial de imputaciones y la desimputación ya se leen contra backend. La mesa de
+          cobros conserva la trazabilidad local para planificar aplicaciones que nacen desde el
+          registro del cobro.
         </AlertDescription>
       </Alert>
 
@@ -674,34 +832,48 @@ export default function VentasImputacionesPage() {
           <AlertDescription>{comprobantesError}</AlertDescription>
         </Alert>
       )}
+      {imputacionesError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{imputacionesError}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="border-slate-200 bg-slate-50/70">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Trayectos</p>
             <p className="mt-2 text-2xl font-bold text-slate-950">{totals.total}</p>
-            <p className="mt-1 text-xs text-slate-600">Filas visibles entre overlay histórico y armado local.</p>
+            <p className="mt-1 text-xs text-slate-600">
+              Filas visibles entre historial backend y armados locales documentados.
+            </p>
           </CardContent>
         </Card>
         <Card className="border-amber-200 bg-amber-50/80">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Pendientes</p>
             <p className="mt-2 text-2xl font-bold text-amber-950">{totals.pendientes}</p>
-            <p className="mt-1 text-xs text-amber-800">Requieren cierre o aplicación parcial adicional.</p>
+            <p className="mt-1 text-xs text-amber-800">
+              Requieren cierre o aplicación parcial adicional.
+            </p>
           </CardContent>
         </Card>
         <Card className="border-emerald-200 bg-emerald-50/80">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Saldo vivo</p>
             <p className="mt-2 text-2xl font-bold text-emerald-950">{pendingLiveDocs}</p>
-            <p className="mt-1 text-xs text-emerald-800">Comprobantes de venta con saldo aún aplicable.</p>
+            <p className="mt-1 text-xs text-emerald-800">
+              Comprobantes de venta con saldo aún aplicable.
+            </p>
           </CardContent>
         </Card>
         <Card className="border-sky-200 bg-sky-50/80">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-sky-700">Monto visible</p>
             <p className="mt-2 text-2xl font-bold text-sky-950">{formatMoney(totals.monto)}</p>
-            <p className="mt-1 text-xs text-sky-800">Con {formatMoney(livePendingTotal)} pendientes desde backend.</p>
+            <p className="mt-1 text-xs text-sky-800">
+              Con {formatMoney(livePendingTotal)} pendientes desde backend.
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -770,7 +942,8 @@ export default function VentasImputacionesPage() {
                       <SelectItem key={cobro.id} value={String(cobro.id)}>
                         {formatCobroLabel(
                           cobro,
-                          customerById.get(cobro.terceroId)?.razonSocial ?? `Cliente #${cobro.terceroId}`
+                          customerById.get(cobro.terceroId)?.razonSocial ??
+                            `Cliente #${cobro.terceroId}`
                         )}
                       </SelectItem>
                     ))}
@@ -802,7 +975,12 @@ export default function VentasImputacionesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Modalidad</Label>
-                <Select value={draftModalidad} onValueChange={(value) => setDraftModalidad(value as LegacyAllocationProfile["modalidad"])}>
+                <Select
+                  value={draftModalidad}
+                  onValueChange={(value) =>
+                    setDraftModalidad(value as LegacyAllocationProfile["modalidad"])
+                  }
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -848,15 +1026,17 @@ export default function VentasImputacionesPage() {
                 </p>
               </div>
               <div className="rounded-lg border bg-background/70 p-3">
-                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cobro origen</p>
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                  Cobro origen
+                </p>
                 <p className="mt-1 font-medium wrap-break-word">
-                  {selectedCobro
-                    ? formatMoney(selectedCobro.total)
-                    : "Sin cobro seleccionado"}
+                  {selectedCobro ? formatMoney(selectedCobro.total) : "Sin cobro seleccionado"}
                 </p>
               </div>
               <div className="rounded-lg border bg-background/70 p-3">
-                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Saldo destino</p>
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                  Saldo destino
+                </p>
                 <p className="mt-1 font-medium wrap-break-word">
                   {selectedComprobante
                     ? formatMoney(selectedComprobante.saldo)
@@ -877,7 +1057,9 @@ export default function VentasImputacionesPage() {
           <CardHeader>
             <CardDescription>Aplicación prioritaria</CardDescription>
             <CardTitle className="mt-1 text-xl">
-              {highlightedProfile?.comprobanteOrigen ?? highlighted?.comprobante ?? "Sin imputación destacada"}
+              {highlightedProfile?.comprobanteOrigen ??
+                highlighted?.comprobante ??
+                "Sin imputación destacada"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -888,7 +1070,8 @@ export default function VentasImputacionesPage() {
                   <Layers3 className="h-4 w-4" /> Cobertura local
                 </div>
                 <p className="mt-2 text-muted-foreground">
-                  {configured} circuitos documentados y {localCreated} armados directamente desde esta mesa.
+                  {configured} circuitos documentados y {localCreated} armados directamente desde
+                  esta mesa.
                 </p>
               </div>
               <div className="rounded-lg border bg-muted/30 p-3 text-sm">
@@ -904,7 +1087,8 @@ export default function VentasImputacionesPage() {
                   <Wallet className="h-4 w-4" /> Contexto vivo
                 </div>
                 <p className="mt-2 text-muted-foreground">
-                  {cobros.length} cobros visibles y {pendingLiveDocs} comprobantes con saldo desde backend.
+                  {cobros.length} cobros visibles y {pendingLiveDocs} comprobantes con saldo desde
+                  backend.
                 </p>
               </div>
             </div>
@@ -988,8 +1172,8 @@ export default function VentasImputacionesPage() {
               <Landmark className="h-4 w-4" /> Mesa documentada ({filtered.length})
             </CardTitle>
             <CardDescription>
-              Vista unificada de origen, destino, importe y estado de imputación, con el mismo eje
-              operativo del legado.
+              Vista unificada de origen, destino, importe y estado de imputación sobre la operatoria
+              vigente.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
@@ -1019,7 +1203,9 @@ export default function VentasImputacionesPage() {
                       const profile = getProfile(row)
                       return (
                         <TableRow key={row.id}>
-                          <TableCell className="font-medium">{profile.cliente || row.cliente}</TableCell>
+                          <TableCell className="font-medium">
+                            {profile.cliente || row.cliente}
+                          </TableCell>
                           <TableCell>{formatDate(profile.fechaAplicacion)}</TableCell>
                           <TableCell className="max-w-72 text-sm wrap-break-word">
                             {profile.comprobanteOrigen || row.comprobante}
@@ -1036,9 +1222,11 @@ export default function VentasImputacionesPage() {
                             <Button variant="ghost" size="icon" onClick={() => setSelected(row)}>
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => setEditing(row)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
+                            {!isLiveRow(row) ? (
+                              <Button variant="ghost" size="icon" onClick={() => setEditing(row)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            ) : null}
                           </TableCell>
                         </TableRow>
                       )
@@ -1054,7 +1242,9 @@ export default function VentasImputacionesPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Contexto vivo</CardTitle>
-              <CardDescription>Señales reales del backend relacionadas con la aplicación.</CardDescription>
+              <CardDescription>
+                Señales reales del backend relacionadas con la aplicación.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="rounded-lg border bg-muted/30 p-3">
@@ -1084,16 +1274,16 @@ export default function VentasImputacionesPage() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               <div className="rounded-lg border bg-muted/30 p-3">
-                {configured} perfiles guardados sostienen trazabilidad local mientras el backend no
-                publica la imputación formal.
+                {configured} perfiles guardados sostienen trazabilidad local para los armados sobre
+                cobros mientras las imputaciones formales ya se recuperan desde backend.
               </div>
               <div className="rounded-lg border bg-muted/30 p-3">
                 {totals.imputadas} filas ya figuran imputadas y {totals.pendientes} siguen en
                 trabajo o cierre parcial.
               </div>
               <div className="rounded-lg border bg-muted/30 p-3">
-                La desimputación y la aplicación masiva quedan visibles en frontend, pero su
-                ejecución definitiva sigue pendiente de integración específica.
+                Las reversas backend quedan habilitadas sobre historial real. La aplicación masiva
+                vinculada al cobro sigue dependiendo del circuito que la genera de origen.
               </div>
             </CardContent>
           </Card>
@@ -1139,10 +1329,15 @@ export default function VentasImputacionesPage() {
                     { label: "Cliente", value: getProfile(selected).cliente || selected.cliente },
                     { label: "Estado", value: getProfile(selected).estado },
                     { label: "Modalidad", value: getProfile(selected).modalidad },
-                    { label: "Fecha de aplicación", value: formatDate(getProfile(selected).fechaAplicacion) },
+                    {
+                      label: "Fecha de aplicación",
+                      value: formatDate(getProfile(selected).fechaAplicacion),
+                    },
                     {
                       label: "Importe imputado",
-                      value: formatMoney(parseMoneyInput(getProfile(selected).importeAplicado) || selected.importe),
+                      value: formatMoney(
+                        parseMoneyInput(getProfile(selected).importeAplicado) || selected.importe
+                      ),
                     },
                     { label: "Prioridad", value: getProfile(selected).prioridad },
                   ]}
@@ -1160,7 +1355,10 @@ export default function VentasImputacionesPage() {
                       value: getProfile(selected).comprobanteDestino || "Pendiente de asignación",
                     },
                     { label: "Fecha origen", value: formatDate(getProfile(selected).fechaOrigen) },
-                    { label: "Fecha destino", value: formatDate(getProfile(selected).fechaDestino) },
+                    {
+                      label: "Fecha destino",
+                      value: formatDate(getProfile(selected).fechaDestino),
+                    },
                     { label: "Sucursal", value: getProfile(selected).sucursal || "Sin sucursal" },
                     {
                       label: "Cuenta puente",
@@ -1198,6 +1396,26 @@ export default function VentasImputacionesPage() {
                 <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
                   {getProfile(selected).observaciones || "Sin observaciones registradas."}
                 </div>
+                {isLiveRow(selected) && getProfile(selected).permiteDesimputar ? (
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      className="bg-transparent"
+                      onClick={async () => {
+                        const backendId = Number(selected.id.replace("backend-", ""))
+                        if (!Number.isFinite(backendId)) return
+                        const ok = await desimputar({
+                          imputacionId: backendId,
+                          fecha: new Date().toISOString().slice(0, 10),
+                          motivo: "Reversa solicitada desde mesa de imputaciones",
+                        })
+                        if (ok) setSelected(null)
+                      }}
+                    >
+                      Desimputar en backend
+                    </Button>
+                  </div>
+                ) : null}
               </TabsContent>
             </Tabs>
           ) : null}
@@ -1209,8 +1427,8 @@ export default function VentasImputacionesPage() {
           <DialogHeader>
             <DialogTitle>Editar circuito de imputación</DialogTitle>
             <DialogDescription>
-              Ajustá modalidad, origen, destino, saldos y trazabilidad local mientras no exista el
-              backend dedicado.
+              Ajustá modalidad, origen, destino, saldos y trazabilidad para circuitos todavía
+              documentados localmente.
             </DialogDescription>
           </DialogHeader>
           {editing ? (

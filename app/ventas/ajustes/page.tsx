@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import {
   AlertCircle,
   ArrowRightLeft,
@@ -52,16 +52,17 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { apiGet } from "@/lib/api"
+import { useConfiguracion } from "@/lib/hooks/useConfiguracion"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
 import { useTerceros } from "@/lib/hooks/useTerceros"
+import { useMotivosDebito, useVentasDocumentos } from "@/lib/hooks/useVentasDocumentos"
 import type { Comprobante, TipoComprobante } from "@/lib/types/comprobantes"
 import type { Tercero } from "@/lib/types/terceros"
-import {
-  legacySalesAdjustments,
-  type LegacySalesAdjustment,
-} from "@/lib/ventas-legacy-data"
+import type { MotivoDebitoVenta } from "@/lib/types/ventas"
+import type { LegacySalesAdjustment } from "@/lib/ventas-legacy-data"
 import {
   buildLegacyAdjustmentProfile,
   type LegacyAdjustmentAction,
@@ -89,6 +90,8 @@ type AdjustmentCase = {
   note?: Comprobante
 }
 
+const LEGACY_ADJUSTMENT_SEED_IDS = new Set(["adj-001", "adj-002"])
+
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", {
     style: "currency",
@@ -106,6 +109,10 @@ function formatDate(value?: string | null) {
 
 function normalizeText(value?: string | null) {
   return (value ?? "").toLowerCase()
+}
+
+function normalizeDocumentNumber(value?: string | null) {
+  return (value ?? "").replace(/\s+/g, "").toUpperCase()
 }
 
 function formatCustomerAddress(customer?: Tercero | null) {
@@ -145,7 +152,11 @@ function statusBadge(status: AdjustmentStatus) {
 }
 
 function kindBadge(kind: AdjustmentKind) {
-  return kind === "Débito" ? <Badge variant="default">Débito</Badge> : <Badge variant="outline">Crédito</Badge>
+  return kind === "Débito" ? (
+    <Badge variant="default">Débito</Badge>
+  ) : (
+    <Badge variant="outline">Crédito</Badge>
+  )
 }
 
 function parseOperationalObservation(value?: string | null) {
@@ -174,7 +185,9 @@ function parseOperationalObservation(value?: string | null) {
   }
 }
 
-function inferOriginFromObservation(observation?: string | null): LegacyAdjustmentProfile["origen"] {
+function inferOriginFromObservation(
+  observation?: string | null
+): LegacyAdjustmentProfile["origen"] {
   const text = normalizeText(observation)
   if (text.includes("fiscal") || text.includes("iva") || text.includes("cae")) return "Fiscal"
   if (text.includes("log") || text.includes("flete") || text.includes("remito")) return "Logístico"
@@ -220,13 +233,41 @@ function createProfileForNewCase(id: string): LegacyAdjustmentProfile {
   }
 }
 
+function composeAdjustmentObservation(
+  row: LegacySalesAdjustment,
+  profile: LegacyAdjustmentProfile
+) {
+  return [
+    `Motivo: ${row.motivo}`,
+    `Origen: ${profile.origen}`,
+    `Resolución: ${profile.resolucion}`,
+    profile.canal ? `Canal: ${profile.canal}` : null,
+    profile.puntoVenta ? `Punto de venta: ${profile.puntoVenta}` : null,
+    profile.documentoReferencia ? `Comprobante referencia: ${profile.documentoReferencia}` : null,
+    profile.observaciones || null,
+  ]
+    .filter(Boolean)
+    .join(" | ")
+}
+
+function resolveDebitoMotive(motivos: MotivoDebitoVenta[], row: LegacySalesAdjustment) {
+  const normalized = normalizeText(row.motivo)
+  const exact = motivos.find((motivo) => normalizeText(motivo.descripcion) === normalized)
+  if (exact) return exact
+  const partial = motivos.find(
+    (motivo) =>
+      normalized.includes(normalizeText(motivo.descripcion)) ||
+      normalizeText(motivo.descripcion).includes(normalized)
+  )
+  return partial ?? motivos[0] ?? null
+}
+
 function buildBackendProfile(note: Comprobante, kind: AdjustmentKind): LegacyAdjustmentProfile {
   const parsed = parseOperationalObservation(note.observacion)
   return {
     adjustmentId: `backend-${note.id}`,
     origen: inferOriginFromObservation(note.observacion),
-    prioridad:
-      note.estado === "BORRADOR" ? "Alta" : note.saldo > 0 ? "Media" : "Baja",
+    prioridad: note.estado === "BORRADOR" ? "Alta" : note.saldo > 0 ? "Media" : "Baja",
     resolucion: kind === "Débito" ? "Nota de débito" : "Nota de crédito",
     puntoVenta: "",
     canal: "",
@@ -265,7 +306,8 @@ function buildBackendCase(
     date: note.fecha,
     amount: note.total,
     balance: note.saldo,
-    documentLabel: note.tipoComprobanteDescripcion ?? (kind === "Débito" ? "Nota de débito" : "Nota de crédito"),
+    documentLabel:
+      note.tipoComprobanteDescripcion ?? (kind === "Débito" ? "Nota de débito" : "Nota de crédito"),
     backendStatus: note.estado,
     note,
   }
@@ -283,7 +325,10 @@ function buildLocalCase(row: LegacySalesAdjustment): AdjustmentCase {
     date: row.fecha,
     amount: row.total,
     balance: row.estado === "APLICADO" ? 0 : row.total,
-    documentLabel: row.tipo === "Débito" ? "Ajuste a documentar en nota de débito" : "Ajuste a documentar en nota de crédito",
+    documentLabel:
+      row.tipo === "Débito"
+        ? "Ajuste a documentar en nota de débito"
+        : "Ajuste a documentar en nota de crédito",
   }
 }
 
@@ -344,7 +389,11 @@ function AdjustmentEditor({
   initialProfile: LegacyAdjustmentProfile
   customers: Tercero[]
   onClose: () => void
-  onSave: (row: LegacySalesAdjustment, profile: LegacyAdjustmentProfile) => void
+  onSave: (
+    row: LegacySalesAdjustment,
+    profile: LegacyAdjustmentProfile,
+    options?: { formalize?: boolean }
+  ) => void | Promise<void>
 }) {
   const [draftCase, setDraftCase] = useState(initialCase)
   const [draftProfile, setDraftProfile] = useState(initialProfile)
@@ -360,7 +409,9 @@ function AdjustmentEditor({
   const updateAction = (id: string, patch: Partial<LegacyAdjustmentAction>) => {
     setDraftProfile((prev) => ({
       ...prev,
-      acciones: prev.acciones.map((action) => (action.id === id ? { ...action, ...patch } : action)),
+      acciones: prev.acciones.map((action) =>
+        action.id === id ? { ...action, ...patch } : action
+      ),
     }))
   }
 
@@ -422,7 +473,9 @@ function AdjustmentEditor({
             <OperationsField label="Estado">
               <Select
                 value={draftCase.estado}
-                onValueChange={(value) => setCase({ estado: value as LegacySalesAdjustment["estado"] })}
+                onValueChange={(value) =>
+                  setCase({ estado: value as LegacySalesAdjustment["estado"] })
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -472,9 +525,13 @@ function AdjustmentEditor({
             <OperationsField label="Origen">
               <Select
                 value={draftProfile.origen}
-                onValueChange={(value) => setProfile({ origen: value as LegacyAdjustmentProfile["origen"] })}
+                onValueChange={(value) =>
+                  setProfile({ origen: value as LegacyAdjustmentProfile["origen"] })
+                }
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Punto de venta">Punto de venta</SelectItem>
                   <SelectItem value="Comercial">Comercial</SelectItem>
@@ -486,9 +543,13 @@ function AdjustmentEditor({
             <OperationsField label="Prioridad">
               <Select
                 value={draftProfile.prioridad}
-                onValueChange={(value) => setProfile({ prioridad: value as LegacyAdjustmentProfile["prioridad"] })}
+                onValueChange={(value) =>
+                  setProfile({ prioridad: value as LegacyAdjustmentProfile["prioridad"] })
+                }
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Alta">Alta</SelectItem>
                   <SelectItem value="Media">Media</SelectItem>
@@ -499,9 +560,13 @@ function AdjustmentEditor({
             <OperationsField label="Resolución">
               <Select
                 value={draftProfile.resolucion}
-                onValueChange={(value) => setProfile({ resolucion: value as LegacyAdjustmentProfile["resolucion"] })}
+                onValueChange={(value) =>
+                  setProfile({ resolucion: value as LegacyAdjustmentProfile["resolucion"] })
+                }
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Nota de crédito">Nota de crédito</SelectItem>
                   <SelectItem value="Nota de débito">Nota de débito</SelectItem>
@@ -533,7 +598,9 @@ function AdjustmentEditor({
             <div className="flex items-center justify-between rounded-xl border p-4">
               <div>
                 <p className="font-medium">Requiere aprobación</p>
-                <p className="text-sm text-muted-foreground">Control comercial/fiscal antes de emitir o cerrar.</p>
+                <p className="text-sm text-muted-foreground">
+                  Control comercial/fiscal antes de emitir o cerrar.
+                </p>
               </div>
               <Switch
                 checked={draftProfile.requiereAprobacion}
@@ -567,13 +634,17 @@ function AdjustmentEditor({
             <CardHeader className="flex flex-row items-center justify-between gap-4">
               <div>
                 <CardTitle className="text-base">Acciones operativas</CardTitle>
-                <CardDescription>Pasos documentales o comerciales necesarios para cerrar el ajuste.</CardDescription>
+                <CardDescription>
+                  Pasos documentales o comerciales necesarios para cerrar el ajuste.
+                </CardDescription>
               </div>
               <Button
                 type="button"
                 variant="outline"
                 className="bg-transparent"
-                onClick={() => setProfile({ acciones: [...draftProfile.acciones, createAdjustmentAction()] })}
+                onClick={() =>
+                  setProfile({ acciones: [...draftProfile.acciones, createAdjustmentAction()] })
+                }
               >
                 Agregar acción
               </Button>
@@ -587,7 +658,9 @@ function AdjustmentEditor({
                   >
                     <Input
                       value={action.descripcion}
-                      onChange={(event) => updateAction(action.id, { descripcion: event.target.value })}
+                      onChange={(event) =>
+                        updateAction(action.id, { descripcion: event.target.value })
+                      }
                       placeholder="Descripción"
                     />
                     <Input
@@ -606,7 +679,9 @@ function AdjustmentEditor({
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-muted-foreground">Sin acciones documentadas para este caso.</p>
+                <p className="text-sm text-muted-foreground">
+                  Sin acciones documentadas para este caso.
+                </p>
               )}
             </CardContent>
           </Card>
@@ -617,7 +692,18 @@ function AdjustmentEditor({
         <Button variant="outline" className="bg-transparent" onClick={onClose}>
           Cancelar
         </Button>
-        <Button onClick={() => onSave(draftCase, draftProfile)}>Guardar ajuste</Button>
+        <Button
+          variant="outline"
+          className="bg-transparent"
+          onClick={() => onSave(draftCase, draftProfile)}
+        >
+          Guardar ajuste
+        </Button>
+        {draftProfile.resolucion !== "Ajuste interno" ? (
+          <Button onClick={() => onSave(draftCase, draftProfile, { formalize: true })}>
+            Formalizar en backend
+          </Button>
+        ) : null}
       </DialogFooter>
     </div>
   )
@@ -625,21 +711,21 @@ function AdjustmentEditor({
 
 export default function VentasAjustesPage() {
   const defaultSucursalId = useDefaultSucursalId()
-  const { comprobantes, loading, error, totalPages, page, setPage, refetch } = useComprobantes({
-    esVenta: true,
-    sucursalId: defaultSucursalId,
-  })
+  const { comprobantes, loading, error, totalPages, page, setPage, refetch, emitir } =
+    useComprobantes({
+      esVenta: true,
+      sucursalId: defaultSucursalId,
+    })
   const { tipos } = useComprobantesConfig()
+  const { alicuotasIva } = useConfiguracion()
+  const { crearNotaDebito, error: ventasDocumentosError } = useVentasDocumentos()
+  const { motivos: motivosDebito } = useMotivosDebito()
   const { terceros } = useTerceros({ sucursalId: defaultSucursalId ?? null, soloActivos: false })
   const { sucursales } = useSucursales()
-  const { rows: localCases, setRows: setLocalCases } = useLegacyLocalCollection<LegacySalesAdjustment>(
-    "ventas-ajustes-cases",
-    legacySalesAdjustments
-  )
-  const { rows: profiles, setRows: setProfiles } = useLegacyLocalCollection<LegacyAdjustmentProfile>(
-    "ventas-ajustes-profiles",
-    []
-  )
+  const { rows: localCases, setRows: setLocalCases } =
+    useLegacyLocalCollection<LegacySalesAdjustment>("ventas-ajustes-cases", [])
+  const { rows: profiles, setRows: setProfiles } =
+    useLegacyLocalCollection<LegacyAdjustmentProfile>("ventas-ajustes-profiles", [])
 
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("todos")
@@ -648,14 +734,51 @@ export default function VentasAjustesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isNewDialogOpen, setIsNewDialogOpen] = useState(false)
+  const [formalizationError, setFormalizationError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (localCases.some((row) => LEGACY_ADJUSTMENT_SEED_IDS.has(row.id))) {
+      setLocalCases((prev) => prev.filter((row) => !LEGACY_ADJUSTMENT_SEED_IDS.has(row.id)))
+    }
+    if (profiles.some((profile) => LEGACY_ADJUSTMENT_SEED_IDS.has(profile.adjustmentId))) {
+      setProfiles((prev) =>
+        prev.filter((profile) => !LEGACY_ADJUSTMENT_SEED_IDS.has(profile.adjustmentId))
+      )
+    }
+  }, [localCases, profiles, setLocalCases, setProfiles])
+
+  const activeLocalCases = useMemo(
+    () => localCases.filter((row) => !LEGACY_ADJUSTMENT_SEED_IDS.has(row.id)),
+    [localCases]
+  )
+  const activeProfiles = useMemo(
+    () => profiles.filter((profile) => !LEGACY_ADJUSTMENT_SEED_IDS.has(profile.adjustmentId)),
+    [profiles]
+  )
 
   const customers = useMemo(() => terceros.filter((row) => row.esCliente), [terceros])
   const customerMap = useMemo(() => new Map(customers.map((row) => [row.id, row])), [customers])
-  const sucursalMap = useMemo(() => new Map(sucursales.map((row) => [row.id, row.descripcion])), [sucursales])
-  const profileById = useMemo(() => new Map(profiles.map((profile) => [profile.adjustmentId, profile])), [profiles])
+  const sucursalMap = useMemo(
+    () => new Map(sucursales.map((row) => [row.id, row.descripcion])),
+    [sucursales]
+  )
+  const profileById = useMemo(
+    () => new Map(activeProfiles.map((profile) => [profile.adjustmentId, profile])),
+    [activeProfiles]
+  )
+  const comprobanteByNumber = useMemo(
+    () =>
+      new Map(
+        comprobantes
+          .filter((row) => normalizeDocumentNumber(row.nroComprobante) !== "")
+          .map((row) => [normalizeDocumentNumber(row.nroComprobante), row])
+      ),
+    [comprobantes]
+  )
 
   const creditTypeIds = useMemo(
-    () => new Set(tipos.filter((tipo) => tipo.esVenta && isCreditType(tipo)).map((tipo) => tipo.id)),
+    () =>
+      new Set(tipos.filter((tipo) => tipo.esVenta && isCreditType(tipo)).map((tipo) => tipo.id)),
     [tipos]
   )
   const debitTypeIds = useMemo(
@@ -684,15 +807,23 @@ export default function VentasAjustesPage() {
         )
       )
 
-    return [...creditCases, ...debitCases].sort((a, b) => `${b.date}-${b.id}`.localeCompare(`${a.date}-${a.id}`))
+    return [...creditCases, ...debitCases].sort((a, b) =>
+      `${b.date}-${b.id}`.localeCompare(`${a.date}-${a.id}`)
+    )
   }, [comprobantes, creditTypeIds, customerMap, debitTypeIds])
 
   const localWorkbenchCases = useMemo(
-    () => localCases.map(buildLocalCase).sort((a, b) => `${b.date}-${b.id}`.localeCompare(`${a.date}-${a.id}`)),
-    [localCases]
+    () =>
+      activeLocalCases
+        .map(buildLocalCase)
+        .sort((a, b) => `${b.date}-${b.id}`.localeCompare(`${a.date}-${a.id}`)),
+    [activeLocalCases]
   )
 
-  const cases = useMemo(() => [...liveCases, ...localWorkbenchCases], [liveCases, localWorkbenchCases])
+  const cases = useMemo(
+    () => [...liveCases, ...localWorkbenchCases],
+    [liveCases, localWorkbenchCases]
+  )
 
   const getProfile = useCallback(
     (row: AdjustmentCase) => {
@@ -700,10 +831,13 @@ export default function VentasAjustesPage() {
         return profileById.get(row.id) ?? buildBackendProfile(row.note as Comprobante, row.kind)
       }
 
-      const localRow = localCases.find((item) => item.id === row.id)
-      return profileById.get(row.id) ?? buildLegacyAdjustmentProfile(localRow ?? legacySalesAdjustments[0])
+      const localRow = activeLocalCases.find((item) => item.id === row.id)
+      return (
+        profileById.get(row.id) ??
+        (localRow ? buildLegacyAdjustmentProfile(localRow) : createProfileForNewCase(row.id))
+      )
     },
-    [localCases, profileById]
+    [activeLocalCases, profileById]
   )
 
   const filtered = useMemo(() => {
@@ -734,12 +868,16 @@ export default function VentasAjustesPage() {
   }, [cases, getProfile, kindFilter, searchTerm, sourceFilter, statusFilter])
 
   const highlighted = useMemo(
-    () => filtered.find((row) => row.status === "BORRADOR" || row.status === "EMITIDO") ?? filtered[0] ?? null,
+    () =>
+      filtered.find((row) => row.status === "BORRADOR" || row.status === "EMITIDO") ??
+      filtered[0] ??
+      null,
     [filtered]
   )
   const highlightedProfile = highlighted ? getProfile(highlighted) : null
-  const highlightedCustomer =
-    highlighted?.customerId ? customerMap.get(highlighted.customerId) ?? null : null
+  const highlightedCustomer = highlighted?.customerId
+    ? (customerMap.get(highlighted.customerId) ?? null)
+    : null
 
   const totals = {
     backend: liveCases.length,
@@ -750,13 +888,159 @@ export default function VentasAjustesPage() {
     conciliated: cases.filter((row) => getProfile(row).conciliado).length,
   }
 
-  const selected = selectedId ? cases.find((row) => row.id === selectedId) ?? null : null
+  const selected = selectedId ? (cases.find((row) => row.id === selectedId) ?? null) : null
   const selectedProfile = selected ? getProfile(selected) : null
-  const editingLocalCase = editingId ? localCases.find((row) => row.id === editingId) ?? null : null
-  const editingLocalProfile = editingId ? profileById.get(editingId) ?? null : null
-  const currentSucursal = defaultSucursalId ? sucursalMap.get(defaultSucursalId) ?? null : null
+  const editingLocalCase = editingId
+    ? (activeLocalCases.find((row) => row.id === editingId) ?? null)
+    : null
+  const editingLocalProfile = editingId ? (profileById.get(editingId) ?? null) : null
+  const currentSucursal = defaultSucursalId ? (sucursalMap.get(defaultSucursalId) ?? null) : null
 
-  const saveCaseAndProfile = (row: LegacySalesAdjustment, profile: LegacyAdjustmentProfile) => {
+  const saveCaseAndProfile = async (
+    row: LegacySalesAdjustment,
+    profile: LegacyAdjustmentProfile,
+    options?: { formalize?: boolean }
+  ) => {
+    setFormalizationError(null)
+
+    if (options?.formalize) {
+      const customer = customers.find((entry) => entry.razonSocial === row.cliente) ?? null
+      if (!customer) {
+        setFormalizationError("Seleccioná un cliente válido antes de formalizar el ajuste.")
+        return
+      }
+
+      const reference =
+        comprobanteByNumber.get(normalizeDocumentNumber(profile.documentoReferencia)) ?? null
+      if (!reference) {
+        setFormalizationError(
+          "Indicá un comprobante de referencia visible para formalizar el ajuste."
+        )
+        return
+      }
+
+      const referenceDetailWithItems = await apiGet<{
+        id: number
+        sucursalId: number
+        terceroId: number
+        fecha: string
+        fechaVto?: string | null
+        items: Array<{
+          itemId: number
+          descripcion: string
+          cantidad: number
+          precioUnitario: number
+          descuento?: number
+          alicuotaIvaId?: number | null
+        }>
+      }>(`/api/ventas/documentos/${reference.id}`)
+
+      const baseItem = referenceDetailWithItems.items.find((item) => item.itemId > 0) ?? null
+      if (!baseItem) {
+        setFormalizationError(
+          "El comprobante de referencia no tiene ítems utilizables para generar la nota."
+        )
+        return
+      }
+
+      const fallbackAlicuotaId =
+        baseItem.alicuotaIvaId ??
+        alicuotasIva.find((entry) => Number(entry.porcentaje) === 21)?.id ??
+        alicuotasIva[0]?.id ??
+        0
+      if (!fallbackAlicuotaId) {
+        setFormalizationError("No hay alícuotas IVA disponibles para formalizar el ajuste.")
+        return
+      }
+
+      const observation = composeAdjustmentObservation(row, profile) || null
+      const commonItem = {
+        itemId: baseItem.itemId,
+        descripcion: row.motivo || baseItem.descripcion,
+        cantidad: 1,
+        precioUnitario: Math.round(row.total),
+        descuento: 0,
+        alicuotaIvaId: fallbackAlicuotaId,
+      }
+
+      let ok = false
+      if (row.tipo === "Débito") {
+        const debitType = tipos.find((tipo) => debitTypeIds.has(tipo.id)) ?? null
+        const debitMotive = resolveDebitoMotive(motivosDebito, row)
+        if (!debitType || !debitMotive) {
+          setFormalizationError(
+            "No hay tipo o motivo de nota de débito disponible para formalizar el ajuste."
+          )
+          return
+        }
+
+        ok = await crearNotaDebito({
+          sucursalId: reference.sucursalId,
+          puntoFacturacionId: null,
+          tipoComprobanteId: debitType.id,
+          fecha: row.fecha,
+          fechaVencimiento: null,
+          terceroId: customer.id,
+          monedaId: customer.monedaId ?? 1,
+          cotizacion: 1,
+          percepciones: 0,
+          observacion: observation,
+          comprobanteOrigenId: reference.id,
+          motivoDebitoId: debitMotive.id,
+          motivoDebitoObservacion: profile.observaciones || row.motivo || null,
+          items: [
+            {
+              itemId: commonItem.itemId,
+              descripcion: commonItem.descripcion,
+              cantidad: commonItem.cantidad,
+              precioUnitario: commonItem.precioUnitario,
+              descuentoPct: 0,
+              alicuotaIvaId: commonItem.alicuotaIvaId,
+              comprobanteItemOrigenId: null,
+            },
+          ],
+          listaPreciosId: null,
+          vendedorId: customer.vendedorId ?? null,
+          canalVentaId: null,
+          condicionPagoId: null,
+          plazoDias: null,
+          emitir: true,
+        })
+      } else {
+        const creditType = tipos.find((tipo) => creditTypeIds.has(tipo.id)) ?? null
+        if (!creditType) {
+          setFormalizationError(
+            "No hay tipo de nota de crédito disponible para formalizar el ajuste."
+          )
+          return
+        }
+
+        ok = await emitir({
+          sucursalId: reference.sucursalId,
+          terceroId: customer.id,
+          tipoComprobanteId: creditType.id,
+          fecha: row.fecha,
+          fechaVto: null,
+          observacion: observation,
+          items: [commonItem],
+        })
+      }
+
+      if (!ok) {
+        setFormalizationError(
+          ventasDocumentosError ?? "No se pudo formalizar el ajuste en backend."
+        )
+        return
+      }
+
+      setLocalCases((prev) => prev.filter((item) => item.id !== row.id))
+      setProfiles((prev) => prev.filter((item) => item.adjustmentId !== profile.adjustmentId))
+      setEditingId(null)
+      setIsNewDialogOpen(false)
+      await refetch()
+      return
+    }
+
     setLocalCases((prev) => {
       const index = prev.findIndex((item) => item.id === row.id)
       if (index === -1) return [row, ...prev]
@@ -781,8 +1065,9 @@ export default function VentasAjustesPage() {
           <h1 className="text-3xl font-bold tracking-tight">Ajustes</h1>
           <p className="text-muted-foreground">
             Mesa de desvíos comerciales y documentales. Combina notas de crédito y débito reales del
-            backend con un workbench local para casos todavía no documentados, siguiendo el enfoque
-            legado de diferencias de cotización, saldos y ajustes por punto de venta.
+            backend con un workbench local para casos todavía no documentados, manteniendo visibles
+            diferencias de cotización, saldos y ajustes por punto de venta sin sembrar casos
+            ficticios.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -800,9 +1085,10 @@ export default function VentasAjustesPage() {
       <Alert>
         <AlertTitle>Alcance actual</AlertTitle>
         <AlertDescription>
-          El legado generaba ajustes automáticos desde imputaciones y diferencias de cotización. El
-          backend actual ya expone notas reales, pero todavía no publica un módulo de ajustes como
-          circuito autónomo; por eso esta vista mezcla comprobantes vivos con planificación local.
+          El circuito histórico generaba ajustes automáticos desde imputaciones y diferencias de
+          cotización. El backend actual ya expone notas reales, pero todavía no publica un módulo de
+          ajustes como circuito autónomo; por eso esta vista mezcla comprobantes vivos con
+          planificación local.
         </AlertDescription>
       </Alert>
 
@@ -810,6 +1096,12 @@ export default function VentasAjustesPage() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      {formalizationError ? (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{formalizationError}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -878,8 +1170,12 @@ export default function VentasAjustesPage() {
                 { label: "Importe", value: formatMoney(highlighted.amount) },
               ].map((field) => (
                 <div key={field.label} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{field.label}</p>
-                  <p className="mt-2 text-sm font-medium wrap-break-word text-slate-100">{field.value}</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
+                    {field.label}
+                  </p>
+                  <p className="mt-2 text-sm font-medium wrap-break-word text-slate-100">
+                    {field.value}
+                  </p>
                 </div>
               ))}
             </div>
@@ -888,10 +1184,12 @@ export default function VentasAjustesPage() {
                 Motivo: {highlighted.motive}.
               </div>
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                Documento de referencia: {highlightedProfile.documentoReferencia || "Sin referencia específica"}.
+                Documento de referencia:{" "}
+                {highlightedProfile.documentoReferencia || "Sin referencia específica"}.
               </div>
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                Cliente: {highlightedCustomer?.razonSocial ?? highlighted.customer}. Domicilio: {formatCustomerAddress(highlightedCustomer)}.
+                Cliente: {highlightedCustomer?.razonSocial ?? highlighted.customer}. Domicilio:{" "}
+                {formatCustomerAddress(highlightedCustomer)}.
               </div>
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                 {highlighted.source === "backend"
@@ -911,7 +1209,8 @@ export default function VentasAjustesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Reproduce el criterio del legado para diferencias comerciales, fiscales y de cotización sin esconder qué parte hoy sigue siendo overlay interno.
+            Reproduce el criterio operativo para diferencias comerciales, fiscales y de cotización,
+            separando qué ya está respaldado por comprobantes reales y qué sigue en workbench.
           </CardContent>
         </Card>
         <Card>
@@ -921,7 +1220,8 @@ export default function VentasAjustesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Las aprobaciones, prioridades, canales y acciones siguen persistidas localmente hasta contar con servicio backend específico.
+            Las aprobaciones, prioridades, canales y acciones siguen persistidas localmente hasta
+            contar con servicio backend específico.
           </CardContent>
         </Card>
         <Card>
@@ -959,7 +1259,9 @@ export default function VentasAjustesPage() {
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger><SelectValue placeholder="Estado" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
                 <SelectItem value="BORRADOR">Borrador</SelectItem>
@@ -969,7 +1271,9 @@ export default function VentasAjustesPage() {
               </SelectContent>
             </Select>
             <Select value={kindFilter} onValueChange={setKindFilter}>
-              <SelectTrigger><SelectValue placeholder="Tipo" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
                 <SelectItem value="Crédito">Crédito</SelectItem>
@@ -977,7 +1281,9 @@ export default function VentasAjustesPage() {
               </SelectContent>
             </Select>
             <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger><SelectValue placeholder="Origen datos" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Origen datos" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
                 <SelectItem value="backend">Backend</SelectItem>
@@ -1032,7 +1338,11 @@ export default function VentasAjustesPage() {
                 {filtered.map((row) => {
                   const profile = getProfile(row)
                   return (
-                    <TableRow key={row.id} className="cursor-pointer hover:bg-muted/40" onClick={() => setSelectedId(row.id)}>
+                    <TableRow
+                      key={row.id}
+                      className="cursor-pointer hover:bg-muted/40"
+                      onClick={() => setSelectedId(row.id)}
+                    >
                       <TableCell className="font-medium">{row.code}</TableCell>
                       <TableCell>
                         <Badge variant={row.source === "backend" ? "default" : "outline"}>
@@ -1041,18 +1351,29 @@ export default function VentasAjustesPage() {
                       </TableCell>
                       <TableCell className="max-w-55 whitespace-normal">{row.customer}</TableCell>
                       <TableCell>{kindBadge(row.kind)}</TableCell>
-                      <TableCell className="max-w-55 whitespace-normal">{row.documentLabel}</TableCell>
+                      <TableCell className="max-w-55 whitespace-normal">
+                        {row.documentLabel}
+                      </TableCell>
                       <TableCell>{profile.origen}</TableCell>
                       <TableCell>{statusBadge(row.status)}</TableCell>
                       <TableCell>{formatDate(row.date)}</TableCell>
-                      <TableCell className="text-right font-semibold">{formatMoney(row.amount)}</TableCell>
-                      <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+                      <TableCell className="text-right font-semibold">
+                        {formatMoney(row.amount)}
+                      </TableCell>
+                      <TableCell
+                        className="text-right"
+                        onClick={(event) => event.stopPropagation()}
+                      >
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon" onClick={() => setSelectedId(row.id)}>
                             <Eye className="h-4 w-4" />
                           </Button>
                           {row.source === "local" ? (
-                            <Button variant="ghost" size="icon" onClick={() => setEditingId(row.id)}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setEditingId(row.id)}
+                            >
                               <Pencil className="h-4 w-4" />
                             </Button>
                           ) : null}
@@ -1069,12 +1390,24 @@ export default function VentasAjustesPage() {
 
       {totalPages > 1 ? (
         <div className="flex items-center justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          >
             <ChevronLeft className="h-4 w-4" />
             Anterior
           </Button>
-          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
-          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+          <span className="text-sm text-muted-foreground">
+            Página {page} de {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= totalPages}
+            onClick={() => setPage(page + 1)}
+          >
             Siguiente
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -1112,8 +1445,9 @@ export default function VentasAjustesPage() {
                       label: "Sucursal",
                       value:
                         selected.note?.sucursalId !== undefined
-                          ? sucursalMap.get(selected.note.sucursalId) ?? `#${selected.note.sucursalId}`
-                          : currentSucursal ?? "Sin sucursal",
+                          ? (sucursalMap.get(selected.note.sucursalId) ??
+                            `#${selected.note.sucursalId}`)
+                          : (currentSucursal ?? "Sin sucursal"),
                     },
                   ]}
                 />
@@ -1125,7 +1459,10 @@ export default function VentasAjustesPage() {
                     { label: "Origen", value: selectedProfile.origen },
                     { label: "Prioridad", value: selectedProfile.prioridad },
                     { label: "Resolución", value: selectedProfile.resolucion },
-                    { label: "Punto de venta", value: selectedProfile.puntoVenta || "No informado" },
+                    {
+                      label: "Punto de venta",
+                      value: selectedProfile.puntoVenta || "No informado",
+                    },
                     { label: "Canal", value: selectedProfile.canal || "No informado" },
                     {
                       label: "Autorización",
@@ -1157,14 +1494,19 @@ export default function VentasAjustesPage() {
                     {selectedProfile.acciones.length > 0 ? (
                       selectedProfile.acciones.map((action) => (
                         <div key={action.id} className="rounded-xl border p-3">
-                          <p className="font-medium">{action.descripcion || "Acción sin descripción"}</p>
+                          <p className="font-medium">
+                            {action.descripcion || "Acción sin descripción"}
+                          </p>
                           <p className="text-sm text-muted-foreground">
-                            Destino: {action.destino || "No informado"} · Importe: {action.importe || "0"}
+                            Destino: {action.destino || "No informado"} · Importe:{" "}
+                            {action.importe || "0"}
                           </p>
                         </div>
                       ))
                     ) : (
-                      <p className="text-sm text-muted-foreground">Sin acciones cargadas para este caso.</p>
+                      <p className="text-sm text-muted-foreground">
+                        Sin acciones cargadas para este caso.
+                      </p>
                     )}
                   </CardContent>
                 </Card>
@@ -1181,7 +1523,11 @@ export default function VentasAjustesPage() {
             </Tabs>
           ) : null}
           <DialogFooter>
-            <Button variant="outline" className="bg-transparent" onClick={() => setSelectedId(null)}>
+            <Button
+              variant="outline"
+              className="bg-transparent"
+              onClick={() => setSelectedId(null)}
+            >
               Cerrar
             </Button>
           </DialogFooter>
@@ -1193,9 +1539,15 @@ export default function VentasAjustesPage() {
           <DialogHeader>
             <DialogTitle>Editar ajuste interno</DialogTitle>
             <DialogDescription>
-              Circuito persistido sólo en frontend hasta contar con backend específico.
+              Circuito persistido en el workbench y ahora formalizable como nota real usando el
+              documento de referencia visible.
             </DialogDescription>
           </DialogHeader>
+          {formalizationError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {formalizationError}
+            </div>
+          ) : null}
           {editingLocalCase && editingLocalProfile ? (
             <AdjustmentEditor
               initialCase={editingLocalCase}
@@ -1213,9 +1565,15 @@ export default function VentasAjustesPage() {
           <DialogHeader>
             <DialogTitle>Nuevo ajuste interno</DialogTitle>
             <DialogDescription>
-              Caso local para diferencias comerciales o fiscales todavía no formalizadas en nota real.
+              Caso local para diferencias comerciales o fiscales, con salida directa a nota real si
+              ya existe un comprobante de referencia visible.
             </DialogDescription>
           </DialogHeader>
+          {formalizationError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {formalizationError}
+            </div>
+          ) : null}
           {isNewDialogOpen ? (
             <AdjustmentEditor
               initialCase={newCase}

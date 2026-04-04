@@ -92,7 +92,9 @@ export function useTerceros(options: UseTercerosOptions = {}) {
 
   const createTercero = async (dto: CreateTerceroDto): Promise<Tercero | null> => {
     try {
-      return await apiPost<Tercero>("/api/terceros", dto)
+      const created = await apiPost<Tercero>("/api/terceros", dto)
+      await fetchTerceros()
+      return created
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al crear cliente")
       return null
@@ -101,7 +103,9 @@ export function useTerceros(options: UseTercerosOptions = {}) {
 
   const updateTercero = async (id: number, dto: UpdateTerceroDto): Promise<Tercero | null> => {
     try {
-      return await apiPut<Tercero>(`/api/terceros/${id}`, dto)
+      const updated = await apiPut<Tercero>(`/api/terceros/${id}`, dto)
+      await fetchTerceros()
+      return updated
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al actualizar cliente")
       return null
@@ -111,6 +115,7 @@ export function useTerceros(options: UseTercerosOptions = {}) {
   const deleteTercero = async (id: number): Promise<boolean> => {
     try {
       await apiDelete(`/api/terceros/${id}`)
+      await fetchTerceros()
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al desactivar cliente")
@@ -314,6 +319,7 @@ export function useProveedores(options: UseTercerosOptions = {}) {
   const createProveedor = async (dto: CreateTerceroDto): Promise<boolean> => {
     try {
       await apiPost<Tercero>("/api/terceros", dto)
+      await fetchProveedores()
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al crear proveedor")
@@ -324,6 +330,7 @@ export function useProveedores(options: UseTercerosOptions = {}) {
   const updateProveedor = async (id: number, dto: Partial<CreateTerceroDto>): Promise<boolean> => {
     try {
       await apiPut<Tercero>(`/api/terceros/${id}`, dto)
+      await fetchProveedores()
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al actualizar proveedor")
@@ -334,6 +341,7 @@ export function useProveedores(options: UseTercerosOptions = {}) {
   const deleteProveedor = async (id: number): Promise<boolean> => {
     try {
       await apiDelete(`/api/terceros/${id}`)
+      await fetchProveedores()
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al desactivar proveedor")

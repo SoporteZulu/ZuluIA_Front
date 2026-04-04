@@ -408,7 +408,10 @@ function AccountDetailModal({
 
   const saldoPrincipal = saldos.find((saldo) => saldo.monedaId === deudor.monedaId) ?? null
   const pendingDocuments = useMemo(
-    () => comprobantes.filter((comprobante) => comprobante.saldo > 0 && comprobante.estado !== "ANULADO"),
+    () =>
+      comprobantes.filter(
+        (comprobante) => comprobante.saldo > 0 && comprobante.estado !== "ANULADO"
+      ),
     [comprobantes]
   )
   const dueSummary = useMemo(() => {
@@ -519,7 +522,7 @@ function AccountDetailModal({
         <TabsTrigger value="pendientes">Pendientes</TabsTrigger>
         <TabsTrigger value="movimientos">Movimientos</TabsTrigger>
         <TabsTrigger value="cobranzas">Cobranzas</TabsTrigger>
-        <TabsTrigger value="legado">Legado</TabsTrigger>
+        <TabsTrigger value="legado">Cobertura actual</TabsTrigger>
       </TabsList>
 
       <TabsContent value="principal" className="space-y-4">
@@ -619,163 +622,167 @@ function AccountDetailModal({
                 </Alert>
               </div>
             ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Sucursal</TableHead>
+                      <TableHead>Moneda</TableHead>
+                      <TableHead className="text-right">Saldo</TableHead>
+                      <TableHead>Actualizado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {saldos.length === 0 ? (
                       <TableRow>
-                        <TableHead>Sucursal</TableHead>
-                        <TableHead>Moneda</TableHead>
-                        <TableHead className="text-right">Saldo</TableHead>
-                        <TableHead>Actualizado</TableHead>
+                        <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
+                          No hay saldos detallados disponibles para este tercero.
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {saldos.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
-                            No hay saldos detallados disponibles para este tercero.
+                    ) : (
+                      saldos.map((saldo: SaldoCuentaCorriente) => (
+                        <TableRow key={`${saldo.terceroId}-${saldo.sucursalId}-${saldo.monedaId}`}>
+                          <TableCell>
+                            {sucursales.find((sucursal) => sucursal.id === saldo.sucursalId)
+                              ?.descripcion ??
+                              (saldo.sucursalId ? `#${saldo.sucursalId}` : "Consolidado")}
                           </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{saldo.monedaSimbolo}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            <span
+                              className={
+                                saldo.saldo > 0
+                                  ? "text-red-600"
+                                  : saldo.saldo < 0
+                                    ? "text-emerald-600"
+                                    : ""
+                              }
+                            >
+                              {formatMoney(saldo.saldo, saldo.monedaSimbolo)}
+                            </span>
+                          </TableCell>
+                          <TableCell>{formatDate(saldo.updatedAt)}</TableCell>
                         </TableRow>
-                      ) : (
-                        saldos.map((saldo: SaldoCuentaCorriente) => (
-                          <TableRow key={`${saldo.terceroId}-${saldo.sucursalId}-${saldo.monedaId}`}>
-                            <TableCell>
-                              {sucursales.find((sucursal) => sucursal.id === saldo.sucursalId)
-                                ?.descripcion ??
-                                (saldo.sucursalId ? `#${saldo.sucursalId}` : "Consolidado")}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{saldo.monedaSimbolo}</Badge>
-                            </TableCell>
-                            <TableCell className="text-right font-semibold">
-                              <span
-                                className={
-                                  saldo.saldo > 0
-                                    ? "text-red-600"
-                                    : saldo.saldo < 0
-                                      ? "text-emerald-600"
-                                      : ""
-                                }
-                              >
-                                {formatMoney(saldo.saldo, saldo.monedaSimbolo)}
-                              </span>
-                            </TableCell>
-                            <TableCell>{formatDate(saldo.updatedAt)}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>
       </TabsContent>
 
-        <TabsContent value="pendientes" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-4">
-            <Card>
-              <CardContent className="pt-4 pb-4">
-                <p className="text-xs text-muted-foreground">Pendientes visibles</p>
-                <p className="mt-2 text-2xl font-bold">{dueSummary.total}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4 pb-4">
-                <p className="text-xs text-muted-foreground">Vencidos</p>
-                <p className="mt-2 text-2xl font-bold text-red-600">{dueSummary.overdue.length}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4 pb-4">
-                <p className="text-xs text-muted-foreground">A vencer 7 días</p>
-                <p className="mt-2 text-2xl font-bold text-amber-600">{dueSummary.dueSoon.length}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4 pb-4">
-                <p className="text-xs text-muted-foreground">Saldo pendiente</p>
-                <p className="mt-2 text-2xl font-bold text-primary">
-                  {formatMoney(dueSummary.totalPending)}
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
+      <TabsContent value="pendientes" className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-4">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Documentos pendientes visibles</CardTitle>
-              <CardDescription>
-                Replica la lectura del legado sobre fecha, vencimiento, tipo, saldo, total y observación.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              {loadingComprobantes ? (
-                <div className="py-10 text-center text-muted-foreground">
-                  <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                  Cargando documentos pendientes...
-                </div>
-              ) : errorComprobantes ? (
-                <div className="px-6 pb-6">
-                  <Alert variant="destructive">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription>{errorComprobantes}</AlertDescription>
-                  </Alert>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Fecha</TableHead>
-                        <TableHead>Fecha vto.</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Comprobante</TableHead>
-                        <TableHead className="text-right">Saldo</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
-                        <TableHead>Observación</TableHead>
-                        <TableHead>Estado</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {pendingDocuments.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
-                            No hay documentos pendientes visibles para este tercero.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        pendingDocuments.map((document) => {
-                          const dueStatus = getDueStatus(document)
-                          return (
-                            <TableRow key={document.id}>
-                              <TableCell>{formatDate(document.fecha)}</TableCell>
-                              <TableCell>{formatDate(document.fechaVto)}</TableCell>
-                              <TableCell>{document.tipoComprobanteDescripcion ?? "Comprobante"}</TableCell>
-                              <TableCell>{document.nroComprobante ?? `#${document.id}`}</TableCell>
-                              <TableCell className="text-right font-semibold text-red-600">
-                                {formatMoney(document.saldo)}
-                              </TableCell>
-                              <TableCell className="text-right">{formatMoney(document.total)}</TableCell>
-                              <TableCell className="max-w-72 text-sm text-muted-foreground wrap-break-word">
-                                {document.observacion ?? "-"}
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className={dueStatus.className}>
-                                  {dueStatus.label}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          )
-                        })
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
+            <CardContent className="pt-4 pb-4">
+              <p className="text-xs text-muted-foreground">Pendientes visibles</p>
+              <p className="mt-2 text-2xl font-bold">{dueSummary.total}</p>
             </CardContent>
           </Card>
-        </TabsContent>
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <p className="text-xs text-muted-foreground">Vencidos</p>
+              <p className="mt-2 text-2xl font-bold text-red-600">{dueSummary.overdue.length}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <p className="text-xs text-muted-foreground">A vencer 7 días</p>
+              <p className="mt-2 text-2xl font-bold text-amber-600">{dueSummary.dueSoon.length}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <p className="text-xs text-muted-foreground">Saldo pendiente</p>
+              <p className="mt-2 text-2xl font-bold text-primary">
+                {formatMoney(dueSummary.totalPending)}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Documentos pendientes visibles</CardTitle>
+            <CardDescription>
+              Consolida fecha, vencimiento, tipo, saldo, total y observación en la lectura actual.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loadingComprobantes ? (
+              <div className="py-10 text-center text-muted-foreground">
+                <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                Cargando documentos pendientes...
+              </div>
+            ) : errorComprobantes ? (
+              <div className="px-6 pb-6">
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{errorComprobantes}</AlertDescription>
+                </Alert>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Fecha vto.</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Comprobante</TableHead>
+                      <TableHead className="text-right">Saldo</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead>Observación</TableHead>
+                      <TableHead>Estado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pendingDocuments.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                          No hay documentos pendientes visibles para este tercero.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      pendingDocuments.map((document) => {
+                        const dueStatus = getDueStatus(document)
+                        return (
+                          <TableRow key={document.id}>
+                            <TableCell>{formatDate(document.fecha)}</TableCell>
+                            <TableCell>{formatDate(document.fechaVto)}</TableCell>
+                            <TableCell>
+                              {document.tipoComprobanteDescripcion ?? "Comprobante"}
+                            </TableCell>
+                            <TableCell>{document.nroComprobante ?? `#${document.id}`}</TableCell>
+                            <TableCell className="text-right font-semibold text-red-600">
+                              {formatMoney(document.saldo)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatMoney(document.total)}
+                            </TableCell>
+                            <TableCell className="max-w-72 text-sm text-muted-foreground wrap-break-word">
+                              {document.observacion ?? "-"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={dueStatus.className}>
+                                {dueStatus.label}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
 
       <TabsContent value="movimientos" className="space-y-4">
         <Card>
@@ -876,83 +883,86 @@ function AccountDetailModal({
             ) : (
               <>
                 <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Fecha</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead>Descripción</TableHead>
-                      <TableHead className="text-right">Debe</TableHead>
-                      <TableHead className="text-right">Haber</TableHead>
-                      <TableHead className="text-right">Saldo</TableHead>
-                      <TableHead>Comprobante</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {movimientos.length === 0 ? (
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
-                          No se encontraron movimientos para los filtros actuales.
-                        </TableCell>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Descripción</TableHead>
+                        <TableHead className="text-right">Debe</TableHead>
+                        <TableHead className="text-right">Haber</TableHead>
+                        <TableHead className="text-right">Saldo</TableHead>
+                        <TableHead>Comprobante</TableHead>
                       </TableRow>
-                    ) : (
-                      movimientos.map((movimiento: MovimientoCuentaCorriente) => (
-                        <TableRow key={movimiento.id}>
-                          <TableCell>{formatDate(movimiento.fecha)}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2 text-sm">
-                              {movementIcon(movimiento.tipoMovimiento)}
-                              <span className="capitalize">
-                                {movementLabel(movimiento.tipoMovimiento)}
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {movimiento.descripcion}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {movimiento.debe > 0 ? (
-                              <span className="font-medium text-red-600">
-                                {formatMoney(movimiento.debe, "")}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {movimiento.haber > 0 ? (
-                              <span className="font-medium text-emerald-600">
-                                {formatMoney(movimiento.haber, "")}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-semibold">
-                            <span
-                              className={
-                                movimiento.saldo > 0
-                                  ? "text-red-600"
-                                  : movimiento.saldo < 0
-                                    ? "text-emerald-600"
-                                    : ""
-                              }
-                            >
-                              {formatMoney(movimiento.saldo, "")}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            {movimiento.comprobanteId ? (
-                              <Badge variant="outline">#{movimiento.comprobanteId}</Badge>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
+                    </TableHeader>
+                    <TableBody>
+                      {movimientos.length === 0 ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={7}
+                            className="py-10 text-center text-muted-foreground"
+                          >
+                            No se encontraron movimientos para los filtros actuales.
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        movimientos.map((movimiento: MovimientoCuentaCorriente) => (
+                          <TableRow key={movimiento.id}>
+                            <TableCell>{formatDate(movimiento.fecha)}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2 text-sm">
+                                {movementIcon(movimiento.tipoMovimiento)}
+                                <span className="capitalize">
+                                  {movementLabel(movimiento.tipoMovimiento)}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {movimiento.descripcion}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {movimiento.debe > 0 ? (
+                                <span className="font-medium text-red-600">
+                                  {formatMoney(movimiento.debe, "")}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {movimiento.haber > 0 ? (
+                                <span className="font-medium text-emerald-600">
+                                  {formatMoney(movimiento.haber, "")}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right font-semibold">
+                              <span
+                                className={
+                                  movimiento.saldo > 0
+                                    ? "text-red-600"
+                                    : movimiento.saldo < 0
+                                      ? "text-emerald-600"
+                                      : ""
+                                }
+                              >
+                                {formatMoney(movimiento.saldo, "")}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              {movimiento.comprobanteId ? (
+                                <Badge variant="outline">#{movimiento.comprobanteId}</Badge>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
                 </div>
 
                 {totalPages > 1 && (
@@ -1032,7 +1042,7 @@ function AccountDetailModal({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Landmark className="h-4 w-4" /> Bloques reservados del legado
+              <Landmark className="h-4 w-4" /> Bloques reservados
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 text-sm text-muted-foreground md:grid-cols-2">
@@ -1342,7 +1352,9 @@ export default function CuentaCorrientePage() {
             <CardTitle className="text-base">Documentos vencidos</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-red-600">{overdueSummary.overdueDocuments.length}</p>
+            <p className="text-2xl font-bold text-red-600">
+              {overdueSummary.overdueDocuments.length}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {formatMoney(overdueSummary.overdueAmount)} visibles con vencimiento superado.
             </p>
@@ -1489,8 +1501,8 @@ export default function CuentaCorrientePage() {
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
           <CardDescription>
-            Combine búsqueda, balance, moneda y sucursal para revisar la cartera activa con el mismo
-            enfoque operativo del sistema legado.
+            Combine búsqueda, balance, moneda y sucursal para revisar la cartera activa con una
+            lectura operativa unificada.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1573,83 +1585,83 @@ export default function CuentaCorrientePage() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Sucursal</TableHead>
-                <TableHead>Moneda</TableHead>
-                <TableHead className="text-right">Saldo</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Cartera</TableHead>
-                <TableHead>Actualizado</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.length === 0 ? (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
-                    No se encontraron registros para los filtros actuales.
-                  </TableCell>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Sucursal</TableHead>
+                  <TableHead>Moneda</TableHead>
+                  <TableHead className="text-right">Saldo</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Cartera</TableHead>
+                  <TableHead>Actualizado</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              ) : (
-                filtered.map((deudor) => {
-                  const status = debtorStatus(deudor.saldo)
-                  return (
-                    <TableRow
-                      key={`${deudor.terceroId}-${deudor.monedaId}-${deudor.sucursalId ?? "consolidado"}`}
-                      className="cursor-pointer hover:bg-muted/40"
-                      onClick={() => openDetail(deudor)}
-                    >
-                      <TableCell>
-                        <p className="font-semibold text-sm">{deudor.terceroRazonSocial}</p>
-                        <p className="text-xs text-muted-foreground">ID: {deudor.terceroId}</p>
-                      </TableCell>
-                      <TableCell>
-                        {sucursales.find((sucursal) => sucursal.id === deudor.sucursalId)
-                          ?.descripcion ??
-                          (deudor.sucursalId ? `#${deudor.sucursalId}` : "Consolidado")}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{deudor.monedaSimbolo}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">
-                        <span
-                          className={
-                            deudor.saldo > 0
-                              ? "text-red-600"
-                              : deudor.saldo < 0
-                                ? "text-emerald-600"
-                                : ""
-                          }
-                        >
-                          {formatMoney(deudor.saldo, deudor.monedaSimbolo)}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={status.variant} className={status.className}>
-                          {status.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-65 text-sm text-muted-foreground">
-                        {getPortfolioAlert(deudor.saldo)}
-                      </TableCell>
-                      <TableCell>{formatDate(deudor.updatedAt)}</TableCell>
-                      <TableCell
-                        className="text-right"
-                        onClick={(event) => event.stopPropagation()}
+              </TableHeader>
+              <TableBody>
+                {filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                      No se encontraron registros para los filtros actuales.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filtered.map((deudor) => {
+                    const status = debtorStatus(deudor.saldo)
+                    return (
+                      <TableRow
+                        key={`${deudor.terceroId}-${deudor.monedaId}-${deudor.sucursalId ?? "consolidado"}`}
+                        className="cursor-pointer hover:bg-muted/40"
+                        onClick={() => openDetail(deudor)}
                       >
-                        <Button variant="ghost" size="icon" onClick={() => openDetail(deudor)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })
-              )}
-            </TableBody>
-          </Table>
+                        <TableCell>
+                          <p className="font-semibold text-sm">{deudor.terceroRazonSocial}</p>
+                          <p className="text-xs text-muted-foreground">ID: {deudor.terceroId}</p>
+                        </TableCell>
+                        <TableCell>
+                          {sucursales.find((sucursal) => sucursal.id === deudor.sucursalId)
+                            ?.descripcion ??
+                            (deudor.sucursalId ? `#${deudor.sucursalId}` : "Consolidado")}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{deudor.monedaSimbolo}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          <span
+                            className={
+                              deudor.saldo > 0
+                                ? "text-red-600"
+                                : deudor.saldo < 0
+                                  ? "text-emerald-600"
+                                  : ""
+                            }
+                          >
+                            {formatMoney(deudor.saldo, deudor.monedaSimbolo)}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={status.variant} className={status.className}>
+                            {status.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-65 text-sm text-muted-foreground">
+                          {getPortfolioAlert(deudor.saldo)}
+                        </TableCell>
+                        <TableCell>{formatDate(deudor.updatedAt)}</TableCell>
+                        <TableCell
+                          className="text-right"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <Button variant="ghost" size="icon" onClick={() => openDetail(deudor)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>
@@ -1698,7 +1710,7 @@ export default function CuentaCorrientePage() {
           <CardContent className="text-sm text-muted-foreground">
             {overdueSummary.overdueDocuments.length} documentos vencidos y{" "}
             {overdueSummary.dueSoonDocuments.length} a vencer en 7 días sostienen la lectura de
-            cartera que antes vivía en los listados legacy.
+            cartera visible en esta consola.
           </CardContent>
         </Card>
       </div>

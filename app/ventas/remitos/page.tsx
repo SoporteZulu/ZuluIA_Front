@@ -455,7 +455,12 @@ function DeliveryNoteForm({
   }
 
   const handleSave = async () => {
-    if (!effectiveSucursalId || !form.terceroId || !effectiveTipoComprobanteId || lineItems.length === 0) {
+    if (
+      !effectiveSucursalId ||
+      !form.terceroId ||
+      !effectiveTipoComprobanteId ||
+      lineItems.length === 0
+    ) {
       setError("Sucursal, cliente, tipo de remito e ítems son obligatorios")
       return
     }
@@ -577,7 +582,10 @@ function DeliveryNoteForm({
                   const customer = clientes.find((cliente) => cliente.id === Number(value)) ?? null
                   const branch = getPrimaryDeliveryBranch(customer)
                   const transportPreference = getCustomerTransportPreference(customer)
-                  const transportResolution = resolveTransportDisplay(transportPreference, transportistas)
+                  const transportResolution = resolveTransportDisplay(
+                    transportPreference,
+                    transportistas
+                  )
                   const mainContact = customer?.contactos?.find((contact) => contact.principal)
 
                   setForm((prev) => ({ ...prev, terceroId: Number(value) }))
@@ -630,7 +638,10 @@ function DeliveryNoteForm({
               <CardContent>
                 <DetailFieldGrid
                   fields={[
-                    { label: "Razón social", value: selectedCustomer?.razonSocial ?? "Sin seleccionar" },
+                    {
+                      label: "Razón social",
+                      value: selectedCustomer?.razonSocial ?? "Sin seleccionar",
+                    },
                     {
                       label: "Condición IVA",
                       value: selectedCustomer?.condicionIvaDescripcion ?? "Sin dato",
@@ -648,7 +659,11 @@ function DeliveryNoteForm({
                     {
                       label: "Canales",
                       value:
-                        [selectedCustomer?.telefono, selectedCustomer?.celular, selectedCustomer?.email]
+                        [
+                          selectedCustomer?.telefono,
+                          selectedCustomer?.celular,
+                          selectedCustomer?.email,
+                        ]
                           .filter(Boolean)
                           .join(" · ") || "Sin contacto visible",
                     },
@@ -672,13 +687,17 @@ function DeliveryNoteForm({
                 <div className="rounded-xl border p-3">
                   <p className="font-medium">Documento</p>
                   <p className="text-muted-foreground">
-                    {selectedType ? `${selectedType.codigo} · ${selectedType.descripcion}` : "Elegí un tipo de remito"}
+                    {selectedType
+                      ? `${selectedType.codigo} · ${selectedType.descripcion}`
+                      : "Elegí un tipo de remito"}
                   </p>
                 </div>
                 <div className="rounded-xl border p-3">
                   <p className="font-medium">Compromiso</p>
                   <p className="text-muted-foreground">
-                    {form.fechaVto ? `Entrega prevista para ${formatDate(form.fechaVto)}` : "Sin fecha compromiso todavía"}
+                    {form.fechaVto
+                      ? `Entrega prevista para ${formatDate(form.fechaVto)}`
+                      : "Sin fecha compromiso todavía"}
                   </p>
                 </div>
                 <div className="rounded-xl border p-3">
@@ -740,7 +759,8 @@ function DeliveryNoteForm({
 
                   const matched = transportistas.find(
                     (transportista) =>
-                      (transportista.terceroRazonSocial ?? `Transportista #${transportista.id}`) === value
+                      (transportista.terceroRazonSocial ?? `Transportista #${transportista.id}`) ===
+                      value
                   )
 
                   setLogistics((prev) => ({
@@ -815,7 +835,9 @@ function DeliveryNoteForm({
               <Label>Legajo</Label>
               <Input
                 value={logistics.legajo}
-                onChange={(event) => setLogistics((prev) => ({ ...prev, legajo: event.target.value }))}
+                onChange={(event) =>
+                  setLogistics((prev) => ({ ...prev, legajo: event.target.value }))
+                }
                 placeholder="Legajo comercial o pedido"
               />
             </div>
@@ -857,7 +879,9 @@ function DeliveryNoteForm({
               <Label>Bultos</Label>
               <Input
                 value={logistics.bultos}
-                onChange={(event) => setLogistics((prev) => ({ ...prev, bultos: event.target.value }))}
+                onChange={(event) =>
+                  setLogistics((prev) => ({ ...prev, bultos: event.target.value }))
+                }
                 placeholder="Cantidad de bultos o pallets"
               />
             </div>
@@ -867,7 +891,8 @@ function DeliveryNoteForm({
             <CardHeader>
               <CardTitle className="text-base">Notas de entrega</CardTitle>
               <CardDescription>
-                Complementa el despacho con instrucciones operativas y particularidades del legado.
+                Complementa el despacho con instrucciones operativas y condiciones puntuales de
+                entrega.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -931,7 +956,8 @@ function DeliveryNoteForm({
                   </TableRow>
                 ) : (
                   lineItems.map((item) => {
-                    const subtotal = item.cantidad * item.precioUnitario * (1 - item.descuento / 100)
+                    const subtotal =
+                      item.cantidad * item.precioUnitario * (1 - item.descuento / 100)
 
                     return (
                       <TableRow key={item.id}>
@@ -989,10 +1015,18 @@ function DeliveryNoteForm({
                             }
                           />
                         </TableCell>
-                        <TableCell className="text-right">{item.alicuotaIvaPct.toFixed(2)}%</TableCell>
-                        <TableCell className="text-right font-semibold">{formatMoney(subtotal)}</TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}>
+                          {item.alicuotaIvaPct.toFixed(2)}%
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {formatMoney(subtotal)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeLineItem(item.id)}
+                          >
                             <Ban className="h-4 w-4 text-destructive" />
                           </Button>
                         </TableCell>
@@ -1050,8 +1084,8 @@ function DeliveryNoteForm({
                   <span>{formatMoney(totals.total)}</span>
                 </div>
                 <div className="rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
-                  El detalle operativo se guardará como observación estructurada para que el
-                  remito conserve COT, depósito, transportista y contexto de entrega desde hoy.
+                  El detalle operativo se guardará como observación estructurada para que el remito
+                  conserve COT, depósito, transportista y contexto de entrega desde hoy.
                 </div>
               </CardContent>
             </Card>
@@ -1207,7 +1241,7 @@ function DeliveryNoteDetail({
 
       <TabsContent value="renglones" className="space-y-4">
         <ScrollArea className="w-full whitespace-nowrap rounded-xl border">
-            <Table className="min-w-230">
+          <Table className="min-w-230">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-90">Descripción</TableHead>
@@ -1237,7 +1271,9 @@ function DeliveryNoteDetail({
                       {item.descuento ? `${item.descuento}%` : "-"}
                     </TableCell>
                     <TableCell className="text-right">{item.alicuotaIvaPct}%</TableCell>
-                    <TableCell className="text-right font-semibold">{formatMoney(item.subtotal)}</TableCell>
+                    <TableCell className="text-right font-semibold">
+                      {formatMoney(item.subtotal)}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -1253,7 +1289,7 @@ function DeliveryNoteDetail({
               <MapPin className="h-4 w-4" /> Seguimiento logístico
             </CardTitle>
             <CardDescription>
-              Recupera campos del legado usando la observación estructurada del documento.
+              Expone la lectura logística capturada en la observación estructurada del documento.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1362,7 +1398,10 @@ export default function RemitosPage() {
     return visibleRemitos.filter((remito) => {
       const customer = getCustomer(remito.terceroId)
       const customerName = customer?.razonSocial.toLowerCase() ?? `#${remito.terceroId}`
-      const typeName = getTypeName(remito.tipoComprobanteId, remito.tipoComprobanteDescripcion).toLowerCase()
+      const typeName = getTypeName(
+        remito.tipoComprobanteId,
+        remito.tipoComprobanteDescripcion
+      ).toLowerCase()
       const logistics = logisticsByRemito.get(remito.id)?.logistics ?? EMPTY_LOGISTICS
       const searchableFields = [
         remito.nroComprobante ?? String(remito.id),
@@ -1405,7 +1444,8 @@ export default function RemitosPage() {
     [filtered]
   )
   const cotCount = useMemo(
-    () => filtered.filter((remito) => Boolean(logisticsByRemito.get(remito.id)?.logistics.cot)).length,
+    () =>
+      filtered.filter((remito) => Boolean(logisticsByRemito.get(remito.id)?.logistics.cot)).length,
     [filtered, logisticsByRemito]
   )
   const activeCount = useMemo(
@@ -1430,7 +1470,7 @@ export default function RemitosPage() {
     ? getTypeName(highlightedRemito.tipoComprobanteId, highlightedRemito.tipoComprobanteDescripcion)
     : "-"
   const highlightedLogistics = highlightedRemito
-    ? logisticsByRemito.get(highlightedRemito.id)?.logistics ?? EMPTY_LOGISTICS
+    ? (logisticsByRemito.get(highlightedRemito.id)?.logistics ?? EMPTY_LOGISTICS)
     : EMPTY_LOGISTICS
 
   const loadDetail = async (remito: Comprobante) => {
@@ -1466,8 +1506,8 @@ export default function RemitosPage() {
           <h1 className="text-3xl font-bold tracking-tight">Remitos de venta</h1>
           <p className="text-muted-foreground">
             Consola operativa para emisión, seguimiento documental y lectura logística del remito.
-            Toma el flujo del legado para depósito, COT, legajos, hoja de ruta y recepción, pero se
-            mantiene fiel al contrato actual del backend.
+            Ordena depósito, COT, legajos, hoja de ruta y recepción sin salir del contrato actual
+            del backend.
           </p>
         </div>
         <Button onClick={() => setIsFormOpen(true)} disabled={!defaultRemitoTypeId}>
@@ -1492,7 +1532,7 @@ export default function RemitosPage() {
         <MetricCard
           title="Con COT cargado"
           value={cotCount}
-          description="Recupera el control que en el legado estaba separado en actualización de COT."
+          description="Hace visible el control operativo de COT dentro de la misma consola."
         />
         <MetricCard
           title="Compromisos vencidos"
@@ -1557,9 +1597,16 @@ export default function RemitosPage() {
                   },
                   { label: "COT", value: highlightedLogistics.cot || "Sin COT informado" },
                 ].map((field) => (
-                  <div key={field.label} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{field.label}</p>
-                    <p className="mt-2 text-sm font-medium wrap-break-word text-slate-100">{field.value}</p>
+                  <div
+                    key={field.label}
+                    className="rounded-xl border border-white/10 bg-white/5 p-4"
+                  >
+                    <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
+                      {field.label}
+                    </p>
+                    <p className="mt-2 text-sm font-medium wrap-break-word text-slate-100">
+                      {field.value}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -1569,13 +1616,15 @@ export default function RemitosPage() {
                   Estado documental: {getDeliveryDocumentStatus(highlightedRemito)}.
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-slate-200">
-                  Fecha compromiso: {formatDate(highlightedRemito.fechaVto)}. Saldo: {formatMoney(highlightedRemito.saldo)}.
+                  Fecha compromiso: {formatDate(highlightedRemito.fechaVto)}. Saldo:{" "}
+                  {formatMoney(highlightedRemito.saldo)}.
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-slate-200">
                   Domicilio fiscal: {formatCustomerAddress(highlightedCustomer)}.
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-slate-200">
-                  Observación libre: {logisticsByRemito.get(highlightedRemito.id)?.note || "Sin texto complementario"}.
+                  Observación libre:{" "}
+                  {logisticsByRemito.get(highlightedRemito.id)?.note || "Sin texto complementario"}.
                 </div>
               </div>
             </div>
@@ -1726,13 +1775,20 @@ export default function RemitosPage() {
                         <TableCell className="text-right font-semibold">
                           {formatMoney(remito.total)}
                         </TableCell>
-                        <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+                        <TableCell
+                          className="text-right"
+                          onClick={(event) => event.stopPropagation()}
+                        >
                           <div className="flex justify-end gap-1">
                             <Button variant="ghost" size="icon" onClick={() => loadDetail(remito)}>
                               <Eye className="h-4 w-4" />
                             </Button>
                             {remito.estado !== "ANULADO" ? (
-                              <Button variant="ghost" size="icon" onClick={() => handleAnnul(remito)}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleAnnul(remito)}
+                              >
                                 <Ban className="h-4 w-4 text-destructive" />
                               </Button>
                             ) : null}
@@ -1750,7 +1806,12 @@ export default function RemitosPage() {
 
       {totalPages > 1 ? (
         <div className="flex items-center justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          >
             <ChevronLeft className="h-4 w-4" />
             Anterior
           </Button>
@@ -1777,8 +1838,8 @@ export default function RemitosPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            La pantalla prioriza emisión real del comprobante y deja visible el bloque operativo que
-            más se usaba en el legado: depósito, reparto, legajo y control COT.
+            La pantalla prioriza emisión real del comprobante y deja visible el bloque operativo de
+            depósito, reparto, legajo y control COT.
           </CardContent>
         </Card>
 
@@ -1812,7 +1873,8 @@ export default function RemitosPage() {
           <DialogHeader>
             <DialogTitle>Nuevo remito</DialogTitle>
             <DialogDescription>
-              Emisión real del comprobante con bloque logístico reforzado para despacho y seguimiento.
+              Emisión real del comprobante con bloque logístico reforzado para despacho y
+              seguimiento.
             </DialogDescription>
           </DialogHeader>
           <DeliveryNoteForm
@@ -1870,7 +1932,11 @@ export default function RemitosPage() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" className="bg-transparent" onClick={() => setIsDetailOpen(false)}>
+            <Button
+              variant="outline"
+              className="bg-transparent"
+              onClick={() => setIsDetailOpen(false)}
+            >
               Cerrar
             </Button>
             {selectedRemito && selectedRemito.estado !== "ANULADO" ? (

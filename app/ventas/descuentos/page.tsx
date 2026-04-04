@@ -146,16 +146,28 @@ function createLegacyDiscountWindow(): LegacyDiscountWindow {
 }
 
 interface DiscountFormProps {
+  initialDiscount?: DescuentoComercial | null
   onClose: () => void
   onSaved: () => void
 }
 
-function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
-  const { crear } = useDescuentosComerciales()
+function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) {
+  const { crear, actualizar, eliminar } = useDescuentosComerciales()
   const { terceros } = useTerceros()
   const { items } = useItems()
   const [tab, setTab] = useState("principal")
-  const [form, setForm] = useState<CreateDescuentoComercialDto>(EMPTY_FORM)
+  const [form, setForm] = useState<CreateDescuentoComercialDto>(
+    initialDiscount
+      ? {
+          terceroId: initialDiscount.terceroId,
+          itemId: initialDiscount.itemId,
+          porcentaje: initialDiscount.porcentaje,
+          desde: initialDiscount.desde,
+          hasta: initialDiscount.hasta,
+        }
+      : EMPTY_FORM
+  )
+  const [activo, setActivo] = useState(initialDiscount?.activo ?? true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -165,10 +177,10 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
 
   const selectedCustomer =
     form.terceroId !== undefined
-      ? terceros.find((tercero) => tercero.id === form.terceroId) ?? null
+      ? (terceros.find((tercero) => tercero.id === form.terceroId) ?? null)
       : null
   const selectedItem =
-    form.itemId !== undefined ? items.find((item) => item.id === form.itemId) ?? null : null
+    form.itemId !== undefined ? (items.find((item) => item.id === form.itemId) ?? null) : null
 
   const handleSave = async () => {
     if (!form.porcentaje || form.porcentaje <= 0) {
@@ -178,11 +190,26 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
 
     setSaving(true)
     setError(null)
-    const ok = await crear(form)
+    const ok = initialDiscount
+      ? await actualizar(initialDiscount.id, { ...form, activo })
+      : await crear(form)
     setSaving(false)
 
     if (ok) onSaved()
-    else setError("No se pudo crear el descuento")
+    else
+      setError(
+        initialDiscount ? "No se pudo actualizar el descuento" : "No se pudo crear el descuento"
+      )
+  }
+
+  const handleDelete = async () => {
+    if (!initialDiscount) return
+    setSaving(true)
+    setError(null)
+    const ok = await eliminar(initialDiscount.id)
+    setSaving(false)
+    if (ok) onSaved()
+    else setError("No se pudo eliminar el descuento")
   }
 
   return (
@@ -264,7 +291,9 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
               </CardHeader>
               <CardContent className="grid gap-3 text-sm md:grid-cols-2">
                 <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Razón social</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Razón social
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">
                     {selectedCustomer?.razonSocial ?? "Todos los clientes"}
                   </p>
@@ -282,7 +311,9 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Domicilio</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Domicilio
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">
                     {formatCustomerAddress(selectedCustomer)}
                   </p>
@@ -296,7 +327,9 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
               </CardHeader>
               <CardContent className="grid gap-3 text-sm md:grid-cols-2">
                 <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Producto</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Producto
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">
                     {selectedItem
                       ? `${selectedItem.codigo} · ${selectedItem.descripcion}`
@@ -304,19 +337,25 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Categoría</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Categoría
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">
                     {selectedItem?.categoriaDescripcion ?? "General"}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Precio actual</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Precio actual
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">
                     {selectedItem ? formatMoney(selectedItem.precioVenta) : "No aplica"}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cobertura</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Cobertura
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">{getDiscountScope(form)}</p>
                 </div>
               </CardContent>
@@ -343,6 +382,17 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
               />
             </div>
           </div>
+          {initialDiscount ? (
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="font-medium">Regla activa</p>
+                <p className="text-sm text-muted-foreground">
+                  Permite inactivar o reactivar el descuento sin perder su referencia.
+                </p>
+              </div>
+              <Switch checked={activo} onCheckedChange={setActivo} />
+            </div>
+          ) : null}
         </TabsContent>
 
         <TabsContent value="legado" className="mt-4 space-y-4">
@@ -364,11 +414,16 @@ function DiscountForm({ onClose, onSaved }: DiscountFormProps) {
       )}
 
       <div className="flex justify-end gap-2 border-t pt-3">
+        {initialDiscount ? (
+          <Button variant="destructive" onClick={handleDelete} disabled={saving}>
+            Eliminar
+          </Button>
+        ) : null}
         <Button variant="outline" className="bg-transparent" onClick={onClose}>
           Cancelar
         </Button>
         <Button onClick={handleSave} disabled={saving}>
-          {saving ? "Guardando..." : "Guardar descuento"}
+          {saving ? "Guardando..." : initialDiscount ? "Actualizar descuento" : "Guardar descuento"}
         </Button>
       </div>
     </div>
@@ -801,7 +856,7 @@ function LegacyDiscountDialog({
           <div>
             <CardTitle className="text-base">Franjas y ventanas</CardTitle>
             <CardDescription>
-              Permite documentar campañas por período o ventana operativa del legado.
+              Permite documentar campañas por período o ventana operativa complementaria.
             </CardDescription>
           </div>
           <Button
@@ -876,6 +931,7 @@ export default function DescuentosComercialesPage() {
   const [filterEstado, setFilterEstado] = useState("todos")
   const [filterAlcance, setFilterAlcance] = useState("todos")
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [editingDiscount, setEditingDiscount] = useState<DescuentoComercial | null>(null)
   const [detailDiscount, setDetailDiscount] = useState<DescuentoComercial | null>(null)
   const [legacyDiscount, setLegacyDiscount] = useState<DescuentoComercial | null>(null)
 
@@ -1031,8 +1087,8 @@ export default function DescuentosComercialesPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Descuentos Comerciales</h1>
           <p className="text-muted-foreground">
-            Maestro operativo de descuentos por cliente, producto y vigencia, con cobertura
-            ampliada para campañas, segmentación y aprobaciones cuando el circuito lo necesita.
+            Maestro operativo de descuentos por cliente, producto y vigencia, con cobertura ampliada
+            para campañas, segmentación y aprobaciones cuando el circuito lo necesita.
           </p>
         </div>
         <Button onClick={() => setIsFormOpen(true)}>
@@ -1154,10 +1210,9 @@ export default function DescuentosComercialesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {approvalsRequired} reglas requieren aprobación formal y {Math.max(
-              legacyConfigured - approvalsRequired,
-              0
-            )} ya pueden administrarse sin validación adicional.
+            {approvalsRequired} reglas requieren aprobación formal y{" "}
+            {Math.max(legacyConfigured - approvalsRequired, 0)} ya pueden administrarse sin
+            validación adicional.
           </CardContent>
         </Card>
       </div>
@@ -1217,84 +1272,91 @@ export default function DescuentosComercialesPage() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="w-full overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Porcentaje</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Producto</TableHead>
-                <TableHead>Alcance</TableHead>
-                <TableHead>Circuito</TableHead>
-                <TableHead>Desde</TableHead>
-                <TableHead>Hasta</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Contexto</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading && (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                    Cargando...
-                  </TableCell>
+                  <TableHead>Porcentaje</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Producto</TableHead>
+                  <TableHead>Alcance</TableHead>
+                  <TableHead>Circuito</TableHead>
+                  <TableHead>Desde</TableHead>
+                  <TableHead>Hasta</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Contexto</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              )}
-              {!loading && filtered.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                    <Percent className="mx-auto mb-2 h-8 w-8 opacity-50" />
-                    No hay descuentos registrados
-                  </TableCell>
-                </TableRow>
-              )}
-              {filtered.map((descuento) => (
-                <TableRow
-                  key={descuento.id}
-                  className="cursor-pointer hover:bg-muted/40"
-                  onClick={() => setDetailDiscount(descuento)}
-                >
-                  <TableCell className="font-bold text-lg">{descuento.porcentaje}%</TableCell>
-                  <TableCell>{getCustomerName(descuento.terceroId)}</TableCell>
-                  <TableCell>{getItemName(descuento.itemId)}</TableCell>
-                  <TableCell>{getDiscountScope(descuento)}</TableCell>
-                  <TableCell className="max-w-65 text-sm text-muted-foreground">
-                    {getValidityStatus(descuento)}
-                  </TableCell>
-                  <TableCell>{formatDate(descuento.desde)}</TableCell>
-                  <TableCell>{formatDate(descuento.hasta)}</TableCell>
-                  <TableCell>
-                    <Badge variant={descuento.activo ? "default" : "secondary"}>
-                      {descuento.activo ? "Activo" : "Inactivo"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {legacyProfileByDiscountId.has(descuento.id) ? (
-                      <Badge variant="outline">Ampliado</Badge>
-                    ) : (
-                      <Badge variant="secondary">Base actual</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setDetailDiscount(descuento)}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setLegacyDiscount(descuento)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {loading && (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                      Cargando...
+                    </TableCell>
+                  </TableRow>
+                )}
+                {!loading && filtered.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                      <Percent className="mx-auto mb-2 h-8 w-8 opacity-50" />
+                      No hay descuentos registrados
+                    </TableCell>
+                  </TableRow>
+                )}
+                {filtered.map((descuento) => (
+                  <TableRow
+                    key={descuento.id}
+                    className="cursor-pointer hover:bg-muted/40"
+                    onClick={() => setDetailDiscount(descuento)}
+                  >
+                    <TableCell className="font-bold text-lg">{descuento.porcentaje}%</TableCell>
+                    <TableCell>{getCustomerName(descuento.terceroId)}</TableCell>
+                    <TableCell>{getItemName(descuento.itemId)}</TableCell>
+                    <TableCell>{getDiscountScope(descuento)}</TableCell>
+                    <TableCell className="max-w-65 text-sm text-muted-foreground">
+                      {getValidityStatus(descuento)}
+                    </TableCell>
+                    <TableCell>{formatDate(descuento.desde)}</TableCell>
+                    <TableCell>{formatDate(descuento.hasta)}</TableCell>
+                    <TableCell>
+                      <Badge variant={descuento.activo ? "default" : "secondary"}>
+                        {descuento.activo ? "Activo" : "Inactivo"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {legacyProfileByDiscountId.has(descuento.id) ? (
+                        <Badge variant="outline">Ampliado</Badge>
+                      ) : (
+                        <Badge variant="secondary">Base actual</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDetailDiscount(descuento)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setEditingDiscount(descuento)}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setLegacyDiscount(descuento)}
+                      >
+                        <Layers3 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>
@@ -1309,9 +1371,37 @@ export default function DescuentosComercialesPage() {
             </DialogDescription>
           </DialogHeader>
           <DiscountForm
+            key="new-discount"
             onClose={() => setIsFormOpen(false)}
             onSaved={() => {
               setIsFormOpen(false)
+              refetch()
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editingDiscount !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingDiscount(null)
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Editar descuento comercial</DialogTitle>
+            <DialogDescription>
+              Edición real de la regla base en backend, manteniendo el contexto ampliado por
+              separado.
+            </DialogDescription>
+          </DialogHeader>
+          <DiscountForm
+            key={editingDiscount ? `edit-${editingDiscount.id}` : "edit-discount"}
+            initialDiscount={editingDiscount}
+            onClose={() => setEditingDiscount(null)}
+            onSaved={() => {
+              setEditingDiscount(null)
+              setDetailDiscount(null)
               refetch()
             }}
           />
@@ -1340,6 +1430,15 @@ export default function DescuentosComercialesPage() {
             />
           )}
           <DialogFooter>
+            {detailDiscount ? (
+              <Button
+                variant="outline"
+                className="bg-transparent"
+                onClick={() => setEditingDiscount(detailDiscount)}
+              >
+                Editar regla
+              </Button>
+            ) : null}
             {detailDiscount ? (
               <Button
                 variant="outline"

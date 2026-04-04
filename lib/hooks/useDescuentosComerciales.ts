@@ -1,8 +1,11 @@
-'use client'
+"use client"
 
-import { useState, useEffect, useCallback } from 'react'
-import { apiGet, apiPost } from '@/lib/api'
-import type { DescuentoComercial, CreateDescuentoComercialDto } from '@/lib/types/descuentos-comerciales'
+import { useState, useEffect, useCallback } from "react"
+import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api"
+import type {
+  DescuentoComercial,
+  CreateDescuentoComercialDto,
+} from "@/lib/types/descuentos-comerciales"
 
 interface UseDescuentosComercialesOptions {
   terceroId?: number
@@ -20,38 +23,65 @@ export function useDescuentosComerciales(options: UseDescuentosComercialesOption
     setError(null)
     try {
       const params = new URLSearchParams()
-      if (options.terceroId) params.set('terceroId', String(options.terceroId))
-      if (options.itemId)    params.set('itemId',    String(options.itemId))
-      if (options.vigenteEn) params.set('vigenteEn', options.vigenteEn)
+      if (options.terceroId) params.set("terceroId", String(options.terceroId))
+      if (options.itemId) params.set("itemId", String(options.itemId))
+      if (options.vigenteEn) params.set("vigenteEn", options.vigenteEn)
 
       const result = await apiGet<DescuentoComercial[]>(
         `/api/descuentos-comerciales?${params.toString()}`
       )
       setDescuentos(
-        (Array.isArray(result) ? result : []).map(d => ({
+        (Array.isArray(result) ? result : []).map((d) => ({
           ...d,
           porcentaje: Number(d.porcentaje ?? 0),
         }))
       )
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar descuentos comerciales')
+      setError(e instanceof Error ? e.message : "Error al cargar descuentos comerciales")
     } finally {
       setLoading(false)
     }
   }, [options.terceroId, options.itemId, options.vigenteEn])
 
-  useEffect(() => { fetchDescuentos() }, [fetchDescuentos])
+  useEffect(() => {
+    fetchDescuentos()
+  }, [fetchDescuentos])
 
   const crear = async (dto: CreateDescuentoComercialDto): Promise<boolean> => {
     try {
-      await apiPost<{ id: number }>('/api/descuentos-comerciales', dto)
+      await apiPost<{ id: number }>("/api/descuentos-comerciales", dto)
       await fetchDescuentos()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al crear descuento comercial')
+      setError(e instanceof Error ? e.message : "Error al crear descuento comercial")
       return false
     }
   }
 
-  return { descuentos, loading, error, crear, refetch: fetchDescuentos }
+  const actualizar = async (
+    id: number,
+    dto: Partial<CreateDescuentoComercialDto> & { activo?: boolean }
+  ): Promise<boolean> => {
+    try {
+      await apiPut<void>(`/api/descuentos-comerciales/${id}`, { id, ...dto })
+      await fetchDescuentos()
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al actualizar descuento comercial")
+      return false
+    }
+  }
+
+  const eliminar = async (id: number): Promise<boolean> => {
+    try {
+      await apiDelete(`/api/descuentos-comerciales/${id}`)
+      await fetchDescuentos()
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al eliminar descuento comercial")
+      return false
+    }
+  }
+
+  return { descuentos, loading, error, crear, actualizar, eliminar, refetch: fetchDescuentos }
 }

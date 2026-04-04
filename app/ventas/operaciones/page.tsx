@@ -50,22 +50,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useCobros } from "@/lib/hooks/useCobros"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
-import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
+import { useFacturacionBatch, useMonitoresExportacion } from "@/lib/hooks/useOperaciones"
 import { useListasPrecios } from "@/lib/hooks/useListasPrecios"
 import { usePuntosFacturacion } from "@/lib/hooks/usePuntosFacturacion"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
 import { useTerceros } from "@/lib/hooks/useTerceros"
+import type { OperacionesBatchJob } from "@/lib/types/operaciones"
 import type { Comprobante } from "@/lib/types/comprobantes"
-import {
-  legacySalesAutomationRules,
-  legacySalesBatchJobs,
-  legacySalesMonitorRows,
-  legacySalesWindowTurns,
-  type LegacySalesAutomationRule,
-  type LegacySalesBatchJob,
-  type LegacySalesMonitorRow,
-  type LegacySalesWindowTurn,
-} from "@/lib/ventas-operaciones-legacy"
+import { type LegacySalesMonitorRow } from "@/lib/ventas-operaciones-legacy"
 
 type LiveMonitorRow = {
   id: string
@@ -75,6 +67,16 @@ type LiveMonitorRow = {
   prioridad: LegacySalesMonitorRow["prioridad"]
   estado: LegacySalesMonitorRow["estado"]
   responsable: string
+  observacion: string
+}
+
+type LiveWindowTurn = {
+  id: string
+  caja: string
+  operador: string
+  cola: number
+  importeObjetivo: number
+  estado: "abierta" | "pausa" | "cerrada"
   observacion: string
 }
 
@@ -230,36 +232,75 @@ function buildLiveMonitorRows({
   return [...invoiceCases, ...remitoCases, ...cobranzaCases]
 }
 
+function mapAutomationState(job: OperacionesBatchJob): "activa" | "pausada" | "revision" {
+  if (job.source === "programacion" && job.activa === false) return "pausada"
+  if (job.estado === "control") return "revision"
+  return "activa"
+}
+
+function mapAutomationCircuit(
+  job: OperacionesBatchJob
+): "facturacion-automatica" | "facturacion-masiva" | "remitos-masivos" | "recibos-masivos" {
+  if (job.tipo === "remitos-masivos") return "remitos-masivos"
+  if (job.tipo === "imputacion-masiva") return "recibos-masivos"
+  if (job.tipo === "monitor-facturas") return "facturacion-automatica"
+  return "facturacion-masiva"
+}
+
+function buildAutomationRule(job: OperacionesBatchJob) {
+  return {
+    id: job.id,
+    nombre: job.descripcion,
+    circuito: mapAutomationCircuit(job),
+    alcance: `${job.tipo} con ${job.registros} registros visibles.`,
+    frecuencia: job.intervaloMinutos ? `${job.intervaloMinutos} min` : "Bajo demanda",
+    estado: mapAutomationState(job),
+    ultimaEjecucion: job.ultimaEjecucion ? job.ultimaEjecucion.slice(0, 10) : "",
+    observacion: job.observacion,
+  }
+}
+
+function buildLiveWindowTurns({
+  puntos,
+  cobros,
+  sucursal,
+}: {
+  puntos: Array<{ id: number; descripcion: string; activo: boolean }>
+  cobros: ReturnType<typeof useCobros>["cobros"]
+  sucursal: string | null
+}): LiveWindowTurn[] {
+  const totalCobrado = cobros.reduce((sum, row) => sum + row.total, 0)
+  const baseObjective = puntos.length > 0 ? Math.round(totalCobrado / puntos.length) : totalCobrado
+
+  return puntos.slice(0, 4).map((punto, index) => {
+    const cola = Math.max(cobros.length - index * 2, 0)
+    const abierta = punto.activo && cola > 0
+    return {
+      id: `turn-${punto.id}`,
+      caja: punto.descripcion,
+      operador: sucursal ? `Operación ${sucursal}` : "Operación de caja",
+      cola,
+      importeObjetivo: baseObjective,
+      estado: !punto.activo ? "cerrada" : abierta ? "abierta" : "pausa",
+      observacion: abierta
+        ? `${cola} cobros recientes sostienen la atención operativa de este punto.`
+        : "Sin cola activa; punto disponible para contingencia o espera.",
+    }
+  })
+}
+
 export default function VentasOperacionesPage() {
   const sucursalId = useDefaultSucursalId()
   const { comprobantes } = useComprobantes({ esVenta: true })
   const { tipos } = useComprobantesConfig()
   const { cobros } = useCobros({ sucursalId })
+  const { rows: monitorRows, error: monitorError } = useMonitoresExportacion()
+  const { jobs: batchJobs, error: batchError, actualizarProgramacion } = useFacturacionBatch()
   const { listas } = useListasPrecios()
   const { puntos } = usePuntosFacturacion(sucursalId)
   const { sucursales } = useSucursales()
   const { terceros } = useTerceros()
-  const { rows: monitorRows, setRows: setMonitorRows } =
-    useLegacyLocalCollection<LegacySalesMonitorRow>("ventas-monitor-legacy", legacySalesMonitorRows)
-  const { rows: automationRules, setRows: setAutomationRules } =
-    useLegacyLocalCollection<LegacySalesAutomationRule>(
-      "ventas-automation-legacy",
-      legacySalesAutomationRules
-    )
-  const { rows: windowTurns, setRows: setWindowTurns } =
-    useLegacyLocalCollection<LegacySalesWindowTurn>(
-      "ventas-window-turns-legacy",
-      legacySalesWindowTurns
-    )
-  const { rows: batchJobs, setRows: setBatchJobs } = useLegacyLocalCollection<LegacySalesBatchJob>(
-    "ventas-batch-jobs-legacy",
-    legacySalesBatchJobs
-  )
-
-  const [editingMonitor, setEditingMonitor] = useState<LegacySalesMonitorRow | null>(null)
-  const [editingAutomation, setEditingAutomation] = useState<LegacySalesAutomationRule | null>(null)
-  const [editingTurn, setEditingTurn] = useState<LegacySalesWindowTurn | null>(null)
-  const [editingBatch, setEditingBatch] = useState<LegacySalesBatchJob | null>(null)
+  const [editingBatch, setEditingBatch] = useState<OperacionesBatchJob | null>(null)
 
   const customersById = useMemo(() => {
     const map = new Map<number, (typeof terceros)[number]>()
@@ -349,6 +390,15 @@ export default function VentasOperacionesPage() {
       }),
     [listas]
   )
+  const automationRules = useMemo(
+    () => batchJobs.filter((job) => job.source === "programacion").map(buildAutomationRule),
+    [batchJobs]
+  )
+  const currentSucursal = sucursalId ? (sucursalesById.get(sucursalId) ?? null) : null
+  const windowTurns = useMemo(
+    () => buildLiveWindowTurns({ puntos, cobros: recentCobros, sucursal: currentSucursal }),
+    [currentSucursal, puntos, recentCobros]
+  )
   const activeAutomation = useMemo(
     () => automationRules.filter((rule) => rule.estado === "activa").length,
     [automationRules]
@@ -377,24 +427,9 @@ export default function VentasOperacionesPage() {
 
   const highlightedBatch = batchJobs[0] ?? null
 
-  const saveMonitor = (row: LegacySalesMonitorRow) => {
-    setMonitorRows((prev) => prev.map((item) => (item.id === row.id ? row : item)))
-    setEditingMonitor(null)
-  }
-
-  const saveAutomation = (row: LegacySalesAutomationRule) => {
-    setAutomationRules((prev) => prev.map((item) => (item.id === row.id ? row : item)))
-    setEditingAutomation(null)
-  }
-
-  const saveTurn = (row: LegacySalesWindowTurn) => {
-    setWindowTurns((prev) => prev.map((item) => (item.id === row.id ? row : item)))
-    setEditingTurn(null)
-  }
-
-  const saveBatch = (row: LegacySalesBatchJob) => {
-    setBatchJobs((prev) => prev.map((item) => (item.id === row.id ? row : item)))
-    setEditingBatch(null)
+  const saveBatch = async (row: OperacionesBatchJob) => {
+    const ok = await actualizarProgramacion(row)
+    if (ok) setEditingBatch(null)
   }
 
   return (
@@ -413,9 +448,22 @@ export default function VentasOperacionesPage() {
         <AlertDescription>
           La referencia histórica de pre-facturas automáticas, cobro por ventanilla, recibos y
           remitos masivos ya quedó traducida a una sola vista. Los ajustes manuales persisten en
-          local sólo para reglas, turnos y tandas internas.
+          backend para programaciones batch y en lecturas derivadas para ventanilla cuando no hay
+          agenda de caja expuesta por API.
         </AlertDescription>
       </Alert>
+
+      {monitorError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{monitorError}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {batchError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{batchError}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
@@ -561,8 +609,8 @@ export default function VentasOperacionesPage() {
               <CardHeader>
                 <CardTitle className="text-base">Seguimiento manual</CardTitle>
                 <CardDescription>
-                  Casos internos que todavía necesitan criterio del equipo y no una regla
-                  automática.
+                  Monitores e integraciones activas reportadas por backend para seguimiento
+                  operativo.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -573,9 +621,7 @@ export default function VentasOperacionesPage() {
                         <p className="font-medium">{row.circuito}</p>
                         <p className="text-sm text-muted-foreground">{row.cliente}</p>
                       </div>
-                      <Button variant="ghost" size="icon" onClick={() => setEditingMonitor(row)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
+                      <Badge variant="outline">Backend</Badge>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {priorityBadge(row.prioridad)}
@@ -651,8 +697,7 @@ export default function VentasOperacionesPage() {
                   <Settings2 className="h-4 w-4" /> Reglas y disparadores
                 </CardTitle>
                 <CardDescription>
-                  Definición operativa de lotes automáticos hasta que el backend los ejecute por sí
-                  mismo.
+                  Programaciones reales de facturación batch recuperadas desde backend.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -663,13 +708,7 @@ export default function VentasOperacionesPage() {
                         <p className="font-medium">{rule.nombre}</p>
                         <p className="text-sm text-muted-foreground">{rule.alcance}</p>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setEditingAutomation(rule)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
+                      <Badge variant="outline">Programación backend</Badge>
                     </div>
                     <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
                       <p>Circuito: {rule.circuito}</p>
@@ -746,9 +785,7 @@ export default function VentasOperacionesPage() {
                           <p className="font-medium">{turn.caja}</p>
                           <p className="text-sm text-muted-foreground">{turn.operador}</p>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => setEditingTurn(turn)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
+                        <Badge variant="outline">Derivado</Badge>
                       </div>
                       <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
                         <p>Cola estimada: {turn.cola}</p>
@@ -879,13 +916,20 @@ export default function VentasOperacionesPage() {
                           <p className="font-medium">{job.descripcion}</p>
                           <p className="text-sm text-muted-foreground">{job.tipo}</p>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => setEditingBatch(job)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
+                        {job.source === "programacion" ? (
+                          <Button variant="ghost" size="icon" onClick={() => setEditingBatch(job)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <Badge variant="outline">Job</Badge>
+                        )}
                       </div>
                       <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
                         <p>Registros: {job.registros}</p>
                         <p>Responsable: {job.responsable}</p>
+                        {job.proximaEjecucion ? (
+                          <p>Próxima ejecución: {formatDate(job.proximaEjecucion)}</p>
+                        ) : null}
                         <p>{job.observacion}</p>
                       </div>
                       <div className="mt-3">{stateBadge(job.estado)}</div>
@@ -911,69 +955,12 @@ export default function VentasOperacionesPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog
-        open={editingMonitor !== null}
-        onOpenChange={(open) => !open && setEditingMonitor(null)}
-      >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Editar seguimiento manual</DialogTitle>
-            <DialogDescription>
-              Ajuste interno para casos que todavía requieren intervención humana explícita.
-            </DialogDescription>
-          </DialogHeader>
-          {editingMonitor ? (
-            <MonitorEditor
-              row={editingMonitor}
-              onClose={() => setEditingMonitor(null)}
-              onSave={saveMonitor}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={editingAutomation !== null}
-        onOpenChange={(open) => !open && setEditingAutomation(null)}
-      >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Editar regla operativa</DialogTitle>
-            <DialogDescription>
-              Define alcance y frecuencia mientras la ejecución masiva sigue sin contrato backend
-              dedicado.
-            </DialogDescription>
-          </DialogHeader>
-          {editingAutomation ? (
-            <AutomationEditor
-              row={editingAutomation}
-              onClose={() => setEditingAutomation(null)}
-              onSave={saveAutomation}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={editingTurn !== null} onOpenChange={(open) => !open && setEditingTurn(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Editar turno de ventanilla</DialogTitle>
-            <DialogDescription>
-              Ajusta operador, cola y objetivo del turno donde el backend no maneja agenda de caja.
-            </DialogDescription>
-          </DialogHeader>
-          {editingTurn ? (
-            <TurnEditor row={editingTurn} onClose={() => setEditingTurn(null)} onSave={saveTurn} />
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={editingBatch !== null} onOpenChange={(open) => !open && setEditingBatch(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Editar tanda interna</DialogTitle>
             <DialogDescription>
-              Seguimiento local para lotes, impresión y control de cierre operativo.
+              Edición de la programación backend para lotes, impresión y control operativo.
             </DialogDescription>
           </DialogHeader>
           {editingBatch ? (
@@ -989,287 +976,14 @@ export default function VentasOperacionesPage() {
   )
 }
 
-function MonitorEditor({
-  row,
-  onClose,
-  onSave,
-}: {
-  row: LegacySalesMonitorRow
-  onClose: () => void
-  onSave: (row: LegacySalesMonitorRow) => void
-}) {
-  const [draft, setDraft] = useState(row)
-
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2">
-        <OperationsFormField label="Circuito">
-          <Input
-            value={draft.circuito}
-            onChange={(event) => setDraft((prev) => ({ ...prev, circuito: event.target.value }))}
-          />
-        </OperationsFormField>
-        <OperationsFormField label="Cliente">
-          <Input
-            value={draft.cliente}
-            onChange={(event) => setDraft((prev) => ({ ...prev, cliente: event.target.value }))}
-          />
-        </OperationsFormField>
-        <OperationsFormField label="Documento">
-          <Input
-            value={draft.documento}
-            onChange={(event) => setDraft((prev) => ({ ...prev, documento: event.target.value }))}
-          />
-        </OperationsFormField>
-        <OperationsFormField label="Responsable">
-          <Input
-            value={draft.responsable}
-            onChange={(event) => setDraft((prev) => ({ ...prev, responsable: event.target.value }))}
-          />
-        </OperationsFormField>
-        <OperationsFormField label="Prioridad">
-          <Select
-            value={draft.prioridad}
-            onValueChange={(value) =>
-              setDraft((prev) => ({
-                ...prev,
-                prioridad: value as LegacySalesMonitorRow["prioridad"],
-              }))
-            }
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="alta">Alta</SelectItem>
-              <SelectItem value="media">Media</SelectItem>
-              <SelectItem value="baja">Baja</SelectItem>
-            </SelectContent>
-          </Select>
-        </OperationsFormField>
-        <OperationsFormField label="Estado">
-          <Select
-            value={draft.estado}
-            onValueChange={(value) =>
-              setDraft((prev) => ({ ...prev, estado: value as LegacySalesMonitorRow["estado"] }))
-            }
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="pendiente">Pendiente</SelectItem>
-              <SelectItem value="gestion">En gestión</SelectItem>
-              <SelectItem value="resuelto">Resuelto</SelectItem>
-            </SelectContent>
-          </Select>
-        </OperationsFormField>
-      </div>
-      <OperationsFormField label="Observación">
-        <Textarea
-          value={draft.observacion}
-          onChange={(event) => setDraft((prev) => ({ ...prev, observacion: event.target.value }))}
-          rows={4}
-        />
-      </OperationsFormField>
-      <DialogFooter>
-        <Button variant="outline" className="bg-transparent" onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button onClick={() => onSave(draft)}>Guardar</Button>
-      </DialogFooter>
-    </div>
-  )
-}
-
-function AutomationEditor({
-  row,
-  onClose,
-  onSave,
-}: {
-  row: LegacySalesAutomationRule
-  onClose: () => void
-  onSave: (row: LegacySalesAutomationRule) => void
-}) {
-  const [draft, setDraft] = useState(row)
-
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2">
-        <OperationsFormField label="Nombre">
-          <Input
-            value={draft.nombre}
-            onChange={(event) => setDraft((prev) => ({ ...prev, nombre: event.target.value }))}
-          />
-        </OperationsFormField>
-        <OperationsFormField label="Frecuencia">
-          <Input
-            value={draft.frecuencia}
-            onChange={(event) => setDraft((prev) => ({ ...prev, frecuencia: event.target.value }))}
-          />
-        </OperationsFormField>
-        <OperationsFormField label="Circuito">
-          <Select
-            value={draft.circuito}
-            onValueChange={(value) =>
-              setDraft((prev) => ({
-                ...prev,
-                circuito: value as LegacySalesAutomationRule["circuito"],
-              }))
-            }
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="facturacion-automatica">Facturación automática</SelectItem>
-              <SelectItem value="facturacion-masiva">Facturación masiva</SelectItem>
-              <SelectItem value="remitos-masivos">Remitos masivos</SelectItem>
-              <SelectItem value="recibos-masivos">Recibos masivos</SelectItem>
-            </SelectContent>
-          </Select>
-        </OperationsFormField>
-        <OperationsFormField label="Estado">
-          <Select
-            value={draft.estado}
-            onValueChange={(value) =>
-              setDraft((prev) => ({
-                ...prev,
-                estado: value as LegacySalesAutomationRule["estado"],
-              }))
-            }
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="activa">Activa</SelectItem>
-              <SelectItem value="pausada">Pausada</SelectItem>
-              <SelectItem value="revision">Revisión</SelectItem>
-            </SelectContent>
-          </Select>
-        </OperationsFormField>
-      </div>
-      <OperationsFormField label="Alcance">
-        <Textarea
-          value={draft.alcance}
-          onChange={(event) => setDraft((prev) => ({ ...prev, alcance: event.target.value }))}
-          rows={3}
-        />
-      </OperationsFormField>
-      <OperationsFormField label="Última ejecución">
-        <Input
-          type="date"
-          value={draft.ultimaEjecucion}
-          onChange={(event) =>
-            setDraft((prev) => ({ ...prev, ultimaEjecucion: event.target.value }))
-          }
-        />
-      </OperationsFormField>
-      <OperationsFormField label="Observación">
-        <Textarea
-          value={draft.observacion}
-          onChange={(event) => setDraft((prev) => ({ ...prev, observacion: event.target.value }))}
-          rows={4}
-        />
-      </OperationsFormField>
-      <DialogFooter>
-        <Button variant="outline" className="bg-transparent" onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button onClick={() => onSave(draft)}>Guardar</Button>
-      </DialogFooter>
-    </div>
-  )
-}
-
-function TurnEditor({
-  row,
-  onClose,
-  onSave,
-}: {
-  row: LegacySalesWindowTurn
-  onClose: () => void
-  onSave: (row: LegacySalesWindowTurn) => void
-}) {
-  const [draft, setDraft] = useState(row)
-
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2">
-        <OperationsFormField label="Caja">
-          <Input
-            value={draft.caja}
-            onChange={(event) => setDraft((prev) => ({ ...prev, caja: event.target.value }))}
-          />
-        </OperationsFormField>
-        <OperationsFormField label="Operador">
-          <Input
-            value={draft.operador}
-            onChange={(event) => setDraft((prev) => ({ ...prev, operador: event.target.value }))}
-          />
-        </OperationsFormField>
-        <OperationsFormField label="Cola">
-          <Input
-            type="number"
-            value={draft.cola}
-            onChange={(event) =>
-              setDraft((prev) => ({ ...prev, cola: Number(event.target.value) || 0 }))
-            }
-          />
-        </OperationsFormField>
-        <OperationsFormField label="Importe objetivo">
-          <Input
-            type="number"
-            value={draft.importeObjetivo}
-            onChange={(event) =>
-              setDraft((prev) => ({ ...prev, importeObjetivo: Number(event.target.value) || 0 }))
-            }
-          />
-        </OperationsFormField>
-        <OperationsFormField label="Estado">
-          <Select
-            value={draft.estado}
-            onValueChange={(value) =>
-              setDraft((prev) => ({ ...prev, estado: value as LegacySalesWindowTurn["estado"] }))
-            }
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="abierta">Abierta</SelectItem>
-              <SelectItem value="pausa">Pausa</SelectItem>
-              <SelectItem value="cerrada">Cerrada</SelectItem>
-            </SelectContent>
-          </Select>
-        </OperationsFormField>
-      </div>
-      <OperationsFormField label="Observación">
-        <Textarea
-          value={draft.observacion}
-          onChange={(event) => setDraft((prev) => ({ ...prev, observacion: event.target.value }))}
-          rows={4}
-        />
-      </OperationsFormField>
-      <DialogFooter>
-        <Button variant="outline" className="bg-transparent" onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button onClick={() => onSave(draft)}>Guardar</Button>
-      </DialogFooter>
-    </div>
-  )
-}
-
 function BatchEditor({
   row,
   onClose,
   onSave,
 }: {
-  row: LegacySalesBatchJob
+  row: OperacionesBatchJob
   onClose: () => void
-  onSave: (row: LegacySalesBatchJob) => void
+  onSave: (row: OperacionesBatchJob) => void | Promise<void>
 }) {
   const [draft, setDraft] = useState(row)
 
@@ -1280,20 +994,23 @@ function BatchEditor({
           <Input
             value={draft.descripcion}
             onChange={(event) => setDraft((prev) => ({ ...prev, descripcion: event.target.value }))}
+            disabled={draft.source !== "programacion"}
           />
         </OperationsFormField>
         <OperationsFormField label="Responsable">
           <Input
             value={draft.responsable}
             onChange={(event) => setDraft((prev) => ({ ...prev, responsable: event.target.value }))}
+            disabled
           />
         </OperationsFormField>
         <OperationsFormField label="Tipo">
           <Select
             value={draft.tipo}
             onValueChange={(value) =>
-              setDraft((prev) => ({ ...prev, tipo: value as LegacySalesBatchJob["tipo"] }))
+              setDraft((prev) => ({ ...prev, tipo: value as OperacionesBatchJob["tipo"] }))
             }
+            disabled={draft.source !== "programacion"}
           >
             <SelectTrigger>
               <SelectValue />
@@ -1310,8 +1027,9 @@ function BatchEditor({
           <Select
             value={draft.estado}
             onValueChange={(value) =>
-              setDraft((prev) => ({ ...prev, estado: value as LegacySalesBatchJob["estado"] }))
+              setDraft((prev) => ({ ...prev, estado: value as OperacionesBatchJob["estado"] }))
             }
+            disabled={draft.source !== "programacion"}
           >
             <SelectTrigger>
               <SelectValue />
@@ -1331,6 +1049,36 @@ function BatchEditor({
             onChange={(event) =>
               setDraft((prev) => ({ ...prev, registros: Number(event.target.value) || 0 }))
             }
+            disabled={draft.source !== "programacion"}
+          />
+        </OperationsFormField>
+        <OperationsFormField label="Intervalo (min)">
+          <Input
+            type="number"
+            value={draft.intervaloMinutos ?? 0}
+            onChange={(event) =>
+              setDraft((prev) => ({ ...prev, intervaloMinutos: Number(event.target.value) || 0 }))
+            }
+            disabled={draft.source !== "programacion"}
+          />
+        </OperationsFormField>
+        <OperationsFormField label="Próxima ejecución">
+          <Input
+            type="datetime-local"
+            value={
+              draft.proximaEjecucion
+                ? new Date(draft.proximaEjecucion).toISOString().slice(0, 16)
+                : ""
+            }
+            onChange={(event) =>
+              setDraft((prev) => ({
+                ...prev,
+                proximaEjecucion: event.target.value
+                  ? new Date(event.target.value).toISOString()
+                  : null,
+              }))
+            }
+            disabled={draft.source !== "programacion"}
           />
         </OperationsFormField>
       </div>
@@ -1339,13 +1087,16 @@ function BatchEditor({
           value={draft.observacion}
           onChange={(event) => setDraft((prev) => ({ ...prev, observacion: event.target.value }))}
           rows={4}
+          disabled={draft.source !== "programacion"}
         />
       </OperationsFormField>
       <DialogFooter>
         <Button variant="outline" className="bg-transparent" onClick={onClose}>
           Cancelar
         </Button>
-        <Button onClick={() => onSave(draft)}>Guardar</Button>
+        <Button onClick={() => onSave(draft)} disabled={draft.source !== "programacion"}>
+          Guardar
+        </Button>
       </DialogFooter>
     </div>
   )

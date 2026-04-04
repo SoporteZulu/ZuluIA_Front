@@ -73,18 +73,38 @@ function getChequeKind(row: Cheque) {
 
 function getStateMeta(status: string) {
   if (status === "RECHAZADO") {
-    return { label: "Rechazado", variant: "destructive" as const, note: "Exige revisión y reprocesamiento." }
+    return {
+      label: "Rechazado",
+      variant: "destructive" as const,
+      note: "Exige revisión y reprocesamiento.",
+    }
   }
   if (status === "ACREDITADO") {
-    return { label: "Acreditado", variant: "default" as const, note: "Ya impactó como valor acreditado." }
+    return {
+      label: "Acreditado",
+      variant: "default" as const,
+      note: "Ya impactó como valor acreditado.",
+    }
   }
   if (status === "DEPOSITADO") {
-    return { label: "Depositado", variant: "secondary" as const, note: "Pendiente de acreditación bancaria." }
+    return {
+      label: "Depositado",
+      variant: "secondary" as const,
+      note: "Pendiente de acreditación bancaria.",
+    }
   }
   if (status === "ENTREGADO") {
-    return { label: "Entregado", variant: "outline" as const, note: "Salió de cartera por entrega a tercero." }
+    return {
+      label: "Entregado",
+      variant: "outline" as const,
+      note: "Salió de cartera por entrega a tercero.",
+    }
   }
-  return { label: "Emitido", variant: "outline" as const, note: "Sigue disponible en cartera operativa." }
+  return {
+    label: "Emitido",
+    variant: "outline" as const,
+    note: "Sigue disponible en cartera operativa.",
+  }
 }
 
 function getDueStatus(row: Cheque) {
@@ -196,7 +216,7 @@ function ChequeForm({
   const selectedCaja = cajas.find((row) => row.id === Number(form.cajaId)) ?? null
   const selectedTercero =
     form.terceroId !== "none"
-      ? terceros.find((row) => row.id === Number(form.terceroId)) ?? null
+      ? (terceros.find((row) => row.id === Number(form.terceroId)) ?? null)
       : null
   const formAmount = Number(form.importe || 0)
 
@@ -235,9 +255,9 @@ function ChequeForm({
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          El legado también manejaba chequeras, rango de numeración, cheques cruzados, a la orden y
-          validaciones por forma de pago/caja. El backend actual todavía expone sólo registro básico
-          y transiciones de cartera, así que esta pantalla cubre ese alcance de forma explícita.
+          El backend actual expone registro básico y transiciones de cartera. Esta pantalla cubre
+          ese alcance de forma explícita y deja fuera datos bancarios que todavía no están
+          disponibles en el contrato.
         </AlertDescription>
       </Alert>
 
@@ -258,7 +278,10 @@ function ChequeForm({
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-1.5">
               <Label>Caja</Label>
-              <Select value={form.cajaId} onValueChange={(value) => setForm((prev) => ({ ...prev, cajaId: value }))}>
+              <Select
+                value={form.cajaId}
+                onValueChange={(value) => setForm((prev) => ({ ...prev, cajaId: value }))}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar caja" />
                 </SelectTrigger>
@@ -275,7 +298,9 @@ function ChequeForm({
               <Label>Número de cheque</Label>
               <Input
                 value={form.nroCheque}
-                onChange={(event) => setForm((prev) => ({ ...prev, nroCheque: event.target.value }))}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, nroCheque: event.target.value }))
+                }
                 placeholder="Numeración bancaria o interna"
               />
             </div>
@@ -302,7 +327,9 @@ function ChequeForm({
               <Input
                 type="date"
                 value={form.fechaEmision}
-                onChange={(event) => setForm((prev) => ({ ...prev, fechaEmision: event.target.value }))}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, fechaEmision: event.target.value }))
+                }
               />
             </div>
             <div className="space-y-1.5">
@@ -310,7 +337,9 @@ function ChequeForm({
               <Input
                 type="date"
                 value={form.fechaVencimiento}
-                onChange={(event) => setForm((prev) => ({ ...prev, fechaVencimiento: event.target.value }))}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, fechaVencimiento: event.target.value }))
+                }
               />
             </div>
           </div>
@@ -346,7 +375,9 @@ function ChequeForm({
                 <div className="rounded-xl border p-3">
                   <p className="font-medium">Tipo inferido</p>
                   <p className="text-muted-foreground">
-                    {selectedTercero ? "Cheque de tercero en cartera" : "Cheque propio o sin librador externo"}
+                    {selectedTercero
+                      ? "Cheque de tercero en cartera"
+                      : "Cheque propio o sin librador externo"}
                   </p>
                 </div>
                 <div className="rounded-xl border p-3">
@@ -407,7 +438,8 @@ function ChequeForm({
                   La pantalla ya cubre el alta real y las transiciones básicas de cartera.
                 </div>
                 <div className="rounded-xl border p-3 text-muted-foreground">
-                  El legado validaba rango por chequera y forma de pago habilitada por caja.
+                  Las validaciones avanzadas por chequera o forma de pago siguen fuera del alcance
+                  expuesto hoy por el backend.
                 </div>
               </CardContent>
             </Card>
@@ -488,8 +520,9 @@ function ChequeDetail({
                 {
                   label: "Canales",
                   value:
-                    [customer?.telefono, customer?.celular, customer?.email].filter(Boolean).join(" · ") ||
-                    "Sin canales visibles",
+                    [customer?.telefono, customer?.celular, customer?.email]
+                      .filter(Boolean)
+                      .join(" · ") || "Sin canales visibles",
                 },
                 {
                   label: "Observación",
@@ -539,13 +572,25 @@ export default function VentasChequesPage() {
   const effectiveCajaId = cajaFilter === "todos" ? undefined : Number(cajaFilter)
   const effectiveStatus = statusFilter === "todos" ? undefined : statusFilter
 
-  const { cheques, loading, error, crear, depositar, acreditar, rechazar, entregar, refetch, page, setPage, totalPages } =
-    useCheques({
-      cajaId: effectiveCajaId,
-      estado: effectiveStatus,
-      desde: desde || undefined,
-      hasta: hasta || undefined,
-    })
+  const {
+    cheques,
+    loading,
+    error,
+    crear,
+    depositar,
+    acreditar,
+    rechazar,
+    entregar,
+    refetch,
+    page,
+    setPage,
+    totalPages,
+  } = useCheques({
+    cajaId: effectiveCajaId,
+    estado: effectiveStatus,
+    desde: desde || undefined,
+    hasta: hasta || undefined,
+  })
   const { cajas } = useCajas(sucursalId)
   const { sucursales } = useSucursales()
   const { terceros } = useTerceros({ soloActivos: false, sucursalId: sucursalId ?? null })
@@ -559,7 +604,7 @@ export default function VentasChequesPage() {
 
     return cheques.filter((row) => {
       const customerName = row.terceroId
-        ? thirdPartyMap.get(row.terceroId)?.razonSocial ?? `#${row.terceroId}`
+        ? (thirdPartyMap.get(row.terceroId)?.razonSocial ?? `#${row.terceroId}`)
         : "sin tercero"
       const matchesSearch =
         normalized === "" ||
@@ -579,7 +624,8 @@ export default function VentasChequesPage() {
     () => ({
       count: filtered.length,
       amount: filtered.reduce((sum, row) => sum + Number(row.importe ?? 0), 0),
-      pending: filtered.filter((row) => row.estado === "EMITIDO" || row.estado === "DEPOSITADO").length,
+      pending: filtered.filter((row) => row.estado === "EMITIDO" || row.estado === "DEPOSITADO")
+        .length,
       rejected: filtered.filter((row) => row.estado === "RECHAZADO").length,
       upcoming: filtered.filter((row) => {
         if (!row.fechaVencimiento) return false
@@ -594,11 +640,22 @@ export default function VentasChequesPage() {
   )
 
   const highlighted = useMemo(
-    () => filtered.find((row) => row.estado === "DEPOSITADO") ?? filtered.find((row) => row.estado === "EMITIDO") ?? filtered[0] ?? null,
+    () =>
+      filtered.find((row) => row.estado === "DEPOSITADO") ??
+      filtered.find((row) => row.estado === "EMITIDO") ??
+      filtered[0] ??
+      null,
     [filtered]
   )
-  const highlightedCustomer = highlighted?.terceroId ? thirdPartyMap.get(highlighted.terceroId) ?? null : null
-  const detailCheque = detailId !== null ? filtered.find((row) => row.id === detailId) ?? cheques.find((row) => row.id === detailId) ?? null : null
+  const highlightedCustomer = highlighted?.terceroId
+    ? (thirdPartyMap.get(highlighted.terceroId) ?? null)
+    : null
+  const detailCheque =
+    detailId !== null
+      ? (filtered.find((row) => row.id === detailId) ??
+        cheques.find((row) => row.id === detailId) ??
+        null)
+      : null
 
   const handleCreateSaved = async () => {
     setIsFormOpen(false)
@@ -634,9 +691,8 @@ export default function VentasChequesPage() {
         <div className="max-w-3xl space-y-2">
           <h1 className="text-3xl font-bold tracking-tight">Cheques</h1>
           <p className="text-muted-foreground">
-            Consola de cartera para cheques propios y de terceros. Reinterpreta el flujo legado de
-            cheques, ventanilla y control bancario, pero sin simular chequeras ni datos de banco que
-            el contrato actual todavía no expone.
+            Consola de cartera para cheques propios y de terceros. Ordena la operatoria de
+            ventanilla y control bancario con los datos que hoy expone el backend.
           </p>
         </div>
         <Button onClick={() => setIsFormOpen(true)}>
@@ -656,7 +712,7 @@ export default function VentasChequesPage() {
         <MetricCard
           title="Cheques visibles"
           value={totals.count}
-          description="Cartera filtrada con lectura operativa actual." 
+          description="Cartera filtrada con lectura operativa actual."
         />
         <MetricCard
           title="Importe visible"
@@ -703,13 +759,17 @@ export default function VentasChequesPage() {
           <CardHeader>
             <CardTitle className="text-xl">Cheque destacado</CardTitle>
             <CardDescription className="text-emerald-200">
-              {highlighted.nroCheque} · {highlightedCustomer?.razonSocial ?? getChequeKind(highlighted)}
+              {highlighted.nroCheque} ·{" "}
+              {highlightedCustomer?.razonSocial ?? getChequeKind(highlighted)}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 lg:grid-cols-[1.2fr_0.9fr]">
             <div className="grid gap-3 md:grid-cols-2">
               {[
-                { label: "Caja", value: cajaMap.get(highlighted.cajaId)?.nombre ?? `#${highlighted.cajaId}` },
+                {
+                  label: "Caja",
+                  value: cajaMap.get(highlighted.cajaId)?.nombre ?? `#${highlighted.cajaId}`,
+                },
                 { label: "Banco", value: highlighted.banco ?? "Sin banco informado" },
                 { label: "Tipo", value: getChequeKind(highlighted) },
                 { label: "Estado", value: getStateMeta(highlighted.estado).label },
@@ -717,8 +777,12 @@ export default function VentasChequesPage() {
                 { label: "Vencimiento", value: getDueStatus(highlighted) },
               ].map((field) => (
                 <div key={field.label} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-emerald-300">{field.label}</p>
-                  <p className="mt-2 text-sm font-medium wrap-break-word text-emerald-50">{field.value}</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-emerald-300">
+                    {field.label}
+                  </p>
+                  <p className="mt-2 text-sm font-medium wrap-break-word text-emerald-50">
+                    {field.value}
+                  </p>
                 </div>
               ))}
             </div>
@@ -727,10 +791,12 @@ export default function VentasChequesPage() {
                 {getStateMeta(highlighted.estado).note}
               </div>
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                Librador: {highlightedCustomer?.razonSocial ?? "Sin tercero asociado"}. Domicilio: {formatCustomerAddress(highlightedCustomer)}.
+                Librador: {highlightedCustomer?.razonSocial ?? "Sin tercero asociado"}. Domicilio:{" "}
+                {formatCustomerAddress(highlightedCustomer)}.
               </div>
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                El legado manejaba cheques propios y de terceros con chequera, moneda y forma de pago por caja. Hoy se cubre registro, depósito, acreditación, rechazo y entrega.
+                La pantalla cubre registro, depósito, acreditación, rechazo y entrega para cheques
+                propios y de terceros.
               </div>
             </div>
           </CardContent>
@@ -741,7 +807,8 @@ export default function VentasChequesPage() {
         <CardHeader>
           <CardTitle>Filtros de cartera</CardTitle>
           <CardDescription>
-            Combinan filtros reales del backend con búsqueda operativa local para número, banco y librador.
+            Combinan filtros reales del backend con búsqueda operativa local para número, banco y
+            librador.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -805,7 +872,8 @@ export default function VentasChequesPage() {
         <CardHeader>
           <CardTitle>Cartera operativa ({filtered.length})</CardTitle>
           <CardDescription>
-            Acciones habilitadas según el estado reportado por el backend y lectura comercial del cheque.
+            Acciones habilitadas según el estado reportado por el backend y lectura comercial del
+            cheque.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -836,42 +904,77 @@ export default function VentasChequesPage() {
                 {filtered.map((row) => {
                   const status = getStateMeta(row.estado)
                   return (
-                    <TableRow key={row.id} className="cursor-pointer hover:bg-muted/40" onClick={() => setDetailId(row.id)}>
+                    <TableRow
+                      key={row.id}
+                      className="cursor-pointer hover:bg-muted/40"
+                      onClick={() => setDetailId(row.id)}
+                    >
                       <TableCell className="font-medium">{row.nroCheque}</TableCell>
                       <TableCell>{getChequeKind(row)}</TableCell>
                       <TableCell>{cajaMap.get(row.cajaId)?.nombre ?? `#${row.cajaId}`}</TableCell>
                       <TableCell className="max-w-55 whitespace-normal">
-                        {row.terceroId ? thirdPartyMap.get(row.terceroId)?.razonSocial ?? `#${row.terceroId}` : "Sin tercero"}
+                        {row.terceroId
+                          ? (thirdPartyMap.get(row.terceroId)?.razonSocial ?? `#${row.terceroId}`)
+                          : "Sin tercero"}
                       </TableCell>
-                      <TableCell className="max-w-45 whitespace-normal">{row.banco ?? "-"}</TableCell>
+                      <TableCell className="max-w-45 whitespace-normal">
+                        {row.banco ?? "-"}
+                      </TableCell>
                       <TableCell>{formatDate(row.fechaEmision)}</TableCell>
                       <TableCell>{formatDate(row.fechaVencimiento)}</TableCell>
                       <TableCell>
                         <Badge variant={status.variant}>{status.label}</Badge>
                       </TableCell>
-                      <TableCell className="text-right font-semibold">{formatMoney(row.importe)}</TableCell>
-                      <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+                      <TableCell className="text-right font-semibold">
+                        {formatMoney(row.importe)}
+                      </TableCell>
+                      <TableCell
+                        className="text-right"
+                        onClick={(event) => event.stopPropagation()}
+                      >
                         <div className="flex justify-end gap-2">
                           <Button size="sm" variant="ghost" onClick={() => setDetailId(row.id)}>
                             <Eye className="h-4 w-4" />
                           </Button>
                           {row.estado === "EMITIDO" ? (
-                            <Button size="sm" variant="outline" className="bg-transparent" onClick={() => handleDeposit(row.id)}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-transparent"
+                              onClick={() => handleDeposit(row.id)}
+                            >
                               Depositar
                             </Button>
                           ) : null}
                           {row.estado === "DEPOSITADO" ? (
-                            <Button size="sm" variant="outline" className="bg-transparent" onClick={() => handleAccredit(row.id)}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-transparent"
+                              onClick={() => handleAccredit(row.id)}
+                            >
                               Acreditar
                             </Button>
                           ) : null}
-                          {row.estado !== "RECHAZADO" && row.estado !== "ENTREGADO" && row.estado !== "ACREDITADO" ? (
-                            <Button size="sm" variant="outline" className="bg-transparent" onClick={() => handleReject(row.id)}>
+                          {row.estado !== "RECHAZADO" &&
+                          row.estado !== "ENTREGADO" &&
+                          row.estado !== "ACREDITADO" ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-transparent"
+                              onClick={() => handleReject(row.id)}
+                            >
                               Rechazar
                             </Button>
                           ) : null}
                           {row.estado === "EMITIDO" ? (
-                            <Button size="sm" variant="outline" className="bg-transparent" onClick={() => handleDeliver(row.id)}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-transparent"
+                              onClick={() => handleDeliver(row.id)}
+                            >
                               Entregar
                             </Button>
                           ) : null}
@@ -888,14 +991,24 @@ export default function VentasChequesPage() {
 
       {totalPages > 1 ? (
         <div className="flex items-center justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          >
             <ChevronLeft className="h-4 w-4" />
             Anterior
           </Button>
           <span className="text-sm text-muted-foreground">
             Página {page} de {totalPages}
           </span>
-          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= totalPages}
+            onClick={() => setPage(page + 1)}
+          >
             Siguiente
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -910,7 +1023,8 @@ export default function VentasChequesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            El legado cruzaba cheques con caja, forma de pago y moneda. Esta pantalla mantiene la lectura por caja y la operativa esencial mientras ese modelo se expande.
+            La pantalla mantiene la lectura por caja y la operativa esencial mientras el modelo de
+            medios y validaciones bancarias se expande.
           </CardContent>
         </Card>
         <Card>
@@ -920,7 +1034,8 @@ export default function VentasChequesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Vencimiento, depósito y acreditación quedan visibles sin esconder el hecho de que todavía faltan boleta, cuenta destino y chequera.
+            Vencimiento, depósito y acreditación quedan visibles sin esconder el hecho de que
+            todavía faltan boleta, cuenta destino y chequera.
           </CardContent>
         </Card>
         <Card>
@@ -930,7 +1045,8 @@ export default function VentasChequesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Alta real, depósito, acreditación, rechazo y entrega ya están resueltos sobre el backend actual. El resto se expone como límite conocido, no como placeholder engañoso.
+            Alta real, depósito, acreditación, rechazo y entrega ya están resueltos sobre el backend
+            actual. El resto se expone como límite conocido, no como placeholder engañoso.
           </CardContent>
         </Card>
       </div>
@@ -940,10 +1056,17 @@ export default function VentasChequesPage() {
           <DialogHeader>
             <DialogTitle>Nuevo cheque</DialogTitle>
             <DialogDescription>
-              Registro real de la cartera actual, con lectura más cercana al circuito histórico de ventas.
+              Registro real de la cartera actual, con lectura más cercana al circuito histórico de
+              ventas.
             </DialogDescription>
           </DialogHeader>
-          <ChequeForm cajas={cajas} terceros={terceros} onClose={() => setIsFormOpen(false)} onSaved={handleCreateSaved} crear={crear} />
+          <ChequeForm
+            cajas={cajas}
+            terceros={terceros}
+            onClose={() => setIsFormOpen(false)}
+            onSaved={handleCreateSaved}
+            crear={crear}
+          />
         </DialogContent>
       </Dialog>
 
@@ -958,8 +1081,12 @@ export default function VentasChequesPage() {
           {detailCheque ? (
             <ChequeDetail
               cheque={detailCheque}
-              customer={detailCheque.terceroId ? thirdPartyMap.get(detailCheque.terceroId) ?? null : null}
-              cajaNombre={cajaMap.get(detailCheque.cajaId)?.nombre ?? `Caja #${detailCheque.cajaId}`}
+              customer={
+                detailCheque.terceroId ? (thirdPartyMap.get(detailCheque.terceroId) ?? null) : null
+              }
+              cajaNombre={
+                cajaMap.get(detailCheque.cajaId)?.nombre ?? `Caja #${detailCheque.cajaId}`
+              }
             />
           ) : null}
           <DialogFooter>

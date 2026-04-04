@@ -155,7 +155,7 @@ const comprobantesExpansionLinks = [
   },
   {
     title: "Ajustes",
-    description: "Débitos y créditos comerciales del legacy",
+    description: "Débitos y créditos comerciales con workbench y notas reales",
     href: "/ventas/ajustes",
     icon: Scale,
     color: "border-slate-200 bg-slate-50 hover:bg-slate-100",
@@ -170,7 +170,7 @@ const comprobantesExpansionLinks = [
     iconColor: "text-indigo-600",
   },
   {
-    title: "Operaciones Legacy",
+    title: "Operaciones",
     description: "Monitor, ventanilla, batch e inicialización masiva honesta",
     href: "/ventas/operaciones",
     icon: MonitorCog,

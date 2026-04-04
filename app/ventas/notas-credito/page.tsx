@@ -53,6 +53,7 @@ import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComproban
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
 import { useTerceros } from "@/lib/hooks/useTerceros"
 import { useItems } from "@/lib/hooks/useItems"
+import { useMotivosDebito, useVentasDocumentos } from "@/lib/hooks/useVentasDocumentos"
 import type {
   Comprobante,
   ComprobanteDetalle,
@@ -60,6 +61,7 @@ import type {
   TipoComprobante,
 } from "@/lib/types/comprobantes"
 import type { Tercero } from "@/lib/types/terceros"
+import type { CreateNotaDebitoVentaDto, MotivoDebitoVenta } from "@/lib/types/ventas"
 
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
@@ -315,6 +317,8 @@ interface CreditDebitNoteFormProps {
   onClose: () => void
   onSaved: () => void
   emitir: (dto: EmitirComprobanteDto) => Promise<boolean>
+  crearNotaDebito?: (dto: CreateNotaDebitoVentaDto) => Promise<boolean>
+  motivosDebito?: MotivoDebitoVenta[]
 }
 
 function createCreditDebitFormState(
@@ -339,6 +343,8 @@ function CreditDebitNoteForm({
   onClose,
   onSaved,
   emitir,
+  crearNotaDebito,
+  motivosDebito = [],
 }: CreditDebitNoteFormProps) {
   const defaultSucursalId = useDefaultSucursalId()
   const { sucursales } = useSucursales()
@@ -353,11 +359,16 @@ function CreditDebitNoteForm({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [motivo, setMotivo] = useState(kindConfig.defaultMotive)
+  const [motivoDebitoId, setMotivoDebitoId] = useState<string>(
+    motivosDebito[0] ? String(motivosDebito[0].id) : ""
+  )
   const [alcance, setAlcance] = useState("parcial")
   const [comprobanteReferenciaId, setComprobanteReferenciaId] = useState<string>("none")
   const [detalleOperativo, setDetalleOperativo] = useState("")
   const [deliveryChannel, setDeliveryChannel] = useState<"mail" | "manual">("manual")
   const [inheritReferenceDueDate, setInheritReferenceDueDate] = useState(kind === "debito")
+  const resolvedMotivoDebitoId =
+    motivoDebitoId || (motivosDebito[0] ? String(motivosDebito[0].id) : "")
 
   const selectedCustomer = useMemo(
     () => clientes.find((cliente) => cliente.id === form.terceroId) ?? null,
@@ -397,6 +408,9 @@ function CreditDebitNoteForm({
         "Conviene describir el motivo operativo para facilitar auditoría y seguimiento."
       )
     }
+    if (kind === "debito" && !motivoDebitoId && motivosDebito.length > 0) {
+      warnings.push("Seleccioná el motivo de débito informado por backend.")
+    }
     if (kind === "debito" && deliveryChannel === "mail" && !selectedCustomer?.email) {
       warnings.push("El cliente no tiene email informado para enviar la nota de débito.")
     }
@@ -419,9 +433,19 @@ function CreditDebitNoteForm({
     inheritReferenceDueDate,
     kind,
     lineItems.length,
+    motivoDebitoId,
+    motivosDebito.length,
     selectedCustomer?.email,
     selectedReference,
   ])
+
+  const debitMotiveOptions = useMemo(() => {
+    if (motivosDebito.length === 0) return kindConfig.motiveOptions
+    return motivosDebito.map((motivoBackend) => ({
+      value: String(motivoBackend.id),
+      label: `${motivoBackend.codigo} · ${motivoBackend.descripcion}`,
+    }))
+  }, [kindConfig.motiveOptions, motivosDebito])
 
   const addItem = (itemId: string) => {
     const item = items.find((current) => current.id === Number(itemId))
@@ -480,6 +504,10 @@ function CreditDebitNoteForm({
       setError("Sucursal, cliente, tipo de nota e ítems son obligatorios")
       return
     }
+    if (kind === "debito" && !resolvedMotivoDebitoId) {
+      setError("No hay un motivo de débito válido seleccionado")
+      return
+    }
 
     const observationParts = [
       `Motivo: ${motivo}`,
@@ -504,23 +532,70 @@ function CreditDebitNoteForm({
       form.observacion?.trim() || null,
     ].filter(Boolean)
 
-    const payload: EmitirComprobanteDto = {
-      ...form,
-      items: lineItems.map((item) => ({
-        itemId: item.itemId,
-        descripcion: item.descripcion,
-        cantidad: item.cantidad,
-        precioUnitario: item.precioUnitario,
-        descuento: item.descuento,
-        alicuotaIvaId: item.alicuotaIvaId,
-      })),
-      observacion: observationParts.join(" | ") || null,
-      fechaVto: form.fechaVto || null,
-    }
-
     setSaving(true)
     setError(null)
-    const ok = await emitir(payload)
+
+    const normalizedObservation = observationParts.join(" | ") || null
+    const normalizedItems = lineItems.map((item, index) => ({
+      itemId: item.itemId,
+      descripcion: item.descripcion,
+      cantidad: item.cantidad,
+      cantidadBonificada: 0,
+      precioUnitario: Math.round(item.precioUnitario),
+      descuentoPct: item.descuento,
+      alicuotaIvaId: item.alicuotaIvaId,
+      depositoId: null,
+      orden: index + 1,
+      lote: null,
+      serie: null,
+      fechaVencimiento: null,
+      unidadMedidaId: null,
+      observacionRenglon: null,
+      precioListaOriginal: item.precioUnitario,
+      comisionVendedorRenglon: null,
+      comprobanteItemOrigenId: null,
+      cantidadDocumentoOrigen: null,
+      precioDocumentoOrigen: null,
+    }))
+
+    const ok =
+      kind === "debito" && crearNotaDebito
+        ? await crearNotaDebito({
+            sucursalId: form.sucursalId,
+            puntoFacturacionId: null,
+            tipoComprobanteId: form.tipoComprobanteId,
+            fecha: form.fecha,
+            fechaVencimiento: form.fechaVto || null,
+            terceroId: form.terceroId,
+            monedaId: selectedCustomer?.monedaId ?? 1,
+            cotizacion: 1,
+            percepciones: 0,
+            observacion: normalizedObservation,
+            comprobanteOrigenId: selectedReference?.id ?? null,
+            motivoDebitoId: Number(resolvedMotivoDebitoId || 0),
+            motivoDebitoObservacion: detalleOperativo.trim() || null,
+            items: normalizedItems,
+            listaPreciosId: null,
+            vendedorId: selectedCustomer?.vendedorId ?? null,
+            canalVentaId: null,
+            condicionPagoId: null,
+            plazoDias: null,
+            emitir: true,
+          })
+        : await emitir({
+            ...form,
+            items: lineItems.map((item) => ({
+              itemId: item.itemId,
+              descripcion: item.descripcion,
+              cantidad: item.cantidad,
+              precioUnitario: item.precioUnitario,
+              descuento: item.descuento,
+              alicuotaIvaId: item.alicuotaIvaId,
+            })),
+            observacion: normalizedObservation,
+            fechaVto: form.fechaVto || null,
+          })
+
     setSaving(false)
 
     if (ok) onSaved()
@@ -702,12 +777,22 @@ function CreditDebitNoteForm({
             </div>
             <div className="space-y-1.5">
               <Label>Motivo</Label>
-              <Select value={motivo} onValueChange={setMotivo}>
+              <Select
+                value={
+                  kind === "debito" && motivosDebito.length > 0 ? resolvedMotivoDebitoId : motivo
+                }
+                onValueChange={
+                  kind === "debito" && motivosDebito.length > 0 ? setMotivoDebitoId : setMotivo
+                }
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {kindConfig.motiveOptions.map((option) => (
+                  {(kind === "debito" && motivosDebito.length > 0
+                    ? debitMotiveOptions
+                    : kindConfig.motiveOptions
+                  ).map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -732,9 +817,12 @@ function CreditDebitNoteForm({
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div className="flex items-start justify-between gap-4 rounded-lg border bg-background p-3">
                     <div>
-                      <p className="text-sm font-medium text-slate-900">Replicar vencimiento base</p>
+                      <p className="text-sm font-medium text-slate-900">
+                        Replicar vencimiento base
+                      </p>
                       <p className="text-xs text-muted-foreground">
-                        Toma el vencimiento del comprobante origen cuando existe, como en el flujo operativo legacy.
+                        Toma el vencimiento del comprobante origen cuando existe, siguiendo el
+                        circuito operativo actual.
                       </p>
                     </div>
                     <Switch
@@ -754,7 +842,8 @@ function CreditDebitNoteForm({
                     <div>
                       <p className="text-sm font-medium text-slate-900">Enviar copia por mail</p>
                       <p className="text-xs text-muted-foreground">
-                        Registra el canal de entrega del débito. Usa el email del cliente cuando está disponible.
+                        Registra el canal de entrega del débito. Usa el email del cliente cuando
+                        está disponible.
                       </p>
                     </div>
                     <Switch
@@ -1352,6 +1441,8 @@ export function VentasNotasPage({
     getById,
     refetch,
   } = useComprobantes({ esVenta: true })
+  const { crearNotaDebito, error: ventasError } = useVentasDocumentos()
+  const { motivos: motivosDebito } = useMotivosDebito()
   const { tipos } = useComprobantesConfig()
   const { terceros: clientes } = useTerceros()
   const { sucursales } = useSucursales()
@@ -1555,10 +1646,10 @@ export function VentasNotasPage({
         </div>
       </div>
 
-      {error && (
+      {(error || ventasError) && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{error ?? ventasError}</AlertDescription>
         </Alert>
       )}
 
@@ -1829,6 +1920,8 @@ export function VentasNotasPage({
             onClose={() => setIsFormOpen(false)}
             onSaved={handleSaved}
             emitir={emitir}
+            crearNotaDebito={crearNotaDebito}
+            motivosDebito={motivosDebito}
           />
         </DialogContent>
       </Dialog>

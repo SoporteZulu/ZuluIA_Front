@@ -1,9 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Eye, FileText, RotateCcw, Search, Filter, Edit, ClipboardCheck, Undo2 } from "lucide-react"
 
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,9 +36,17 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { apiGet } from "@/lib/api"
+import { useConfiguracion } from "@/lib/hooks/useConfiguracion"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
-import { legacySalesReturns, type LegacySalesReturn } from "@/lib/ventas-legacy-data"
+import { usePuntosFacturacion } from "@/lib/hooks/usePuntosFacturacion"
+import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
+import { useTerceros } from "@/lib/hooks/useTerceros"
+import { useVentasDevoluciones } from "@/lib/hooks/useVentasDevoluciones"
+import type { Comprobante, ComprobanteDetalle, TipoComprobante } from "@/lib/types/comprobantes"
+import type { Tercero } from "@/lib/types/terceros"
+import type { LegacySalesReturn } from "@/lib/ventas-legacy-data"
 import {
   buildLegacyReturnProfile,
   type LegacyReturnProfile,
@@ -71,6 +80,204 @@ function createResolutionLine(): LegacyReturnResolutionLine {
     accion: "",
     cantidad: "1",
   }
+}
+
+function normalizeDocumentNumber(value?: string | null) {
+  return (value ?? "").replace(/\s+/g, "").toUpperCase()
+}
+
+function mapBackendEstado(estado: string): LegacySalesReturn["estado"] {
+  if (estado === "BORRADOR") return "ABIERTA"
+  if (estado === "ANULADO") return "CERRADA"
+  return "APROBADA"
+}
+
+function resolveModalidad(
+  reingresaStock?: boolean,
+  acreditaCuentaCorriente?: boolean
+): LegacyReturnProfile["modalidad"] {
+  if (reingresaStock && acreditaCuentaCorriente) return "Mixta"
+  if (reingresaStock) return "Con stock"
+  return "No valorizada"
+}
+
+function buildLiveReturnRow(record: {
+  detalle: ComprobanteDetalle
+  cliente: string
+  deposito: string
+}): LegacySalesReturn {
+  return {
+    id: `backend-${record.detalle.id}`,
+    cliente: record.cliente,
+    factura: record.detalle.comprobanteOrigenNumero ?? "-",
+    remito: record.detalle.comprobanteOrigenTipo?.toLowerCase().includes("remito")
+      ? (record.detalle.comprobanteOrigenNumero ?? "-")
+      : "-",
+    motivo:
+      record.detalle.motivoDevolucionDescripcion ??
+      record.detalle.observacionDevolucion ??
+      "Devolución registrada",
+    estado: mapBackendEstado(record.detalle.estado),
+    fecha: record.detalle.fecha,
+    deposito: record.deposito,
+    total: Number(record.detalle.total ?? 0),
+  }
+}
+
+function buildLiveReturnProfile(record: {
+  detalle: ComprobanteDetalle
+  cliente: string
+  sucursal: string
+  deposito: string
+}): LegacyReturnProfile {
+  const detalle = record.detalle
+  return {
+    returnId: `backend-${detalle.id}`,
+    modalidad: resolveModalidad(detalle.reingresaStock, detalle.acreditaCuentaCorriente),
+    tipoComprobante: detalle.tipoComprobanteDescripcion ?? "Nota de crédito",
+    numeroComprobante: detalle.nroComprobante ?? `#${detalle.id}`,
+    canalIngreso: "Backend ventas",
+    prioridad: detalle.autorizadorDevolucionId ? "Media" : "Alta",
+    sectorResponsable: "Ventas / Postventa",
+    sucursal: record.sucursal,
+    condicionVenta: "Cuenta corriente",
+    listaPrecios: "Origen comercial",
+    fechaVencimiento: detalle.fechaVto ?? detalle.fecha,
+    condicionIva: "No informada",
+    cuit: "No informado",
+    calle: "No informada",
+    localidad: "No informada",
+    provincia: "No informada",
+    codigoPostal: "",
+    telefono: "",
+    observacionComprobante: detalle.observacion ?? "",
+    condicionMercaderia: detalle.reingresaStock ? "Con reintegro" : "Sin reintegro",
+    depositoDestino: record.deposito,
+    requiereRetiro: false,
+    generaNotaCredito: Boolean(detalle.acreditaCuentaCorriente),
+    notaCreditoReferencia: detalle.nroComprobante ?? "",
+    reingresaStock: Boolean(detalle.reingresaStock),
+    autorizadoPor: detalle.autorizadorDevolucionNombre ?? "",
+    causaRaiz:
+      detalle.observacionDevolucion ??
+      detalle.motivoDevolucionDescripcion ??
+      "Devolución registrada en backend",
+    observaciones: detalle.observacionDevolucion ?? "",
+    items: detalle.items.map((item) => ({
+      id: `return-line-backend-${detalle.id}-${item.id}`,
+      descripcion: item.descripcion,
+      accion: detalle.reingresaStock ? "Reingreso" : "Acreditación",
+      cantidad: String(item.cantidad),
+    })),
+  }
+}
+
+function isReturnCandidateDocument(document: Comprobante) {
+  const type = (document.tipoComprobanteDescripcion ?? "").toLowerCase()
+  if (document.estado === "ANULADO") return false
+  if (!normalizeDocumentNumber(document.nroComprobante)) return false
+  return type.includes("factura") || type.includes("remito")
+}
+
+function buildCandidateReturnRow(document: Comprobante, customerName: string): LegacySalesReturn {
+  const type = (document.tipoComprobanteDescripcion ?? "").toLowerCase()
+  const number = document.nroComprobante ?? `#${document.id}`
+  return {
+    id: `candidate-${document.id}`,
+    cliente: customerName,
+    factura: type.includes("factura") ? number : "-",
+    remito: type.includes("remito") ? number : "-",
+    motivo: "Pendiente de clasificar para devolución",
+    estado: "ABIERTA",
+    fecha: document.fecha,
+    deposito: "Depósito a definir",
+    total: Number(document.saldo > 0 ? document.saldo : (document.total ?? 0)),
+  }
+}
+
+function buildCandidateReturnProfile(
+  document: Comprobante,
+  customer: Tercero | null,
+  sucursal: string
+): LegacyReturnProfile {
+  return {
+    returnId: `candidate-${document.id}`,
+    modalidad: "No valorizada",
+    tipoComprobante: document.tipoComprobanteDescripcion ?? "Documento origen",
+    numeroComprobante: document.nroComprobante ?? `#${document.id}`,
+    canalIngreso: "Mesa comercial",
+    prioridad: document.saldo > 0 ? "Alta" : "Media",
+    sectorResponsable: "Ventas / Postventa",
+    sucursal,
+    condicionVenta: customer?.perfilComercial?.condicionVenta ?? "Origen comercial",
+    listaPrecios: "Origen comercial",
+    fechaVencimiento: document.fechaVto ?? document.fecha,
+    condicionIva: customer?.condicionIvaDescripcion ?? "No informada",
+    cuit: customer?.nroDocumento ?? "No informado",
+    calle: [customer?.calle, customer?.nro].filter(Boolean).join(" ") || "No informada",
+    localidad: customer?.localidadDescripcion ?? "No informada",
+    provincia: customer?.paisDescripcion ?? "No informada",
+    codigoPostal: customer?.codigoPostal ?? "",
+    telefono: customer?.telefono ?? customer?.celular ?? "",
+    observacionComprobante: document.observacion ?? "",
+    condicionMercaderia: "Pendiente de inspección",
+    depositoDestino: "Depósito a definir",
+    requiereRetiro: false,
+    generaNotaCredito: true,
+    notaCreditoReferencia: "",
+    reingresaStock: false,
+    autorizadoPor: "",
+    causaRaiz: "Pendiente de clasificar",
+    observaciones: "",
+    items: [
+      {
+        id: `return-line-candidate-${document.id}`,
+        descripcion:
+          document.observacion || document.tipoComprobanteDescripcion || "Devolución pendiente",
+        accion: "Inspección",
+        cantidad: "1",
+      },
+    ],
+  }
+}
+
+function resolveMotivoDevolucion(text: string) {
+  const normalized = text.toLowerCase()
+  if (normalized.includes("garant")) return 7
+  if (normalized.includes("precio")) return 5
+  if (normalized.includes("invent")) return 10
+  if (normalized.includes("defect") || normalized.includes("falla")) return 1
+  if (normalized.includes("entrega") || normalized.includes("equivoc")) return 2
+  if (normalized.includes("desist")) return 3
+  if (normalized.includes("venc")) return 4
+  if (/tr[aá]nsito/.test(normalized) || normalized.includes("dañ")) return 6
+  if (normalized.includes("sobrante") || normalized.includes("excedente")) return 8
+  if (normalized.includes("cambio")) return 9
+  return 99
+}
+
+function requiresAuthorization(motivoDevolucion: number) {
+  return motivoDevolucion === 5 || motivoDevolucion === 7 || motivoDevolucion === 10
+}
+
+function resolveTipoComprobanteDevolucion(
+  tiposComprobante: TipoComprobante[],
+  origen?: ComprobanteDetalle | null
+) {
+  const candidates = tiposComprobante.filter(
+    (tipo) => tipo.esVenta && tipo.descripcion.toLowerCase().includes("credito")
+  )
+  if (candidates.length === 0) return null
+
+  const origenTipo = origen
+    ? tiposComprobante.find((tipo) => tipo.id === origen.tipoComprobanteId)
+    : null
+  if (origenTipo?.letraAfip) {
+    const sameLetter = candidates.find((tipo) => tipo.letraAfip === origenTipo.letraAfip)
+    if (sameLetter) return sameLetter
+  }
+
+  return candidates[0]
 }
 
 function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
@@ -427,23 +634,208 @@ function LegacyReturnDialog({
 }
 
 export default function VentasDevolucionesPage() {
-  const { comprobantes } = useComprobantes({ esVenta: true })
+  const defaultSucursalId = useDefaultSucursalId()
+  const { comprobantes } = useComprobantes({ esVenta: true, sucursalId: defaultSucursalId })
+  const { terceros: clientes } = useTerceros({ sucursalId: defaultSucursalId ?? null })
+  const { sucursales } = useSucursales()
+  const { puntos } = usePuntosFacturacion(defaultSucursalId)
+  const { tiposComprobante } = useConfiguracion()
   const { rows: legacyProfiles, setRows: setLegacyProfiles } =
     useLegacyLocalCollection<LegacyReturnProfile>("ventas-devoluciones-legacy", [])
+  const customerById = useMemo(
+    () => new Map(clientes.map((cliente) => [cliente.id, cliente])),
+    [clientes]
+  )
+  const customerNameById = useMemo(
+    () => new Map(clientes.map((cliente) => [cliente.id, cliente.razonSocial])),
+    [clientes]
+  )
+  const sucursalNameById = useMemo(
+    () => new Map(sucursales.map((sucursal) => [sucursal.id, sucursal.descripcion])),
+    [sucursales]
+  )
+  const {
+    devoluciones,
+    error: devolucionesError,
+    registrar,
+  } = useVentasDevoluciones(comprobantes, customerNameById, sucursalNameById)
   const [selected, setSelected] = useState<LegacySalesReturn | null>(null)
   const [editing, setEditing] = useState<LegacySalesReturn | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState("todos")
   const [filterModalidad, setFilterModalidad] = useState("todos")
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const normalizedSearchTerm = searchTerm.toLowerCase().trim()
   const legacyById = new Map(legacyProfiles.map((profile) => [profile.returnId, profile]))
+  const liveRows = useMemo(() => devoluciones.map(buildLiveReturnRow), [devoluciones])
+  const liveProfileById = useMemo(
+    () =>
+      new Map(liveRows.map((row, index) => [row.id, buildLiveReturnProfile(devoluciones[index])])),
+    [devoluciones, liveRows]
+  )
+  const liveOriginIds = useMemo(
+    () => new Set(devoluciones.map((record) => record.detalle.comprobanteOrigenId).filter(Boolean)),
+    [devoluciones]
+  )
+  const candidateRows = useMemo(
+    () =>
+      comprobantes
+        .filter(
+          (row) =>
+            isReturnCandidateDocument(row) &&
+            !liveOriginIds.has(row.id) &&
+            Number(row.total ?? 0) > 0
+        )
+        .slice(0, 40)
+        .map((row) =>
+          buildCandidateReturnRow(
+            row,
+            customerNameById.get(row.terceroId) ?? `Cliente #${row.terceroId}`
+          )
+        ),
+    [comprobantes, customerNameById, liveOriginIds]
+  )
+  const candidateProfileById = useMemo(
+    () =>
+      new Map(
+        comprobantes
+          .filter(
+            (row) =>
+              isReturnCandidateDocument(row) &&
+              !liveOriginIds.has(row.id) &&
+              Number(row.total ?? 0) > 0
+          )
+          .slice(0, 40)
+          .map((row) => [
+            `candidate-${row.id}`,
+            buildCandidateReturnProfile(
+              row,
+              customerById.get(row.terceroId) ?? null,
+              sucursalNameById.get(row.sucursalId) ?? `Sucursal #${row.sucursalId}`
+            ),
+          ])
+      ),
+    [comprobantes, customerById, liveOriginIds, sucursalNameById]
+  )
+  const visibleRows = useMemo(
+    () =>
+      [...liveRows, ...candidateRows].sort((left, right) =>
+        `${right.fecha}-${right.id}`.localeCompare(`${left.fecha}-${left.id}`)
+      ),
+    [candidateRows, liveRows]
+  )
+  const comprobanteByNumber = useMemo(
+    () =>
+      new Map(
+        comprobantes
+          .filter((row) => normalizeDocumentNumber(row.nroComprobante) !== "")
+          .map((row) => [normalizeDocumentNumber(row.nroComprobante), row])
+      ),
+    [comprobantes]
+  )
 
   const getProfile = (row: LegacySalesReturn) => {
-    return legacyById.get(row.id) ?? buildLegacyReturnProfile(row)
+    return (
+      liveProfileById.get(row.id) ??
+      candidateProfileById.get(row.id) ??
+      legacyById.get(row.id) ??
+      buildLegacyReturnProfile(row)
+    )
   }
 
-  const saveProfile = (profile: LegacyReturnProfile) => {
+  const isLiveRow = (row: LegacySalesReturn) => liveProfileById.has(row.id)
+
+  const saveProfile = async (profile: LegacyReturnProfile) => {
+    setSubmitError(null)
+    if (profile.returnId.startsWith("backend-")) {
+      setEditing(null)
+      return
+    }
+
+    const sourceRow = editing ?? visibleRows.find((row) => row.id === profile.returnId) ?? null
+    if (!sourceRow) {
+      setSubmitError("No se encontró la devolución base para registrar en backend.")
+      return
+    }
+
+    const candidateDocumentId = sourceRow.id.startsWith("candidate-")
+      ? Number(sourceRow.id.replace("candidate-", ""))
+      : null
+    const originComprobante =
+      (candidateDocumentId !== null
+        ? (comprobantes.find((row) => row.id === candidateDocumentId) ?? null)
+        : null) ??
+      comprobanteByNumber.get(normalizeDocumentNumber(sourceRow.factura)) ??
+      comprobanteByNumber.get(normalizeDocumentNumber(sourceRow.remito)) ??
+      null
+    if (!originComprobante) {
+      setSubmitError("No se pudo relacionar la devolución con un comprobante origen visible.")
+      return
+    }
+
+    const originDetail = await apiGet<ComprobanteDetalle>(
+      `/api/ventas/documentos/${originComprobante.id}`
+    )
+    const tipoComprobante = resolveTipoComprobanteDevolucion(tiposComprobante, originDetail)
+    if (!tipoComprobante) {
+      setSubmitError("No hay un tipo de comprobante de nota de crédito configurado para ventas.")
+      return
+    }
+
+    const motivoDevolucion = resolveMotivoDevolucion(profile.causaRaiz || sourceRow.motivo)
+    const autorizadorId = /^\d+$/.test(profile.autorizadoPor.trim())
+      ? Number(profile.autorizadoPor.trim())
+      : null
+    if (requiresAuthorization(motivoDevolucion) && !autorizadorId) {
+      setSubmitError(
+        "Este motivo requiere un ID numérico de autorizador en el campo 'Autorizado por'."
+      )
+      return
+    }
+
+    const items = originDetail.items
+      .filter(
+        (item) =>
+          item.itemId > 0 && Number(item.cantidad ?? 0) > 0 && Number(item.alicuotaIvaId ?? 0) > 0
+      )
+      .map((item) => ({
+        itemId: item.itemId,
+        descripcion: item.descripcion,
+        cantidad: Number(item.cantidad ?? 0),
+        precioUnitario: Number(item.precioUnitario ?? 0),
+        descuento: Number(item.descuento ?? 0),
+        alicuotaIvaId: Number(item.alicuotaIvaId ?? 0),
+      }))
+    if (items.length === 0) {
+      setSubmitError("El comprobante origen no tiene ítems válidos para registrar la devolución.")
+      return
+    }
+
+    const selectedCustomer =
+      clientes.find((cliente) => cliente.id === originDetail.terceroId) ?? null
+    const ok = await registrar({
+      sucursalId: originDetail.sucursalId,
+      puntoFacturacionId: puntos[0]?.id ?? null,
+      tipoComprobanteId: tipoComprobante.id,
+      fecha: sourceRow.fecha,
+      fechaVencimiento: profile.fechaVencimiento || null,
+      terceroId: originDetail.terceroId,
+      monedaId: selectedCustomer?.monedaId ?? 1,
+      cotizacion: 1,
+      percepciones: 0,
+      observacion: profile.observacionComprobante || null,
+      comprobanteOrigenId: originDetail.id,
+      items,
+      reingresaStock: profile.reingresaStock,
+      acreditaCuentaCorriente: profile.generaNotaCredito,
+      motivoDevolucion,
+      observacionDevolucion: profile.causaRaiz || sourceRow.motivo,
+      autorizadorDevolucionId: autorizadorId,
+    })
+
+    if (!ok) return
+
     setLegacyProfiles((prev) => {
       const index = prev.findIndex((row) => row.returnId === profile.returnId)
       if (index === -1) return [...prev, profile]
@@ -452,7 +844,7 @@ export default function VentasDevolucionesPage() {
     setEditing(null)
   }
 
-  const filtered = legacySalesReturns.filter((row) => {
+  const filtered = visibleRows.filter((row) => {
     const profile = getProfile(row)
     const matchesSearch =
       normalizedSearchTerm === "" ||
@@ -471,17 +863,17 @@ export default function VentasDevolucionesPage() {
   })
 
   const highlighted =
-    filtered.find((row) => row.estado === "ABIERTA") ?? filtered[0] ?? legacySalesReturns[0] ?? null
+    filtered.find((row) => row.estado === "ABIERTA") ?? filtered[0] ?? visibleRows[0] ?? null
 
   const totals = {
-    total: legacySalesReturns.length,
-    abiertas: legacySalesReturns.filter((row) => row.estado === "ABIERTA").length,
-    aprobadas: legacySalesReturns.filter((row) => row.estado === "APROBADA").length,
-    importe: legacySalesReturns.reduce((sum, row) => sum + row.total, 0),
+    total: visibleRows.length,
+    abiertas: visibleRows.filter((row) => row.estado === "ABIERTA").length,
+    aprobadas: visibleRows.filter((row) => row.estado === "APROBADA").length,
+    importe: visibleRows.reduce((sum, row) => sum + row.total, 0),
   }
-  const configured = legacySalesReturns.filter((row) => legacyById.has(row.id)).length
-  const withCreditNote = legacyProfiles.filter((profile) => profile.generaNotaCredito).length
-  const withStockReentry = legacyProfiles.filter((profile) => profile.reingresaStock).length
+  const configured = visibleRows.filter((row) => legacyById.has(row.id)).length
+  const withCreditNote = visibleRows.filter((row) => getProfile(row).generaNotaCredito).length
+  const withStockReentry = visibleRows.filter((row) => getProfile(row).reingresaStock).length
   const linkedDocuments = comprobantes.filter(
     (row) => row.estado !== "ANULADO" && (row.nroComprobante ?? "").trim() !== ""
   ).length
@@ -520,8 +912,8 @@ export default function VentasDevolucionesPage() {
           <h1 className="text-3xl font-bold tracking-tight">Devoluciones</h1>
           <p className="mt-1 text-muted-foreground">
             Gestión comercial y logística de devoluciones con cabecera documental, cliente,
-            resolución e impacto en stock visibles en una sola vista. El seguimiento por ítem sigue
-            coordinándose localmente hasta contar con backend específico.
+            resolución e impacto en stock visibles en una sola vista. Cuando existen devoluciones
+            registradas, esta vista las toma desde backend sin alterar el layout actual.
           </p>
         </div>
         <div className="flex gap-2">
@@ -535,6 +927,12 @@ export default function VentasDevolucionesPage() {
           </Link>
         </div>
       </div>
+
+      {devolucionesError && (
+        <Alert variant="destructive">
+          <AlertDescription>{devolucionesError}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
         <Card>
@@ -635,8 +1033,9 @@ export default function VentasDevolucionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {configured} devoluciones ya tienen ficha operativa documentada con modalidad, cabecera
-            comercial, resolución e inspección.
+            {configured} fichas locales siguen disponibles para completar contexto operativo, y la
+            grilla ahora usa devoluciones backend o documentos reales candidatos en lugar de filas
+            semilla.
           </CardContent>
         </Card>
         <Card>
@@ -658,7 +1057,7 @@ export default function VentasDevolucionesPage() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             Hay {linkedDocuments} comprobantes de venta visibles para cruzar el circuito documental
-            mientras la resolución detallada sigue administrándose localmente.
+            y registrar nuevas devoluciones contra el servicio real.
           </CardContent>
         </Card>
         <Card>
@@ -773,28 +1172,38 @@ export default function VentasDevolucionesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-medium">{row.id.toUpperCase()}</TableCell>
-                    <TableCell className="wrap-break-word">
-                      {getProfile(row).tipoComprobante} {getProfile(row).numeroComprobante}
-                    </TableCell>
-                    <TableCell>{row.cliente}</TableCell>
-                    <TableCell>{row.factura}</TableCell>
-                    <TableCell>{row.remito}</TableCell>
-                    <TableCell>{getProfile(row).modalidad}</TableCell>
-                    <TableCell>{statusBadge(row.estado)}</TableCell>
-                    <TableCell className="text-right">{formatMoney(row.total)}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => setSelected(row)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setEditing(row)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
+                {filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                      No hay devoluciones ni documentos candidatos para los filtros actuales.
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  filtered.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-medium">{row.id.toUpperCase()}</TableCell>
+                      <TableCell className="wrap-break-word">
+                        {getProfile(row).tipoComprobante} {getProfile(row).numeroComprobante}
+                      </TableCell>
+                      <TableCell>{row.cliente}</TableCell>
+                      <TableCell>{row.factura}</TableCell>
+                      <TableCell>{row.remito}</TableCell>
+                      <TableCell>{getProfile(row).modalidad}</TableCell>
+                      <TableCell>{statusBadge(row.estado)}</TableCell>
+                      <TableCell className="text-right">{formatMoney(row.total)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => setSelected(row)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {!isLiveRow(row) ? (
+                          <Button variant="ghost" size="icon" onClick={() => setEditing(row)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
@@ -944,10 +1353,15 @@ export default function VentasDevolucionesPage() {
           <DialogHeader>
             <DialogTitle>Editar devolución</DialogTitle>
             <DialogDescription>
-              Cabecera, inspección y resolución persistidas sólo en frontend hasta disponer de
-              backend específico.
+              La ficha conserva el mismo formato visual y ahora puede registrar la devolución en el
+              backend cuando parte de una referencia documental visible.
             </DialogDescription>
           </DialogHeader>
+          {submitError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {submitError}
+            </div>
+          ) : null}
           {editing ? (
             <LegacyReturnDialog
               row={editing}

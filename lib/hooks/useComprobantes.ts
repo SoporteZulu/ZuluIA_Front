@@ -124,6 +124,7 @@ export function useComprobantes(options: UseComprobantesOptions = {}) {
   const emitir = async (dto: EmitirComprobanteDto): Promise<boolean> => {
     try {
       await apiPost<{ id: number }>("/api/comprobantes", dto)
+      await fetchComprobantes()
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al emitir comprobante")
@@ -134,6 +135,7 @@ export function useComprobantes(options: UseComprobantesOptions = {}) {
   const anular = async (id: number, revertirStock = true): Promise<boolean> => {
     try {
       await apiPost<void>(`/api/comprobantes/${id}/anular`, { revertirStock })
+      await fetchComprobantes()
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al anular comprobante")
@@ -149,6 +151,7 @@ export function useComprobantes(options: UseComprobantesOptions = {}) {
   ): Promise<boolean> => {
     try {
       await apiPost<void>(`/api/comprobantes/${id}/cae`, { cae, fechaVto, qrData })
+      await fetchComprobantes()
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al asignar CAE")

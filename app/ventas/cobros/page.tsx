@@ -195,7 +195,7 @@ export default function CobrosVentasPage() {
   const customerMap = useMemo(() => new Map(clientes.map((row) => [row.id, row])), [clientes])
   const sucursalMap = useMemo(() => new Map(sucursales.map((row) => [row.id, row])), [sucursales])
   const currentCustomer = form.terceroId ? customerMap.get(Number(form.terceroId)) : null
-  const currentSucursal = sucursalId ? sucursalMap.get(sucursalId) ?? null : null
+  const currentSucursal = sucursalId ? (sucursalMap.get(sucursalId) ?? null) : null
 
   const pendingDocs = useMemo(
     () =>
@@ -270,8 +270,7 @@ export default function CobrosVentasPage() {
         customerName.toLowerCase().includes(term) ||
         row.estado.toLowerCase().includes(term)
       const matchesStatus = statusFilter === "todos" || row.estado === statusFilter
-      const matchesCustomer =
-        customerFilter === "todos" || row.terceroId === Number(customerFilter)
+      const matchesCustomer = customerFilter === "todos" || row.terceroId === Number(customerFilter)
       return matchesSearch && matchesStatus && matchesCustomer
     })
   }, [cobros, customerFilter, customerMap, searchTerm, statusFilter])
@@ -294,11 +293,20 @@ export default function CobrosVentasPage() {
     form.imputaciones.forEach((row) => {
       const comprobante = pendingDocs.find((item) => item.id === Number(row.comprobanteId))
       if (comprobante && parseAmount(row.importe) > comprobante.saldo) {
-        warnings.push(`La imputación supera el saldo de ${formatComprobanteReference(comprobante)}.`)
+        warnings.push(
+          `La imputación supera el saldo de ${formatComprobanteReference(comprobante)}.`
+        )
       }
     })
     return Array.from(new Set(warnings))
-  }, [form.imputaciones, form.medios, form.terceroId, formTotals.imputaciones, formTotals.medios, pendingDocs])
+  }, [
+    form.imputaciones,
+    form.medios,
+    form.terceroId,
+    formTotals.imputaciones,
+    formTotals.medios,
+    pendingDocs,
+  ])
 
   const resetForm = () => {
     setForm(createEmptyForm())
@@ -377,7 +385,10 @@ export default function CobrosVentasPage() {
 
     if (
       form.imputaciones.some(
-        (row) => !row.comprobanteId || parseAmount(row.importe) <= 0 || Number.isNaN(parseAmount(row.importe))
+        (row) =>
+          !row.comprobanteId ||
+          parseAmount(row.importe) <= 0 ||
+          Number.isNaN(parseAmount(row.importe))
       )
     ) {
       setFormError("Cada imputación debe indicar comprobante e importe válido.")
@@ -503,8 +514,8 @@ export default function CobrosVentasPage() {
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
           Esta pantalla ya soporta recibos compuestos, ventanilla, cheque de cartera opcional e
-          imputación parcial. La conciliación avanzada y los lotes automáticos siguen dependiendo
-          de backend específico.
+          imputación parcial. La conciliación avanzada y los lotes automáticos siguen dependiendo de
+          backend específico.
         </AlertDescription>
       </Alert>
 
@@ -513,28 +524,36 @@ export default function CobrosVentasPage() {
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Cobros</p>
             <p className="mt-2 text-2xl font-bold text-slate-950">{totals.count}</p>
-            <p className="mt-1 text-xs text-slate-600">{totals.active} activos y {totals.annulled} anulados.</p>
+            <p className="mt-1 text-xs text-slate-600">
+              {totals.active} activos y {totals.annulled} anulados.
+            </p>
           </CardContent>
         </Card>
         <Card className="border-emerald-200 bg-emerald-50/80">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Importe visible</p>
             <p className="mt-2 text-2xl font-bold text-emerald-950">{formatMoney(totals.amount)}</p>
-            <p className="mt-1 text-xs text-emerald-800">Movimiento acumulado para la sucursal actual.</p>
+            <p className="mt-1 text-xs text-emerald-800">
+              Movimiento acumulado para la sucursal actual.
+            </p>
           </CardContent>
         </Card>
         <Card className="border-sky-200 bg-sky-50/80">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-sky-700">Clientes</p>
             <p className="mt-2 text-2xl font-bold text-sky-950">{totals.customers}</p>
-            <p className="mt-1 text-xs text-sky-800">Terceros con cobros visibles en esta bandeja.</p>
+            <p className="mt-1 text-xs text-sky-800">
+              Terceros con cobros visibles en esta bandeja.
+            </p>
           </CardContent>
         </Card>
         <Card className="border-amber-200 bg-amber-50/80">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Saldo pendiente</p>
             <p className="mt-2 text-2xl font-bold text-amber-950">{formatMoney(pendingTotal)}</p>
-            <p className="mt-1 text-xs text-amber-800">Sobre {pendingDocs.length} documentos del cliente en edición.</p>
+            <p className="mt-1 text-xs text-amber-800">
+              Sobre {pendingDocs.length} documentos del cliente en edición.
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -547,11 +566,13 @@ export default function CobrosVentasPage() {
               <CardTitle className="mt-1 text-xl">
                 {formatCobroReference(
                   highlighted,
-                  customerMap.get(highlighted.terceroId)?.razonSocial ?? `Cliente #${highlighted.terceroId}`
+                  customerMap.get(highlighted.terceroId)?.razonSocial ??
+                    `Cliente #${highlighted.terceroId}`
                 )}
               </CardTitle>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Registrado el {formatDate(highlighted.fecha)} con total {formatMoney(highlighted.total)}.
+                Registrado el {formatDate(highlighted.fecha)} con total{" "}
+                {formatMoney(highlighted.total)}.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -671,10 +692,14 @@ export default function CobrosVentasPage() {
                   {filteredCobros.map((row) => (
                     <TableRow key={row.id}>
                       <TableCell className="font-medium">#{row.id}</TableCell>
-                      <TableCell>{customerMap.get(row.terceroId)?.razonSocial ?? `#${row.terceroId}`}</TableCell>
+                      <TableCell>
+                        {customerMap.get(row.terceroId)?.razonSocial ?? `#${row.terceroId}`}
+                      </TableCell>
                       <TableCell>{formatDate(row.fecha)}</TableCell>
                       <TableCell>{renderStatusBadge(row.estado)}</TableCell>
-                      <TableCell className="text-right font-semibold">{formatMoney(row.total)}</TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatMoney(row.total)}
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button size="icon" variant="ghost" onClick={() => handleDetail(row.id)}>
@@ -711,7 +736,8 @@ export default function CobrosVentasPage() {
                 Múltiples medios de cobro en un mismo recibo con caja y forma de pago reales.
               </div>
               <div className="rounded-lg border bg-muted/30 p-3">
-                Imputación parcial a comprobantes pendientes y remanente explícito a cuenta corriente.
+                Imputación parcial a comprobantes pendientes y remanente explícito a cuenta
+                corriente.
               </div>
               <div className="rounded-lg border bg-muted/30 p-3">
                 Cheques de cartera opcionales cuando la caja dispone documentos vinculables.
@@ -756,7 +782,12 @@ export default function CobrosVentasPage() {
 
       {totalPages > 1 ? (
         <div className="flex items-center justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          >
             Anterior
           </Button>
           <span className="text-sm text-muted-foreground">
@@ -778,8 +809,8 @@ export default function CobrosVentasPage() {
           <DialogHeader>
             <DialogTitle>Nuevo cobro</DialogTitle>
             <DialogDescription>
-              Alta real con múltiples medios e imputaciones. La estructura replica el uso operativo
-              de recibos del legado con el contrato actual del backend.
+              Alta real con múltiples medios e imputaciones, alineada al contrato vigente del
+              backend.
             </DialogDescription>
           </DialogHeader>
 
@@ -794,21 +825,29 @@ export default function CobrosVentasPage() {
             <Card className="border-emerald-200 bg-emerald-50/80">
               <CardContent className="space-y-1 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Medios</p>
-                <p className="text-base font-semibold text-emerald-950">{formatMoney(formTotals.medios)}</p>
+                <p className="text-base font-semibold text-emerald-950">
+                  {formatMoney(formTotals.medios)}
+                </p>
                 <p className="text-xs text-emerald-800">{form.medios.length} medio(s) cargados</p>
               </CardContent>
             </Card>
             <Card className="border-sky-200 bg-sky-50/80">
               <CardContent className="space-y-1 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-sky-700">Imputado</p>
-                <p className="text-base font-semibold text-sky-950">{formatMoney(formTotals.imputaciones)}</p>
-                <p className="text-xs text-sky-800">{form.imputaciones.length} aplicación(es) cargadas</p>
+                <p className="text-base font-semibold text-sky-950">
+                  {formatMoney(formTotals.imputaciones)}
+                </p>
+                <p className="text-xs text-sky-800">
+                  {form.imputaciones.length} aplicación(es) cargadas
+                </p>
               </CardContent>
             </Card>
             <Card className="border-amber-200 bg-amber-50/80">
               <CardContent className="space-y-1 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-amber-700">A cuenta</p>
-                <p className="text-base font-semibold text-amber-950">{formatMoney(formTotals.aCuentaCorriente)}</p>
+                <p className="text-base font-semibold text-amber-950">
+                  {formatMoney(formTotals.aCuentaCorriente)}
+                </p>
                 <p className="text-xs text-amber-800">Remanente que no se asigna a documentos.</p>
               </CardContent>
             </Card>
@@ -866,14 +905,18 @@ export default function CobrosVentasPage() {
                     <Input
                       type="date"
                       value={form.fecha}
-                      onChange={(event) => setForm((prev) => ({ ...prev, fecha: event.target.value }))}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, fecha: event.target.value }))
+                      }
                     />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Modo operativo</Label>
                     <Select
                       value={form.mode}
-                      onValueChange={(value: CobroMode) => setForm((prev) => ({ ...prev, mode: value }))}
+                      onValueChange={(value: CobroMode) =>
+                        setForm((prev) => ({ ...prev, mode: value }))
+                      }
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -890,7 +933,9 @@ export default function CobrosVentasPage() {
                     <Textarea
                       rows={3}
                       value={form.observacion}
-                      onChange={(event) => setForm((prev) => ({ ...prev, observacion: event.target.value }))}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, observacion: event.target.value }))
+                      }
                       placeholder="Referencia interna, lote, comentario de cobranza o aclaración de caja"
                     />
                   </div>
@@ -906,14 +951,19 @@ export default function CobrosVentasPage() {
                       una sola registración.
                     </CardDescription>
                   </div>
-                  <Button type="button" variant="outline" className="bg-transparent" onClick={addPayment}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="bg-transparent"
+                    onClick={addPayment}
+                  >
                     <Plus className="mr-2 h-4 w-4" /> Agregar medio
                   </Button>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {form.medios.map((medio, index) => {
                     const cajaId = Number(medio.cajaId)
-                    const cartera = cajaId ? carteraByCaja[cajaId] ?? [] : []
+                    const cartera = cajaId ? (carteraByCaja[cajaId] ?? []) : []
                     const isLoadingCartera = cajaId ? loadingCartera[cajaId] : false
                     return (
                       <div key={medio.id} className="rounded-lg border p-4">
@@ -934,7 +984,9 @@ export default function CobrosVentasPage() {
                             <Label>Forma de pago</Label>
                             <Select
                               value={medio.formaPagoId}
-                              onValueChange={(value) => updatePayment(medio.id, { formaPagoId: value })}
+                              onValueChange={(value) =>
+                                updatePayment(medio.id, { formaPagoId: value })
+                              }
                             >
                               <SelectTrigger>
                                 <SelectValue placeholder="Seleccionar forma" />
@@ -1008,7 +1060,9 @@ export default function CobrosVentasPage() {
                               min={0}
                               step="0.01"
                               value={medio.importe}
-                              onChange={(event) => updatePayment(medio.id, { importe: event.target.value })}
+                              onChange={(event) =>
+                                updatePayment(medio.id, { importe: event.target.value })
+                              }
                             />
                           </div>
                         </div>
@@ -1052,7 +1106,12 @@ export default function CobrosVentasPage() {
                     <div key={imputacion.id} className="rounded-lg border p-4">
                       <div className="mb-3 flex items-center justify-between gap-2">
                         <p className="text-sm font-medium">Imputación {index + 1}</p>
-                        <Button type="button" size="icon" variant="ghost" onClick={() => removeAllocation(imputacion.id)}>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => removeAllocation(imputacion.id)}
+                        >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -1061,7 +1120,9 @@ export default function CobrosVentasPage() {
                           <Label>Comprobante</Label>
                           <Select
                             value={imputacion.comprobanteId}
-                            onValueChange={(value) => updateAllocation(imputacion.id, { comprobanteId: value })}
+                            onValueChange={(value) =>
+                              updateAllocation(imputacion.id, { comprobanteId: value })
+                            }
                           >
                             <SelectTrigger>
                               <SelectValue placeholder="Seleccionar comprobante" />
@@ -1082,7 +1143,9 @@ export default function CobrosVentasPage() {
                             min={0}
                             step="0.01"
                             value={imputacion.importe}
-                            onChange={(event) => updateAllocation(imputacion.id, { importe: event.target.value })}
+                            onChange={(event) =>
+                              updateAllocation(imputacion.id, { importe: event.target.value })
+                            }
                           />
                         </div>
                       </div>
@@ -1096,7 +1159,9 @@ export default function CobrosVentasPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Resumen operativo</CardTitle>
-                  <CardDescription>Lectura del recibo antes de registrar el movimiento real.</CardDescription>
+                  <CardDescription>
+                    Lectura del recibo antes de registrar el movimiento real.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">
                   <div className="flex items-center justify-between">
@@ -1198,7 +1263,9 @@ export default function CobrosVentasPage() {
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Detalle de cobro</DialogTitle>
-            <DialogDescription>Medios registrados y cobertura disponible para el recibo seleccionado.</DialogDescription>
+            <DialogDescription>
+              Medios registrados y cobertura disponible para el recibo seleccionado.
+            </DialogDescription>
           </DialogHeader>
           {detailLoading ? (
             <div className="py-10 text-center text-muted-foreground">Cargando detalle...</div>
@@ -1267,15 +1334,17 @@ export default function CobrosVentasPage() {
                       El backend devuelve el encabezado del cobro y sus medios registrados.
                     </div>
                     <div className="rounded-lg border p-4">
-                      La trazabilidad completa de imputaciones y conciliación avanzada sigue reservada
-                      para una integración posterior.
+                      La trazabilidad completa de imputaciones y conciliación avanzada sigue
+                      reservada para una integración posterior.
                     </div>
                   </CardContent>
                 </Card>
               </TabsContent>
             </Tabs>
           ) : (
-            <div className="py-10 text-center text-muted-foreground">No se pudo cargar el detalle del cobro.</div>
+            <div className="py-10 text-center text-muted-foreground">
+              No se pudo cargar el detalle del cobro.
+            </div>
           )}
         </DialogContent>
       </Dialog>

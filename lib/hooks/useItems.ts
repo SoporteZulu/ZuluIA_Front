@@ -1,7 +1,7 @@
-'use client'
+"use client"
 
-import { useState, useEffect, useCallback } from 'react'
-import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api'
+import { useState, useEffect, useCallback } from "react"
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api"
 import type {
   Item,
   CreateItemDto,
@@ -10,7 +10,7 @@ import type {
   UnidadMedida,
   AlicuotaIva,
   Moneda,
-} from '@/lib/types/items'
+} from "@/lib/types/items"
 
 export function useItems() {
   const [items, setItems] = useState<Item[]>([])
@@ -19,7 +19,7 @@ export function useItems() {
   const [totalCount, setTotalCount] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [page, setPage] = useState(1)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState("")
 
   const fetchItems = useCallback(async () => {
     setLoading(true)
@@ -30,37 +30,36 @@ export function useItems() {
       )
       const normalize = (p: Item): Item => ({
         ...p,
-        precioCosto:  Number(p.precioCosto  ?? 0),
-        precioVenta:  Number(p.precioVenta  ?? 0),
-        stockMinimo:  Number(p.stockMinimo  ?? 0),
-        stock:        p.stock !== undefined ? Number(p.stock) : undefined,
+        precioCosto: Number(p.precioCosto ?? 0),
+        precioVenta: Number(p.precioVenta ?? 0),
+        stockMinimo: Number(p.stockMinimo ?? 0),
+        stock: p.stock !== undefined ? Number(p.stock) : undefined,
       })
 
-      // Handle both paged response and plain array
-      if (Array.isArray(result.items)) {
-        setItems((result.items as Item[]).map(normalize))
-        setTotalCount((result.items as Item[]).length)
-        setTotalPages(1)
-      } else {
-        setItems((result.items as unknown as Item[]).map(normalize))
-        setTotalCount(result.totalCount)
-        setTotalPages(result.totalPages)
-      }
+      const itemsList = Array.isArray(result) ? result : (result.items ?? [])
+      setItems(itemsList.map(normalize))
+      setTotalCount(
+        Array.isArray(result) ? itemsList.length : (result.totalCount ?? itemsList.length)
+      )
+      setTotalPages(Array.isArray(result) ? 1 : (result.totalPages ?? 1))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar productos')
+      setError(e instanceof Error ? e.message : "Error al cargar productos")
     } finally {
       setLoading(false)
     }
   }, [page, search])
 
-  useEffect(() => { fetchItems() }, [fetchItems])
+  useEffect(() => {
+    fetchItems()
+  }, [fetchItems])
 
   const createItem = async (dto: CreateItemDto): Promise<boolean> => {
     try {
-      await apiPost<Item>('/api/items', dto)
+      await apiPost<Item>("/api/items", dto)
+      await fetchItems()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al crear producto')
+      setError(e instanceof Error ? e.message : "Error al crear producto")
       return false
     }
   }
@@ -68,9 +67,10 @@ export function useItems() {
   const updateItem = async (id: number, dto: Partial<CreateItemDto>): Promise<boolean> => {
     try {
       await apiPut<Item>(`/api/items/${id}`, dto)
+      await fetchItems()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al actualizar producto')
+      setError(e instanceof Error ? e.message : "Error al actualizar producto")
       return false
     }
   }
@@ -78,9 +78,10 @@ export function useItems() {
   const deleteItem = async (id: number): Promise<boolean> => {
     try {
       await apiDelete(`/api/items/${id}`)
+      await fetchItems()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al desactivar producto')
+      setError(e instanceof Error ? e.message : "Error al desactivar producto")
       return false
     }
   }
@@ -111,14 +112,13 @@ export function useItemsConfig() {
 
   useEffect(() => {
     Promise.all([
-      apiGet<CategoriaItem[] | PagedResult<CategoriaItem>>('/api/categorias-items'),
-      apiGet<UnidadMedida[] | PagedResult<UnidadMedida>>('/api/configuracion/unidades-medida'),
-      apiGet<AlicuotaIva[] | PagedResult<AlicuotaIva>>('/api/configuracion/alicuotas-iva'),
-      apiGet<Moneda[] | PagedResult<Moneda>>('/api/configuracion/monedas'),
+      apiGet<CategoriaItem[] | PagedResult<CategoriaItem>>("/api/categorias-items"),
+      apiGet<UnidadMedida[] | PagedResult<UnidadMedida>>("/api/configuracion/unidades-medida"),
+      apiGet<AlicuotaIva[] | PagedResult<AlicuotaIva>>("/api/configuracion/alicuotas-iva"),
+      apiGet<Moneda[] | PagedResult<Moneda>>("/api/configuracion/monedas"),
     ])
       .then(([cats, units, alic, mons]) => {
-        const toArray = <T>(r: T[] | PagedResult<T>): T[] =>
-          Array.isArray(r) ? r : r.items
+        const toArray = <T>(r: T[] | PagedResult<T>): T[] => (Array.isArray(r) ? r : r.items)
 
         setCategorias(toArray(cats))
         setUnidades(toArray(units))
@@ -126,7 +126,7 @@ export function useItemsConfig() {
         setMonedas(toArray(mons))
       })
       .catch((e) => {
-        console.error('Error cargando datos de configuración de items:', e)
+        console.error("Error cargando datos de configuración de items:", e)
       })
       .finally(() => setLoading(false))
   }, [])
