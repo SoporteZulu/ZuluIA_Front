@@ -100,6 +100,8 @@ interface CustomerSections {
   ventanasCobranza: TerceroVentanaCobranza[]
 }
 
+const MAX_CUSTOMER_DELIVERY_ADDRESSES = 3
+
 function createDraftId(prefix: string) {
   return `${prefix}-${globalThis.crypto.randomUUID()}`
 }
@@ -144,6 +146,20 @@ function withSinglePrincipal<T extends { id?: number | string; principal?: boole
   })
 }
 
+function ensureSinglePrincipal<T extends { principal?: boolean }>(rows: T[]) {
+  if (rows.length === 0) {
+    return rows
+  }
+
+  const principalIndex = rows.findIndex((row) => row.principal)
+  const effectivePrincipalIndex = principalIndex === -1 ? 0 : principalIndex
+
+  return rows.map((row, index) => ({
+    ...row,
+    principal: index === effectivePrincipalIndex,
+  }))
+}
+
 function createEmptyPerfilComercial(): TerceroPerfilComercial {
   return {
     zonaComercialId: null,
@@ -176,7 +192,7 @@ function createCustomerContact(): TerceroContacto {
   }
 }
 
-function createCustomerBranch(): TerceroSucursalEntrega {
+function createCustomerBranch(principal = false): TerceroSucursalEntrega {
   return {
     id: createDraftId("branch"),
     descripcion: "",
@@ -185,9 +201,21 @@ function createCustomerBranch(): TerceroSucursalEntrega {
     responsable: "",
     telefono: "",
     horario: "",
-    principal: false,
+    principal,
     orden: null,
   }
+}
+
+function addCustomerBranch(rows: TerceroSucursalEntrega[]) {
+  if (rows.length >= MAX_CUSTOMER_DELIVERY_ADDRESSES) {
+    return rows
+  }
+
+  return [...rows, createCustomerBranch(rows.length === 0)]
+}
+
+function removeCustomerBranch(rows: TerceroSucursalEntrega[], id: number | string | undefined) {
+  return ensureSinglePrincipal(rows.filter((row) => row.id !== id))
 }
 
 function createCustomerTransport(): TerceroTransporte {
@@ -229,11 +257,13 @@ function normalizeCustomerSections(sections?: Partial<CustomerSections> | null):
       ...contact,
       id: contact.id ?? createDraftId("contact"),
     })),
-    sucursalesEntrega: (sections?.sucursalesEntrega ?? []).map((branch) => ({
-      ...createCustomerBranch(),
-      ...branch,
-      id: branch.id ?? createDraftId("branch"),
-    })),
+    sucursalesEntrega: ensureSinglePrincipal(
+      (sections?.sucursalesEntrega ?? []).map((branch) => ({
+        ...createCustomerBranch(),
+        ...branch,
+        id: branch.id ?? createDraftId("branch"),
+      }))
+    ),
     transportes: (sections?.transportes ?? []).map((transport) => ({
       ...createCustomerTransport(),
       ...transport,
@@ -614,8 +644,8 @@ function CustomerForm({
       form.limiteCredito !== null ? "Crédito definido" : "Sin límite de crédito",
       sections.contactos.length > 0 ? `${sections.contactos.length} contacto(s)` : "Sin contactos",
       sections.sucursalesEntrega.length > 0
-        ? `${sections.sucursalesEntrega.length} entrega(s)`
-        : "Sin puntos de entrega",
+        ? `${sections.sucursalesEntrega.length} domicilio(s) de entrega`
+        : "Sin domicilios de entrega",
       sections.transportes.length > 0
         ? `${sections.transportes.length} transporte(s)`
         : "Sin transportes",
@@ -699,9 +729,15 @@ function CustomerForm({
     }
 
     if (sections.sucursalesEntrega.length === 0) {
-      warnings.push("No hay puntos de entrega cargados.")
+      warnings.push("No hay domicilios de entrega cargados.")
     } else if (!sections.sucursalesEntrega.some((branch) => branch.principal)) {
-      warnings.push("Conviene marcar una sucursal principal de entrega.")
+      warnings.push("Conviene marcar un domicilio principal de entrega.")
+    }
+
+    if (sections.sucursalesEntrega.length > MAX_CUSTOMER_DELIVERY_ADDRESSES) {
+      warnings.push(
+        `Solo se permiten ${MAX_CUSTOMER_DELIVERY_ADDRESSES} domicilios de entrega por cliente.`
+      )
     }
 
     if (
@@ -805,6 +841,10 @@ function CustomerForm({
     }
     if (!form.esCliente && (form.categoriaClienteId || form.estadoClienteId)) {
       return "No puede informar categoría o estado de cliente si el rol cliente está desactivado"
+    }
+
+    if (sections.sucursalesEntrega.length > MAX_CUSTOMER_DELIVERY_ADDRESSES) {
+      return `Solo se permiten ${MAX_CUSTOMER_DELIVERY_ADDRESSES} domicilios de entrega por cliente`
     }
 
     if (form.aplicaComisionCobrador) {
@@ -917,32 +957,34 @@ function CustomerForm({
   }
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-3 md:grid-cols-4">
-        <Card className="border-slate-200 bg-slate-50/80">
+    <div className="space-y-5 overflow-x-hidden">
+      <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
+        <Card className="min-w-0 border-slate-200 bg-slate-50/80">
           <CardContent className="space-y-1 p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Ficha</p>
             <p className="min-w-0 wrap-break-word text-base font-semibold text-slate-900">
               {form.razonSocial || "Nuevo cliente"}
             </p>
-            <p className="text-xs text-slate-600">
+            <p className="min-w-0 wrap-break-word text-xs text-slate-600">
               {form.nombreFantasia || "Completá identidad comercial y fiscal"}
             </p>
           </CardContent>
         </Card>
-        <Card className="border-emerald-200 bg-emerald-50/80">
+        <Card className="min-w-0 border-emerald-200 bg-emerald-50/80">
           <CardContent className="space-y-1 p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Circuito</p>
-            <p className="text-base font-semibold text-emerald-950">
+            <p className="min-w-0 wrap-break-word text-base font-semibold text-emerald-950">
               {form.facturable ? "Listo para facturar" : "Registro restringido"}
             </p>
-            <p className="text-xs text-emerald-800">{formatMoney(form.limiteCredito)}</p>
+            <p className="min-w-0 wrap-break-word text-xs text-emerald-800">
+              {formatMoney(form.limiteCredito)}
+            </p>
           </CardContent>
         </Card>
-        <Card className="border-sky-200 bg-sky-50/80">
+        <Card className="min-w-0 border-sky-200 bg-sky-50/80">
           <CardContent className="space-y-1 p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-sky-700">Cobertura</p>
-            <p className="text-base font-semibold text-sky-950">
+            <p className="min-w-0 wrap-break-word text-base font-semibold text-sky-950">
               {sections.contactos.length +
                 sections.sucursalesEntrega.length +
                 sections.transportes.length}{" "}
@@ -953,11 +995,13 @@ function CustomerForm({
             </p>
           </CardContent>
         </Card>
-        <Card className="border-amber-200 bg-amber-50/80">
+        <Card className="min-w-0 border-amber-200 bg-amber-50/80">
           <CardContent className="space-y-1 p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Vista integral</p>
-            <p className="text-base font-semibold text-amber-950">Ficha comercial completa</p>
-            <p className="text-xs text-amber-800">
+            <p className="min-w-0 wrap-break-word text-base font-semibold text-amber-950">
+              Ficha comercial completa
+            </p>
+            <p className="min-w-0 wrap-break-word text-xs text-amber-800">
               La operación, la cobranza y las entregas quedan en una sola lectura, ordenada y clara.
             </p>
           </CardContent>
@@ -965,7 +1009,7 @@ function CustomerForm({
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+        <TabsList className="flex h-auto w-full min-w-0 gap-2 overflow-x-auto rounded-xl p-1.5 md:grid md:grid-cols-4 md:overflow-visible 2xl:grid-cols-8">
           {[
             { key: "ficha", label: "Ficha" },
             { key: "ubicacion", label: "Ubicación" },
@@ -976,7 +1020,11 @@ function CustomerForm({
             { key: "entregas", label: "Entregas" },
             { key: "operacion", label: "Operación" },
           ].map((t) => (
-            <TabsTrigger key={t.key} value={t.key} className="text-xs capitalize py-2">
+            <TabsTrigger
+              key={t.key}
+              value={t.key}
+              className="min-w-33 flex-none px-3 py-2 text-xs capitalize md:min-w-0 md:flex-1"
+            >
               {t.label}
             </TabsTrigger>
           ))}
@@ -1018,7 +1066,7 @@ function CustomerForm({
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.9fr)]">
+          <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.95fr)]">
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Identidad del cliente</CardTitle>
@@ -1401,7 +1449,7 @@ function CustomerForm({
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Operación comercial</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <CardContent className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
               <div className="space-y-1.5">
                 <Label>Moneda</Label>
                 <Select
@@ -1622,7 +1670,7 @@ function CustomerForm({
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Perfil comercial y segmentación</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <CardContent className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
               <div className="space-y-1.5">
                 <Label>ID zona comercial</Label>
                 <Input
@@ -1794,7 +1842,7 @@ function CustomerForm({
                   }
                 />
               </div>
-              <div className="space-y-1.5 md:col-span-2 xl:col-span-3">
+              <div className="space-y-1.5 md:col-span-2 2xl:col-span-3">
                 <Label>Observación comercial</Label>
                 <Textarea
                   className="h-28 resize-none"
@@ -1813,12 +1861,12 @@ function CustomerForm({
 
         <TabsContent value="contactos" className="mt-4 space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+            <CardHeader className="flex flex-col items-start justify-between gap-4 pb-3 sm:flex-row sm:items-center">
               <CardTitle className="text-base">Referentes y canales de contacto</CardTitle>
               <Button
                 type="button"
                 variant="outline"
-                className="bg-transparent"
+                className="w-full bg-transparent sm:w-auto"
                 onClick={() =>
                   updateSections("contactos", [...sections.contactos, createCustomerContact()])
                 }
@@ -1839,7 +1887,7 @@ function CustomerForm({
               ) : null}
               {sections.contactos.map((contact) => (
                 <div key={contact.id} className="rounded-xl border p-4 space-y-3">
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
                     <Input
                       placeholder="Nombre"
                       value={contact.nombre ?? ""}
@@ -1908,38 +1956,46 @@ function CustomerForm({
 
         <TabsContent value="entregas" className="mt-4 space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+            <CardHeader className="flex flex-col items-start justify-between gap-4 pb-3 sm:flex-row sm:items-center">
               <CardTitle className="text-base">Entregas y sucursales</CardTitle>
               <Button
                 type="button"
                 variant="outline"
-                className="bg-transparent"
+                className="w-full bg-transparent sm:w-auto"
+                disabled={sections.sucursalesEntrega.length >= MAX_CUSTOMER_DELIVERY_ADDRESSES}
                 onClick={() =>
-                  updateSections("sucursalesEntrega", [
-                    ...sections.sucursalesEntrega,
-                    createCustomerBranch(),
-                  ])
+                  updateSections("sucursalesEntrega", addCustomerBranch(sections.sucursalesEntrega))
                 }
               >
-                <Plus className="mr-2 h-4 w-4" /> Nueva sucursal
+                <Plus className="mr-2 h-4 w-4" /> Agregar domicilio
               </Button>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className="flex flex-col gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  Podés registrar hasta {MAX_CUSTOMER_DELIVERY_ADDRESSES} domicilios de entrega y
+                  uno queda como principal.
+                </span>
+                <span className="font-medium text-slate-900">
+                  {sections.sucursalesEntrega.length} / {MAX_CUSTOMER_DELIVERY_ADDRESSES}
+                </span>
+              </div>
               {sections.sucursalesEntrega.length === 0 ? (
                 <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  Cargá domicilios de entrega, responsables y horarios por sucursal.
+                  Cargá hasta {MAX_CUSTOMER_DELIVERY_ADDRESSES} domicilios de entrega, con
+                  responsable, teléfono y horario.
                 </div>
               ) : null}
-              {sections.sucursalesEntrega.length > 1 ? (
+              {sections.sucursalesEntrega.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  Solo una sucursal de entrega puede quedar como principal.
+                  Solo un domicilio de entrega puede quedar como principal.
                 </p>
               ) : null}
               {sections.sucursalesEntrega.map((branch) => (
                 <div key={branch.id} className="rounded-xl border p-4 space-y-3">
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
                     <Input
-                      placeholder="Descripción"
+                      placeholder="Descripción o alias"
                       value={branch.descripcion ?? ""}
                       onChange={(e) => updateBranch(branch.id, { descripcion: e.target.value })}
                     />
@@ -1972,8 +2028,8 @@ function CustomerForm({
                       onChange={(e) => updateBranch(branch.id, { horario: e.target.value })}
                     />
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-2">
                       {branch.principal ? (
                         <Badge variant="secondary" className="w-fit">
                           Principal
@@ -1985,16 +2041,17 @@ function CustomerForm({
                           updateBranch(branch.id, { principal: checked })
                         }
                       />
-                      <Label>Sucursal principal</Label>
+                      <Label>Domicilio principal</Label>
                     </div>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
+                      className="w-full sm:w-auto"
                       onClick={() =>
                         updateSections(
                           "sucursalesEntrega",
-                          sections.sucursalesEntrega.filter((row) => row.id !== branch.id)
+                          removeCustomerBranch(sections.sucursalesEntrega, branch.id)
                         )
                       }
                     >
@@ -2008,14 +2065,14 @@ function CustomerForm({
         </TabsContent>
 
         <TabsContent value="operacion" className="mt-4 space-y-4">
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-4 2xl:grid-cols-2">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+              <CardHeader className="flex flex-col items-start justify-between gap-4 pb-3 sm:flex-row sm:items-center">
                 <CardTitle className="text-base">Transportes asociados</CardTitle>
                 <Button
                   type="button"
                   variant="outline"
-                  className="bg-transparent"
+                  className="w-full bg-transparent sm:w-auto"
                   onClick={() =>
                     updateSections("transportes", [
                       ...sections.transportes,
@@ -2039,7 +2096,7 @@ function CustomerForm({
                 ) : null}
                 {sections.transportes.map((transport) => (
                   <div key={transport.id} className="rounded-xl border p-4 space-y-3">
-                    <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
                       <Input
                         type="number"
                         min={1}
@@ -2081,10 +2138,10 @@ function CustomerForm({
                         onChange={(e) =>
                           updateTransport(transport.id, { observacion: e.target.value })
                         }
-                        className="resize-none"
+                        className="resize-none 2xl:col-span-2"
                       />
                     </div>
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex flex-wrap items-center gap-4">
                         {transport.principal ? (
                           <Badge variant="secondary" className="w-fit">
@@ -2114,6 +2171,7 @@ function CustomerForm({
                         type="button"
                         variant="ghost"
                         size="sm"
+                        className="w-full sm:w-auto"
                         onClick={() =>
                           updateSections(
                             "transportes",
@@ -2130,12 +2188,12 @@ function CustomerForm({
             </Card>
 
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+              <CardHeader className="flex flex-col items-start justify-between gap-4 pb-3 sm:flex-row sm:items-center">
                 <CardTitle className="text-base">Cobranza, roles y observaciones</CardTitle>
                 <Button
                   type="button"
                   variant="outline"
-                  className="bg-transparent"
+                  className="w-full bg-transparent sm:w-auto"
                   onClick={() =>
                     updateSections("ventanasCobranza", [
                       ...sections.ventanasCobranza,
@@ -2147,7 +2205,7 @@ function CustomerForm({
                 </Button>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 2xl:grid-cols-2">
                   <Card className="border-dashed">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm">Roles del registro</CardTitle>
@@ -2215,7 +2273,7 @@ function CustomerForm({
                   ) : null}
                   {sections.ventanasCobranza.map((window) => (
                     <div key={window.id} className="rounded-xl border p-4 space-y-3">
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
                         <Input
                           placeholder="Día"
                           value={window.dia ?? ""}
@@ -2245,8 +2303,8 @@ function CustomerForm({
                           }
                         />
                       </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-wrap items-center gap-2">
                           {window.principal ? (
                             <Badge variant="secondary" className="w-fit">
                               Ventana principal
@@ -2264,6 +2322,7 @@ function CustomerForm({
                           type="button"
                           variant="ghost"
                           size="sm"
+                          className="w-full sm:w-auto"
                           onClick={() =>
                             updateSections(
                               "ventanasCobranza",
@@ -2289,11 +2348,11 @@ function CustomerForm({
         </p>
       )}
 
-      <div className="flex justify-end gap-2 pt-2 border-t">
-        <Button variant="outline" onClick={onClose} className="bg-transparent">
+      <div className="flex flex-col-reverse gap-2 border-t pt-2 sm:flex-row sm:justify-end">
+        <Button variant="outline" onClick={onClose} className="w-full bg-transparent sm:w-auto">
           Cancelar
         </Button>
-        <Button onClick={handleSave} disabled={saving}>
+        <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
           <Check className="h-4 w-4 mr-2" />
           {saving ? "Guardando..." : customer ? "Guardar cambios" : "Crear cliente"}
         </Button>
@@ -2518,7 +2577,7 @@ function ClienteDetail({
       customer.limiteCredito !== null ? "Límite de crédito" : null,
       customer.condicionIvaDescripcion ? "Cobertura fiscal" : null,
       sections.contactos.length > 0 ? "Contactos adicionales" : null,
-      sections.sucursalesEntrega.length > 0 ? "Sucursales y entregas" : null,
+      sections.sucursalesEntrega.length > 0 ? "Domicilios de entrega" : null,
       sections.transportes.length > 0 ? "Transportes asociados" : null,
       sections.ventanasCobranza.length > 0 ? "Ventanas de cobranza" : null,
       profile.zonaComercialId || profile.zonaComercialDescripcion || profile.rubro
@@ -2527,7 +2586,7 @@ function ClienteDetail({
     ].filter(Boolean) as string[],
     missing: [
       sections.contactos.length === 0 ? "Sin contactos adicionales" : null,
-      sections.sucursalesEntrega.length === 0 ? "Sin sucursales de entrega" : null,
+      sections.sucursalesEntrega.length === 0 ? "Sin domicilios de entrega" : null,
       sections.transportes.length === 0 ? "Sin transportes asociados" : null,
       sections.ventanasCobranza.length === 0 ? "Sin ventanas de cobranza" : null,
       !customer.estadoClienteDescripcion ? "Sin estado cliente" : null,
@@ -2539,7 +2598,7 @@ function ClienteDetail({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-2">
         {detailSections.map((section) => {
           const Icon = section.icon
           return (
@@ -2565,7 +2624,7 @@ function ClienteDetail({
           )
         })}
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Canales de contacto</CardTitle>
@@ -2602,7 +2661,7 @@ function ClienteDetail({
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
@@ -2624,20 +2683,33 @@ function ClienteDetail({
         </Card>
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <MapPin className="h-4 w-4" /> Sucursales y entrega
-            </CardTitle>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <MapPin className="h-4 w-4" /> Domicilios de entrega
+              </CardTitle>
+              <Badge variant="outline" className="w-fit text-xs">
+                {sections.sucursalesEntrega.length} / {MAX_CUSTOMER_DELIVERY_ADDRESSES}
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             {sections.sucursalesEntrega.length === 0 ? (
-              <div className="rounded-lg bg-muted/40 p-3">Sin sucursales registradas</div>
+              <div className="rounded-lg bg-muted/40 p-3">Sin domicilios registrados</div>
             ) : null}
             {sections.sucursalesEntrega.map((branch) => (
               <div key={branch.id} className="rounded-lg bg-muted/40 p-3">
-                <p className="font-medium text-foreground">
-                  {branch.descripcion || "Sucursal sin nombre"}
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-medium text-foreground">
+                    {branch.descripcion || "Domicilio sin nombre"}
+                  </p>
+                  {branch.principal ? (
+                    <Badge variant="secondary" className="w-fit">
+                      Principal
+                    </Badge>
+                  ) : null}
+                </div>
                 <p>{branch.direccion || "Sin dirección"}</p>
+                <p>{branch.localidad || "Sin localidad"}</p>
                 <p>{branch.horario || "Sin horario"}</p>
               </div>
             ))}
@@ -2730,11 +2802,11 @@ function ClienteDetail({
         {customer.esProveedor && <Badge variant="outline">Proveedor</Badge>}
         {customer.esEmpleado && <Badge variant="outline">Empleado</Badge>}
       </div>
-      <DialogFooter className="gap-2 mt-2">
-        <Button variant="outline" onClick={onClose} className="bg-transparent">
+      <DialogFooter className="mt-2 gap-2">
+        <Button variant="outline" onClick={onClose} className="w-full bg-transparent sm:w-auto">
           Cerrar
         </Button>
-        <Button onClick={onEdit}>
+        <Button onClick={onEdit} className="w-full sm:w-auto">
           <Edit className="h-4 w-4 mr-2" /> Editar ficha completa
         </Button>
       </DialogFooter>
@@ -3016,7 +3088,7 @@ export default function ClientesPage() {
 
   return (
     <div className="space-y-6 pb-6">
-      <div className="flex justify-between items-start">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-bold tracking-tight">Clientes</h1>
           <p className="text-muted-foreground">
@@ -3024,6 +3096,7 @@ export default function ClientesPage() {
           </p>
         </div>
         <Button
+          className="w-full sm:w-auto"
           onClick={() => {
             setEditingCustomer(null)
             setEditingCustomerSections(normalizeCustomerSections(null))
@@ -3037,7 +3110,7 @@ export default function ClientesPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         {[
           {
             label: "Total Clientes",
@@ -3114,169 +3187,8 @@ export default function ClientesPage() {
         ))}
       </div>
 
-      {/* Filtros */}
-      <Card>
-        <CardContent className="pt-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-            <div className="flex-1 min-w-48">
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por razón social o CUIT..."
-                  value={debouncedSearch}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Activos</Label>
-              <Select
-                value={soloActivosFilter}
-                onValueChange={(value) => setSoloActivosFilter(value as "all" | "active")}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="active">Solo activos</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Condición IVA</Label>
-              <Select
-                value={condicionIvaFilter ? String(condicionIvaFilter) : "__none__"}
-                onValueChange={(value) =>
-                  setCondicionIvaFilter(value === "__none__" ? null : Number(value))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Todas</SelectItem>
-                  {condicionesIva.map((condicion) => (
-                    <SelectItem key={condicion.id} value={String(condicion.id)}>
-                      {condicion.descripcion}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Categoría cliente</Label>
-              <Select
-                value={categoriaClienteFilter ? String(categoriaClienteFilter) : "__none__"}
-                onValueChange={(value) =>
-                  setCategoriaClienteFilter(value === "__none__" ? null : Number(value))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Todas</SelectItem>
-                  {categoriasClientes.map((categoria) => (
-                    <SelectItem key={categoria.id} value={String(categoria.id)}>
-                      {categoria.descripcion}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Estado cliente</Label>
-              <Select
-                value={estadoClienteFilter ? String(estadoClienteFilter) : "__none__"}
-                onValueChange={(value) =>
-                  setEstadoClienteFilter(value === "__none__" ? null : Number(value))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Todos</SelectItem>
-                  {estadosClientes.map((estado) => (
-                    <SelectItem key={estado.id} value={String(estado.id)}>
-                      {estado.descripcion}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Sucursal facturación</Label>
-              <Select
-                value={sucursalFilter ? String(sucursalFilter) : "__none__"}
-                onValueChange={(value) =>
-                  setSucursalFilter(value === "__none__" ? null : Number(value))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Todas</SelectItem>
-                  {sucursales.map((sucursal) => (
-                    <SelectItem key={sucursal.id} value={String(sucursal.id)}>
-                      {sucursal.descripcion}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {debouncedSearch && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="bg-transparent"
-                onClick={() => {
-                  setDebouncedSearch("")
-                  setSearch("")
-                }}
-              >
-                <X className="h-3 w-3 mr-1" /> Limpiar
-              </Button>
-            )}
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {(soloActivosFilter !== "all" ||
-              condicionIvaFilter ||
-              categoriaClienteFilter ||
-              estadoClienteFilter ||
-              sucursalFilter) && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="bg-transparent"
-                onClick={() => {
-                  setSoloActivosFilter("all")
-                  setCondicionIvaFilter(null)
-                  setCategoriaClienteFilter(null)
-                  setEstadoClienteFilter(null)
-                  setSucursalFilter(null)
-                }}
-              >
-                Limpiar filtros
-              </Button>
-            )}
-            <Button variant="outline" size="sm" className="bg-transparent" onClick={refetch}>
-              <RefreshCw className="mr-2 h-3.5 w-3.5" /> Refrescar
-            </Button>
-          </div>
-          {!loading && !error && (
-            <p className="text-xs text-muted-foreground mt-2">
-              {terceros.length} visibles en esta página · {totalCount} clientes encontrados
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
       {!loading && !error && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 xl:grid-cols-2">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Resumen comercial rápido</CardTitle>
@@ -3359,6 +3271,194 @@ export default function ClientesPage() {
         </div>
       )}
 
+      {/* Filtros */}
+      <Card>
+        <CardContent className="pt-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_repeat(4,minmax(180px,1fr))]">
+            <div className="space-y-1.5 xl:col-span-1">
+              <Label className="text-xs text-muted-foreground">Buscar</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por razón social o CUIT..."
+                  value={debouncedSearch}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Activos</Label>
+              <Select
+                value={soloActivosFilter}
+                onValueChange={(value) => setSoloActivosFilter(value as "all" | "active")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="active">Solo activos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Condición IVA</Label>
+              <Select
+                value={condicionIvaFilter ? String(condicionIvaFilter) : "__none__"}
+                onValueChange={(value) =>
+                  setCondicionIvaFilter(value === "__none__" ? null : Number(value))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Todas</SelectItem>
+                  {condicionesIva.map((condicion) => (
+                    <SelectItem key={condicion.id} value={String(condicion.id)}>
+                      {condicion.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Categoría cliente</Label>
+              <Select
+                value={categoriaClienteFilter ? String(categoriaClienteFilter) : "__none__"}
+                onValueChange={(value) =>
+                  setCategoriaClienteFilter(value === "__none__" ? null : Number(value))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Todas</SelectItem>
+                  {categoriasClientes.map((categoria) => (
+                    <SelectItem key={categoria.id} value={String(categoria.id)}>
+                      {categoria.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Estado cliente</Label>
+              <Select
+                value={estadoClienteFilter ? String(estadoClienteFilter) : "__none__"}
+                onValueChange={(value) =>
+                  setEstadoClienteFilter(value === "__none__" ? null : Number(value))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Todos</SelectItem>
+                  {estadosClientes.map((estado) => (
+                    <SelectItem key={estado.id} value={String(estado.id)}>
+                      {estado.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px] xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Sucursal facturación</Label>
+                <Select
+                  value={sucursalFilter ? String(sucursalFilter) : "__none__"}
+                  onValueChange={(value) =>
+                    setSucursalFilter(value === "__none__" ? null : Number(value))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Todas</SelectItem>
+                    {sucursales.map((sucursal) => (
+                      <SelectItem key={sucursal.id} value={String(sucursal.id)}>
+                        {sucursal.descripcion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-xl border bg-muted/20 px-4 py-3 text-sm">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                  Vista actual
+                </p>
+                <p className="mt-1 font-semibold text-foreground">
+                  {terceros.length} visibles en esta página
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {totalCount} clientes encontrados en total
+                </p>
+              </div>
+              <div className="rounded-xl border bg-muted/20 px-4 py-3 text-sm">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                  Lectura rápida
+                </p>
+                <p className="mt-1 font-semibold text-foreground">
+                  {page} / {totalPages || 1} páginas
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Ajustá filtros antes de bajar a la tabla
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-start lg:justify-end">
+              {debouncedSearch && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full bg-transparent sm:w-auto"
+                  onClick={() => {
+                    setDebouncedSearch("")
+                    setSearch("")
+                  }}
+                >
+                  <X className="h-3 w-3 mr-1" /> Limpiar búsqueda
+                </Button>
+              )}
+              {(soloActivosFilter !== "all" ||
+                condicionIvaFilter ||
+                categoriaClienteFilter ||
+                estadoClienteFilter ||
+                sucursalFilter) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full bg-transparent sm:w-auto"
+                  onClick={() => {
+                    setSoloActivosFilter("all")
+                    setCondicionIvaFilter(null)
+                    setCategoriaClienteFilter(null)
+                    setEstadoClienteFilter(null)
+                    setSucursalFilter(null)
+                  }}
+                >
+                  Limpiar filtros
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full bg-transparent sm:w-auto"
+                onClick={refetch}
+              >
+                <RefreshCw className="mr-2 h-3.5 w-3.5" /> Refrescar
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Tabla */}
       <Card>
         <CardContent className="pt-0">
@@ -3387,8 +3487,135 @@ export default function ClientesPage() {
 
           {!loading && !error && (
             <>
-              <div className="w-full overflow-x-auto">
-                <Table>
+              <div className="space-y-3 lg:hidden">
+                {terceros.length === 0 ? (
+                  <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                    No se encontraron clientes
+                  </div>
+                ) : (
+                  terceros.map((customer) => (
+                    <Card
+                      key={customer.id}
+                      className="cursor-pointer border-border/80"
+                      onClick={() => handleViewDetail(customer)}
+                    >
+                      <CardContent className="space-y-4 p-4">
+                        <div className="flex flex-col gap-3">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-sm font-semibold leading-tight">
+                                {customer.razonSocial}
+                              </h3>
+                              {activoBadge(customer.activo)}
+                            </div>
+                            {customer.nombreFantasia ? (
+                              <p className="text-xs text-muted-foreground">
+                                {customer.nombreFantasia}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {customer.estadoClienteDescripcion ? (
+                              <Badge
+                                variant="outline"
+                                className={
+                                  customer.estadoClienteBloquea ? "border-red-200 text-red-600" : ""
+                                }
+                              >
+                                {customer.estadoClienteDescripcion}
+                              </Badge>
+                            ) : null}
+                            {customer.estadoOperativoDescripcion ? (
+                              <Badge
+                                variant="outline"
+                                className={
+                                  customer.estadoOperativoBloquea
+                                    ? "border-red-200 text-red-600"
+                                    : ""
+                                }
+                              >
+                                {customer.estadoOperativoDescripcion}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-lg bg-muted/40 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                              Legajo
+                            </p>
+                            <p className="mt-1 font-mono text-sm">{customer.legajo ?? "-"}</p>
+                          </div>
+                          <div className="rounded-lg bg-muted/40 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                              CUIT/CUIL
+                            </p>
+                            <p className="mt-1 font-mono text-sm">{customer.nroDocumento ?? "-"}</p>
+                          </div>
+                          <div className="rounded-lg bg-muted/40 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                              Condición IVA
+                            </p>
+                            <p className="mt-1 text-sm">
+                              {customer.condicionIvaDescripcion ?? `IVA ${customer.condicionIvaId}`}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-muted/40 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                              Localidad
+                            </p>
+                            <p className="mt-1 text-sm">{customer.localidadDescripcion ?? "-"}</p>
+                          </div>
+                          <div className="rounded-lg bg-muted/40 p-3 sm:col-span-2">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                              Límite de crédito
+                            </p>
+                            <p className="mt-1 text-sm font-medium">
+                              {customer.limiteCredito !== null
+                                ? "$" + customer.limiteCredito.toLocaleString("es-AR")
+                                : "Sin límite"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div
+                          className="grid grid-cols-3 gap-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => handleViewDetail(customer)}
+                          >
+                            <Eye className="mr-2 h-3.5 w-3.5" /> Ver
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => handleEdit(customer)}
+                          >
+                            <Edit className="mr-2 h-3.5 w-3.5" /> Editar
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full text-destructive"
+                            onClick={() => handleDeleteConfirm(customer)}
+                          >
+                            <X className="mr-2 h-3.5 w-3.5" /> Baja
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </div>
+
+              <div className="hidden lg:block">
+                <Table className="min-w-240">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Legajo</TableHead>
@@ -3514,14 +3741,15 @@ export default function ClientesPage() {
               </div>
 
               {totalPages > 1 && (
-                <div className="flex items-center justify-between pt-4">
+                <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs text-muted-foreground">
                     Página {page} de {totalPages}
                   </p>
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:flex">
                     <Button
                       variant="outline"
                       size="sm"
+                      className="w-full"
                       disabled={page <= 1}
                       onClick={() => setPage(page - 1)}
                     >
@@ -3530,6 +3758,7 @@ export default function ClientesPage() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className="w-full"
                       disabled={page >= totalPages}
                       onClick={() => setPage(page + 1)}
                     >
@@ -3545,7 +3774,7 @@ export default function ClientesPage() {
 
       {/* Detail Dialog */}
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-full overflow-x-hidden overflow-y-auto px-4 py-5 sm:w-[calc(100vw-2rem)] sm:max-w-4xl sm:px-6 sm:py-6 lg:max-w-5xl xl:max-w-6xl xl:px-8">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3 flex-wrap">
               <span>{selectedCustomer?.razonSocial}</span>
@@ -3595,7 +3824,7 @@ export default function ClientesPage() {
 
       {/* Form Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+        <DialogContent className="max-h-[94vh] w-[calc(100vw-1rem)] max-w-full overflow-x-hidden overflow-y-auto px-4 py-5 sm:w-[calc(100vw-2rem)] sm:max-w-5xl sm:px-6 sm:py-6 lg:max-w-6xl xl:max-w-7xl xl:px-8">
           <DialogHeader>
             <DialogTitle>
               {editingCustomer ? "Editar: " + editingCustomer.razonSocial : "Nuevo cliente"}
@@ -3638,7 +3867,7 @@ export default function ClientesPage() {
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-sm sm:w-full">
           <DialogHeader>
             <DialogTitle>¿Desactivar este cliente?</DialogTitle>
           </DialogHeader>

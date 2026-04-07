@@ -31,7 +31,6 @@ import {
 } from "@/components/ui/table"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -46,7 +45,8 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Switch } from "@/components/ui/switch"
 import { useItems, useItemsConfig } from "@/lib/hooks/useItems"
@@ -345,7 +345,7 @@ function ProductForm({ item, onClose, onSaved, createItem, updateItem }: Product
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 md:grid-cols-4">
+        <SalesTabsList className="gap-2 md:grid-cols-4">
           <TabsTrigger value="identificacion" className="py-2 text-xs">
             Identificación
           </TabsTrigger>
@@ -358,7 +358,7 @@ function ProductForm({ item, onClose, onSaved, createItem, updateItem }: Product
           <TabsTrigger value="stock" className="py-2 text-xs">
             Stock
           </TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="identificacion" className="mt-4 space-y-4">
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(260px,0.9fr)]">
@@ -816,7 +816,7 @@ function ProductDetail({
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 md:grid-cols-4">
+        <SalesTabsList className="gap-2 md:grid-cols-4">
           <TabsTrigger value="resumen" className="py-2 text-xs">
             Resumen
           </TabsTrigger>
@@ -829,7 +829,7 @@ function ProductDetail({
           <TabsTrigger value="stock" className="py-2 text-xs">
             Stock
           </TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="resumen" className="mt-4 space-y-4">
           <Card>
@@ -1562,7 +1562,7 @@ export default function ProductosPage() {
           if (!open) setDetailItemId(null)
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Detalle del producto</DialogTitle>
             <DialogDescription>
@@ -1590,7 +1590,7 @@ export default function ProductosPage() {
               No fue posible cargar el detalle del producto.
             </div>
           )}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
@@ -1600,7 +1600,7 @@ export default function ProductosPage() {
           if (!open) setEditingItemId(null)
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{editingItem ? "Editar producto" : "Nuevo producto"}</DialogTitle>
             <DialogDescription>
@@ -1620,7 +1620,7 @@ export default function ProductosPage() {
             createItem={createItem}
             updateItem={updateItem}
           />
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
@@ -1630,7 +1630,7 @@ export default function ProductosPage() {
           if (!open) setDeleteItemId(null)
         }}
       >
-        <DialogContent className="max-w-md">
+        <SalesDialogContent size="sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" /> Confirmar desactivación
@@ -1673,7 +1673,7 @@ export default function ProductosPage() {
               <Trash2 className="mr-2 h-4 w-4" /> {deleting ? "Desactivando..." : "Desactivar"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

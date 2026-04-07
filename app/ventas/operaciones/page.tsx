@@ -22,7 +22,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -46,7 +45,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { Textarea } from "@/components/ui/textarea"
 import { useCobros } from "@/lib/hooks/useCobros"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
@@ -551,12 +551,12 @@ export default function VentasOperacionesPage() {
       ) : null}
 
       <Tabs defaultValue="monitor" className="space-y-4">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 lg:grid-cols-4">
+        <SalesTabsList className="gap-2 md:grid-cols-2 lg:grid-cols-4">
           <TabsTrigger value="monitor">Monitor</TabsTrigger>
           <TabsTrigger value="prefacturacion">Pre-facturación</TabsTrigger>
           <TabsTrigger value="ventanilla">Ventanilla</TabsTrigger>
           <TabsTrigger value="tandas">Tandas y distribución</TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="monitor" className="space-y-4">
           <div className="grid gap-6 xl:grid-cols-[1.45fr_0.95fr]">
@@ -587,14 +587,14 @@ export default function VentasOperacionesPage() {
                       {liveMonitorRows.map((row) => (
                         <TableRow key={row.id}>
                           <TableCell className="font-medium">{row.circuito}</TableCell>
-                          <TableCell className="max-w-55 whitespace-normal">
+                          <TableCell className="max-w-56 whitespace-normal wrap-break-word">
                             {row.cliente}
                           </TableCell>
                           <TableCell>{row.documento}</TableCell>
                           <TableCell>{row.responsable}</TableCell>
                           <TableCell>{priorityBadge(row.prioridad)}</TableCell>
                           <TableCell>{stateBadge(row.estado)}</TableCell>
-                          <TableCell className="max-w-90 whitespace-normal text-muted-foreground">
+                          <TableCell className="max-w-[22rem] whitespace-normal wrap-break-word text-muted-foreground">
                             {row.observacion}
                           </TableCell>
                         </TableRow>
@@ -669,7 +669,7 @@ export default function VentasOperacionesPage() {
                               {row.nroComprobante ?? `#${row.id}`}
                             </TableCell>
                             <TableCell>{formatDate(row.fecha)}</TableCell>
-                            <TableCell className="max-w-55 whitespace-normal">
+                            <TableCell className="max-w-56 whitespace-normal wrap-break-word">
                               {customer?.razonSocial ?? `Cliente #${row.terceroId}`}
                             </TableCell>
                             <TableCell>
@@ -753,7 +753,7 @@ export default function VentasOperacionesPage() {
                         <TableRow key={row.id}>
                           <TableCell className="font-medium">COB-{row.id}</TableCell>
                           <TableCell>{formatDate(row.fecha)}</TableCell>
-                          <TableCell className="max-w-55 whitespace-normal">
+                          <TableCell className="max-w-56 whitespace-normal wrap-break-word">
                             {customersById.get(row.terceroId)?.razonSocial ??
                               `Cliente #${row.terceroId}`}
                           </TableCell>
@@ -956,7 +956,7 @@ export default function VentasOperacionesPage() {
       </Tabs>
 
       <Dialog open={editingBatch !== null} onOpenChange={(open) => !open && setEditingBatch(null)}>
-        <DialogContent className="max-w-2xl">
+        <SalesDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Editar tanda interna</DialogTitle>
             <DialogDescription>
@@ -970,7 +970,7 @@ export default function VentasOperacionesPage() {
               onSave={saveBatch}
             />
           ) : null}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

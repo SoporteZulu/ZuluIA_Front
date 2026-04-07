@@ -21,13 +21,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -45,7 +39,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import {
   useCuentaCorriente,
   useDeudores,
@@ -515,7 +510,7 @@ function AccountDetailModal({
 
   return (
     <Tabs defaultValue="principal" className="w-full">
-      <TabsList className="grid w-full grid-cols-7">
+      <SalesTabsList className="md:grid-cols-4 xl:grid-cols-7">
         <TabsTrigger value="principal">Principal</TabsTrigger>
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
         <TabsTrigger value="saldos">Saldos</TabsTrigger>
@@ -523,7 +518,7 @@ function AccountDetailModal({
         <TabsTrigger value="movimientos">Movimientos</TabsTrigger>
         <TabsTrigger value="cobranzas">Cobranzas</TabsTrigger>
         <TabsTrigger value="legado">Cobertura actual</TabsTrigger>
-      </TabsList>
+      </SalesTabsList>
 
       <TabsContent value="principal" className="space-y-4">
         <Card>
@@ -1644,7 +1639,7 @@ export default function CuentaCorrientePage() {
                             {status.label}
                           </Badge>
                         </TableCell>
-                        <TableCell className="max-w-65 text-sm text-muted-foreground">
+                        <TableCell className="max-w-64 whitespace-normal wrap-break-word text-sm text-muted-foreground">
                           {getPortfolioAlert(deudor.saldo)}
                         </TableCell>
                         <TableCell>{formatDate(deudor.updatedAt)}</TableCell>
@@ -1716,7 +1711,7 @@ export default function CuentaCorrientePage() {
       </div>
 
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+        <SalesDialogContent size="xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wallet className="h-5 w-5" />
@@ -1735,7 +1730,7 @@ export default function CuentaCorrientePage() {
               onClose={() => setIsDetailOpen(false)}
             />
           )}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

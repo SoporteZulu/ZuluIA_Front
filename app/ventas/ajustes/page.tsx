@@ -25,7 +25,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -50,7 +49,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { Textarea } from "@/components/ui/textarea"
 import { apiGet } from "@/lib/api"
 import { useConfiguracion } from "@/lib/hooks/useConfiguracion"
@@ -425,11 +425,11 @@ function AdjustmentEditor({
   return (
     <div className="space-y-6">
       <Tabs defaultValue="caso" className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-3">
+        <SalesTabsList className="md:grid-cols-3">
           <TabsTrigger value="caso">Caso</TabsTrigger>
           <TabsTrigger value="circuito">Circuito</TabsTrigger>
           <TabsTrigger value="acciones">Acciones</TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="caso" className="space-y-4 pt-4">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1349,9 +1349,11 @@ export default function VentasAjustesPage() {
                           {row.source === "backend" ? "Backend" : "Local"}
                         </Badge>
                       </TableCell>
-                      <TableCell className="max-w-55 whitespace-normal">{row.customer}</TableCell>
+                      <TableCell className="max-w-56 whitespace-normal wrap-break-word">
+                        {row.customer}
+                      </TableCell>
                       <TableCell>{kindBadge(row.kind)}</TableCell>
-                      <TableCell className="max-w-55 whitespace-normal">
+                      <TableCell className="max-w-56 whitespace-normal wrap-break-word">
                         {row.documentLabel}
                       </TableCell>
                       <TableCell>{profile.origen}</TableCell>
@@ -1415,7 +1417,7 @@ export default function VentasAjustesPage() {
       ) : null}
 
       <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelectedId(null)}>
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{selected?.code ?? "Detalle de ajuste"}</DialogTitle>
             <DialogDescription>
@@ -1424,11 +1426,11 @@ export default function VentasAjustesPage() {
           </DialogHeader>
           {selected && selectedProfile ? (
             <Tabs defaultValue="principal" className="w-full">
-              <TabsList className="grid h-auto w-full grid-cols-3">
+              <SalesTabsList className="md:grid-cols-3">
                 <TabsTrigger value="principal">Principal</TabsTrigger>
                 <TabsTrigger value="circuito">Circuito</TabsTrigger>
                 <TabsTrigger value="acciones">Acciones</TabsTrigger>
-              </TabsList>
+              </SalesTabsList>
 
               <TabsContent value="principal" className="space-y-4 pt-4">
                 <DetailFieldGrid
@@ -1531,11 +1533,11 @@ export default function VentasAjustesPage() {
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog open={editingLocalCase !== null} onOpenChange={(open) => !open && setEditingId(null)}>
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Editar ajuste interno</DialogTitle>
             <DialogDescription>
@@ -1557,11 +1559,11 @@ export default function VentasAjustesPage() {
               onSave={saveCaseAndProfile}
             />
           ) : null}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog open={isNewDialogOpen} onOpenChange={setIsNewDialogOpen}>
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Nuevo ajuste interno</DialogTitle>
             <DialogDescription>
@@ -1583,7 +1585,7 @@ export default function VentasAjustesPage() {
               onSave={saveCaseAndProfile}
             />
           ) : null}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

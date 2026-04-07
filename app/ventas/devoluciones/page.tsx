@@ -14,7 +14,6 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -35,7 +34,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { apiGet } from "@/lib/api"
 import { useConfiguracion } from "@/lib/hooks/useConfiguracion"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
@@ -336,11 +336,11 @@ function LegacyReturnDialog({
       </div>
 
       <Tabs defaultValue="cliente" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <SalesTabsList className="md:grid-cols-3">
           <TabsTrigger value="cliente">Cliente</TabsTrigger>
           <TabsTrigger value="comprobante">Comprobante</TabsTrigger>
           <TabsTrigger value="resolucion">Resolución</TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="cliente" className="space-y-4 pt-4">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1211,7 +1211,7 @@ export default function VentasDevolucionesPage() {
       </Card>
 
       <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent className="max-w-3xl">
+        <SalesDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Detalle de devolución</DialogTitle>
             <DialogDescription>
@@ -1220,11 +1220,11 @@ export default function VentasDevolucionesPage() {
           </DialogHeader>
           {selected ? (
             <Tabs defaultValue="principal" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <SalesTabsList className="md:grid-cols-3">
                 <TabsTrigger value="principal">Cliente</TabsTrigger>
                 <TabsTrigger value="circuito">Comprobante</TabsTrigger>
                 <TabsTrigger value="resolucion">Resolución</TabsTrigger>
-              </TabsList>
+              </SalesTabsList>
               <TabsContent value="principal" className="space-y-4 pt-4">
                 <DetailFieldGrid
                   fields={[
@@ -1345,11 +1345,11 @@ export default function VentasDevolucionesPage() {
               </TabsContent>
             </Tabs>
           ) : null}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Editar devolución</DialogTitle>
             <DialogDescription>
@@ -1370,7 +1370,7 @@ export default function VentasDevolucionesPage() {
               onSave={saveProfile}
             />
           ) : null}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

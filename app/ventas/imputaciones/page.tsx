@@ -25,7 +25,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -49,7 +48,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { Textarea } from "@/components/ui/textarea"
 import { useCobros } from "@/lib/hooks/useCobros"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
@@ -1309,7 +1309,7 @@ export default function VentasImputacionesPage() {
       </div>
 
       <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent className="max-w-4xl">
+        <SalesDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Detalle de imputación</DialogTitle>
             <DialogDescription>
@@ -1318,11 +1318,11 @@ export default function VentasImputacionesPage() {
           </DialogHeader>
           {selected ? (
             <Tabs defaultValue="principal" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <SalesTabsList className="md:grid-cols-3">
                 <TabsTrigger value="principal">Principal</TabsTrigger>
                 <TabsTrigger value="circuito">Circuito</TabsTrigger>
                 <TabsTrigger value="lineas">Líneas</TabsTrigger>
-              </TabsList>
+              </SalesTabsList>
               <TabsContent value="principal" className="space-y-4 pt-4">
                 <DetailFieldGrid
                   fields={[
@@ -1419,11 +1419,11 @@ export default function VentasImputacionesPage() {
               </TabsContent>
             </Tabs>
           ) : null}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Editar circuito de imputación</DialogTitle>
             <DialogDescription>
@@ -1438,7 +1438,7 @@ export default function VentasImputacionesPage() {
               onSave={saveProfile}
             />
           ) : null}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

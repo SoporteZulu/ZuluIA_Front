@@ -20,7 +20,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -44,7 +43,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { useCajas } from "@/lib/hooks/useCajas"
 import { useCheques } from "@/lib/hooks/useCheques"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
@@ -262,7 +262,7 @@ function ChequeForm({
       </Alert>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-3">
+        <SalesTabsList className="md:grid-cols-3">
           <TabsTrigger value="ficha" className="py-2 text-xs">
             Ficha
           </TabsTrigger>
@@ -272,7 +272,7 @@ function ChequeForm({
           <TabsTrigger value="control" className="py-2 text-xs">
             Control
           </TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="ficha" className="mt-4 space-y-4">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -474,11 +474,11 @@ function ChequeDetail({
 
   return (
     <Tabs defaultValue="ficha" className="w-full">
-      <TabsList className="grid h-auto w-full grid-cols-3">
+      <SalesTabsList className="md:grid-cols-3">
         <TabsTrigger value="ficha">Ficha</TabsTrigger>
         <TabsTrigger value="comercial">Comercial</TabsTrigger>
         <TabsTrigger value="control">Control</TabsTrigger>
-      </TabsList>
+      </SalesTabsList>
 
       <TabsContent value="ficha" className="space-y-4">
         <Card>
@@ -912,12 +912,12 @@ export default function VentasChequesPage() {
                       <TableCell className="font-medium">{row.nroCheque}</TableCell>
                       <TableCell>{getChequeKind(row)}</TableCell>
                       <TableCell>{cajaMap.get(row.cajaId)?.nombre ?? `#${row.cajaId}`}</TableCell>
-                      <TableCell className="max-w-55 whitespace-normal">
+                      <TableCell className="max-w-56 whitespace-normal wrap-break-word">
                         {row.terceroId
                           ? (thirdPartyMap.get(row.terceroId)?.razonSocial ?? `#${row.terceroId}`)
                           : "Sin tercero"}
                       </TableCell>
-                      <TableCell className="max-w-45 whitespace-normal">
+                      <TableCell className="max-w-44 whitespace-normal wrap-break-word">
                         {row.banco ?? "-"}
                       </TableCell>
                       <TableCell>{formatDate(row.fechaEmision)}</TableCell>
@@ -1052,7 +1052,7 @@ export default function VentasChequesPage() {
       </div>
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Nuevo cheque</DialogTitle>
             <DialogDescription>
@@ -1067,11 +1067,11 @@ export default function VentasChequesPage() {
             onSaved={handleCreateSaved}
             crear={crear}
           />
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog open={detailCheque !== null} onOpenChange={(open) => !open && setDetailId(null)}>
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{detailCheque?.nroCheque ?? "Detalle de cheque"}</DialogTitle>
             <DialogDescription>
@@ -1094,7 +1094,7 @@ export default function VentasChequesPage() {
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

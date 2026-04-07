@@ -20,13 +20,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -44,7 +38,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { Textarea } from "@/components/ui/textarea"
 import { useCajas } from "@/lib/hooks/useCajas"
 import { useCheques } from "@/lib/hooks/useCheques"
@@ -805,7 +800,7 @@ export default function CobrosVentasPage() {
       ) : null}
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[90vh] max-w-6xl overflow-y-auto">
+        <SalesDialogContent size="xl">
           <DialogHeader>
             <DialogTitle>Nuevo cobro</DialogTitle>
             <DialogDescription>
@@ -1256,11 +1251,11 @@ export default function CobrosVentasPage() {
               {saving ? "Guardando..." : "Registrar cobro"}
             </Button>
           </div>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-4xl">
+        <SalesDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Detalle de cobro</DialogTitle>
             <DialogDescription>
@@ -1271,11 +1266,11 @@ export default function CobrosVentasPage() {
             <div className="py-10 text-center text-muted-foreground">Cargando detalle...</div>
           ) : detail ? (
             <Tabs defaultValue="principal" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <SalesTabsList className="md:grid-cols-3">
                 <TabsTrigger value="principal">Principal</TabsTrigger>
                 <TabsTrigger value="medios">Medios</TabsTrigger>
                 <TabsTrigger value="cobertura">Cobertura</TabsTrigger>
-              </TabsList>
+              </SalesTabsList>
               <TabsContent value="principal" className="space-y-4 pt-4">
                 <div className="grid gap-3 md:grid-cols-4">
                   <div className="rounded-lg bg-muted/40 p-3">
@@ -1346,7 +1341,7 @@ export default function CobrosVentasPage() {
               No se pudo cargar el detalle del cobro.
             </div>
           )}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )
