@@ -50,6 +50,7 @@ import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-res
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Switch } from "@/components/ui/switch"
 import { useItems, useItemsConfig } from "@/lib/hooks/useItems"
+import { API_BASE_URL } from "@/lib/api-config"
 import type { CreateItemDto, Item, Moneda } from "@/lib/types/items"
 
 function formatMoney(value: number, currency = "ARS") {
@@ -1091,8 +1092,6 @@ export default function ProductosPage() {
     void refetch()
   }
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5065"
-
   return (
     <div className="space-y-6 pb-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1343,7 +1342,7 @@ export default function ProductosPage() {
               <div className="space-y-3 px-6 py-10 text-center">
                 <p className="text-sm text-red-600 wrap-break-word">
                   {error.includes("fetch") || error.includes("network") || error.includes("Failed")
-                    ? `No se pudo conectar con el backend. Verificá que la API esté disponible en ${apiUrl}.`
+                    ? `No se pudo conectar con el backend. Verificá que la API esté disponible en ${API_BASE_URL}.`
                     : error}
                 </p>
                 <Button variant="outline" className="bg-transparent" onClick={() => void refetch()}>

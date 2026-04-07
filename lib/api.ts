@@ -1,6 +1,5 @@
 import { getToken } from "@/lib/auth"
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5065"
+import { buildApiUrl } from "@/lib/api-config"
 
 function authHeaders(): Record<string, string> {
   const token = getToken()
@@ -25,7 +24,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(buildApiUrl(path), {
     cache: "no-store",
     mode: "cors",
     ...options,

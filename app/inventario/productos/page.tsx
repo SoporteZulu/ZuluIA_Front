@@ -51,6 +51,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { useItems, useItemsConfig } from "@/lib/hooks/useItems"
 import { apiGet } from "@/lib/api"
+import { API_BASE_URL } from "@/lib/api-config"
 import type { Item, CreateItemDto, StockItem } from "@/lib/types/items"
 
 // ─── Item Form ────────────────────────────────────────────────────────────────
@@ -757,8 +758,6 @@ export default function ProductosPage() {
     }
   }
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000"
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -867,7 +866,7 @@ export default function ProductosPage() {
                 <AlertCircle className="h-5 w-5" />
                 <p className="text-sm font-medium">
                   {error.includes("fetch") || error.includes("network") || error.includes("Failed")
-                    ? `No se pudo conectar con el servidor. Verificá que el backend esté corriendo en ${apiUrl}.`
+                    ? `No se pudo conectar con el servidor. Verificá que el backend esté disponible en ${API_BASE_URL}.`
                     : error}
                 </p>
               </div>
