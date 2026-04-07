@@ -1,17 +1,35 @@
 const DEVELOPMENT_API_BASE_URL = "http://localhost:5065"
-const PRODUCTION_API_BASE_URL = "https://rdweb.zulu.com.ar/ZuluIA_Back"
 
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "")
 }
 
-function getDefaultApiBaseUrl(): string {
-  return process.env.NODE_ENV === "production" ? PRODUCTION_API_BASE_URL : DEVELOPMENT_API_BASE_URL
+function getConfiguredApiBaseUrl(): string | null {
+  const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL
+
+  if (typeof configuredApiUrl !== "string") {
+    return null
+  }
+
+  const normalizedApiUrl = normalizeBaseUrl(configuredApiUrl)
+  return normalizedApiUrl.length > 0 ? normalizedApiUrl : null
 }
 
-export const API_BASE_URL = normalizeBaseUrl(
-  process.env.NEXT_PUBLIC_API_URL ?? getDefaultApiBaseUrl()
-)
+function getApiBaseUrl(): string {
+  const configuredApiUrl = getConfiguredApiBaseUrl()
+
+  if (configuredApiUrl) {
+    return configuredApiUrl
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_API_URL must be set when NODE_ENV is production.")
+  }
+
+  return DEVELOPMENT_API_BASE_URL
+}
+
+export const API_BASE_URL = getApiBaseUrl()
 
 export function buildApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path

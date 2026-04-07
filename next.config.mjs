@@ -1,10 +1,25 @@
 /** @type {import('next').NextConfig} */
-const defaultApiBaseUrl =
-  process.env.NODE_ENV === "production"
-    ? "https://rdweb.zulu.com.ar/ZuluIA_Back"
-    : "http://localhost:5065"
+const DEVELOPMENT_API_BASE_URL = "http://localhost:5065"
 
-const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL || defaultApiBaseUrl).replace(/\/+$/, "")
+const normalizeApiBaseUrl = (value) => value.trim().replace(/\/+$/, "")
+
+const getApiBaseUrl = () => {
+  const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL
+  const normalizedApiUrl =
+    typeof configuredApiUrl === "string" ? normalizeApiBaseUrl(configuredApiUrl) : ""
+
+  if (normalizedApiUrl) {
+    return normalizedApiUrl
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_API_URL must be set when NODE_ENV is production.")
+  }
+
+  return DEVELOPMENT_API_BASE_URL
+}
+
+const apiBaseUrl = getApiBaseUrl()
 
 const nextConfig = {
   typescript: {
