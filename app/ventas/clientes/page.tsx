@@ -56,6 +56,7 @@ import { useEmpleados } from "@/lib/hooks/useEmpleados"
 import { useSucursales } from "@/lib/hooks/useSucursales"
 import { useTerceros, useTercerosConfig } from "@/lib/hooks/useTerceros"
 import { useGeografia } from "@/lib/hooks/useGeografia"
+import { API_BASE_URL } from "@/lib/api-config"
 import type {
   CreateTerceroDto,
   Tercero,
@@ -3084,8 +3085,6 @@ export default function ClientesPage() {
     }
   }, [terceros])
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000"
-
   return (
     <div className="space-y-6 pb-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -3475,7 +3474,7 @@ export default function ClientesPage() {
                 <AlertCircle className="h-5 w-5" />
                 <p className="text-sm font-medium">
                   {error.includes("fetch") || error.includes("network") || error.includes("Failed")
-                    ? `No se pudo conectar con el servidor. Verificá que el backend esté corriendo en ${apiUrl}.`
+                    ? `No se pudo conectar con el servidor. Verificá que el backend esté disponible en ${API_BASE_URL}.`
                     : error}
                 </p>
               </div>

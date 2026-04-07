@@ -35,7 +35,7 @@ const accessHighlights = [
   {
     title: "Acceso seguro",
     description:
-      "La autenticación usa tu backend local con token persistido para la sesión activa.",
+      "La autenticación usa el backend configurado con token persistido para la sesión activa.",
   },
 ]
 
@@ -178,7 +178,7 @@ export default function LoginPage() {
                   Requisitos mínimos
                 </div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Usuario local, contraseña y backend configurado.
+                  Usuario, contraseña y backend configurado.
                 </p>
               </div>
             </div>

@@ -1,5 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5065"
-const AUTH_LOGIN_URL = `${API_URL}/api/Auth/login`
+import { API_BASE_URL, buildApiUrl } from "@/lib/api-config"
+
+const AUTH_LOGIN_URL = buildApiUrl("/api/Auth/login")
 
 const TOKEN_KEY = "zulu_token"
 
@@ -25,7 +26,7 @@ type AuthLoginErrorResponse = {
 }
 
 export function isAuthConfigured(): boolean {
-  return API_URL.trim().length > 0
+  return API_BASE_URL.length > 0
 }
 
 export function getToken(): string | null {
@@ -40,7 +41,7 @@ export function isAuthenticated(): boolean {
 export async function login(userName: string, password: string): Promise<void> {
   if (!isAuthConfigured()) {
     throw new Error(
-      "La API no está configurada. Verifique la variable de entorno NEXT_PUBLIC_API_URL."
+      "La API no está configurada. Verifique NEXT_PUBLIC_API_URL o la URL base definida en la aplicación."
     )
   }
 
