@@ -1093,7 +1093,7 @@ function CustomerForm({
                   </Label>
                   <Select
                     value={form.tipoPersoneria ?? "JURIDICA"}
-                    onValueChange={(value) =>
+                    onValueChange={(value: string) =>
                       setForm((prev) => ({
                         ...prev,
                         tipoPersoneria: value as TipoPersoneria,
@@ -1239,7 +1239,7 @@ function CustomerForm({
               <Label>País</Label>
               <Select
                 value={form.paisId ? String(form.paisId) : "__none__"}
-                onValueChange={(value) =>
+                onValueChange={(value: string) =>
                   set("paisId", value === "__none__" ? null : Number(value))
                 }
               >
@@ -1300,7 +1300,7 @@ function CustomerForm({
               <Label>Localidad</Label>
               <Select
                 value={form.localidadId ? String(form.localidadId) : "__none__"}
-                onValueChange={(v) => {
+                onValueChange={(v: string) => {
                   const localidadId = v === "__none__" ? null : Number(v)
                   setForm((prev) => ({
                     ...prev,
@@ -1326,7 +1326,7 @@ function CustomerForm({
               <Label>Barrio</Label>
               <Select
                 value={form.barrioId ? String(form.barrioId) : "__none__"}
-                onValueChange={(v) => set("barrioId", v === "__none__" ? null : Number(v))}
+                onValueChange={(v: string) => set("barrioId", v === "__none__" ? null : Number(v))}
                 disabled={!form.localidadId}
               >
                 <SelectTrigger>
@@ -1351,7 +1351,9 @@ function CustomerForm({
               <Label>Tipo de documento</Label>
               <Select
                 value={form.tipoDocumentoId ? String(form.tipoDocumentoId) : "__none__"}
-                onValueChange={(v) => set("tipoDocumentoId", v === "__none__" ? null : Number(v))}
+                onValueChange={(v: string) =>
+                  set("tipoDocumentoId", v === "__none__" ? null : Number(v))
+                }
                 disabled={Boolean(customer)}
               >
                 <SelectTrigger>
@@ -1387,7 +1389,7 @@ function CustomerForm({
               </Label>
               <Select
                 value={form.condicionIvaId ? String(form.condicionIvaId) : ""}
-                onValueChange={(v) => set("condicionIvaId", Number(v))}
+                onValueChange={(v: string) => set("condicionIvaId", Number(v))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar" />
@@ -1437,7 +1439,7 @@ function CustomerForm({
               <Switch
                 id="entidad-gubernamental"
                 checked={Boolean(form.esEntidadGubernamental)}
-                onCheckedChange={(value) => set("esEntidadGubernamental", value)}
+                onCheckedChange={(value: boolean) => set("esEntidadGubernamental", value)}
                 disabled={form.tipoPersoneria === "FISICA"}
               />
               <Label htmlFor="entidad-gubernamental">Entidad gubernamental</Label>
@@ -1455,7 +1457,9 @@ function CustomerForm({
                 <Label>Moneda</Label>
                 <Select
                   value={form.monedaId ? String(form.monedaId) : "__none__"}
-                  onValueChange={(v) => set("monedaId", v !== "__none__" ? Number(v) : null)}
+                  onValueChange={(v: string) =>
+                    set("monedaId", v !== "__none__" ? Number(v) : null)
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccionar moneda" />
@@ -1486,7 +1490,7 @@ function CustomerForm({
                 <Label>Categoría cliente</Label>
                 <Select
                   value={form.categoriaClienteId ? String(form.categoriaClienteId) : "__none__"}
-                  onValueChange={(value) =>
+                  onValueChange={(value: string) =>
                     set("categoriaClienteId", value === "__none__" ? null : Number(value))
                   }
                   disabled={!form.esCliente}
@@ -1508,7 +1512,7 @@ function CustomerForm({
                 <Label>Estado cliente</Label>
                 <Select
                   value={form.estadoClienteId ? String(form.estadoClienteId) : "__none__"}
-                  onValueChange={(value) =>
+                  onValueChange={(value: string) =>
                     set("estadoClienteId", value === "__none__" ? null : Number(value))
                   }
                   disabled={!form.esCliente}
@@ -1530,7 +1534,7 @@ function CustomerForm({
                 <Label>Sucursal facturación</Label>
                 <Select
                   value={form.sucursalId ? String(form.sucursalId) : "__none__"}
-                  onValueChange={(value) =>
+                  onValueChange={(value: string) =>
                     set("sucursalId", value === "__none__" ? null : Number(value))
                   }
                 >
@@ -1561,7 +1565,7 @@ function CustomerForm({
                 <Label>Vendedor</Label>
                 <Select
                   value={form.vendedorId ? String(form.vendedorId) : "__none__"}
-                  onValueChange={(value) =>
+                  onValueChange={(value: string) =>
                     set("vendedorId", value === "__none__" ? null : Number(value))
                   }
                 >
@@ -1583,7 +1587,7 @@ function CustomerForm({
                 <Label>Cobrador</Label>
                 <Select
                   value={form.cobradorId ? String(form.cobradorId) : "__none__"}
-                  onValueChange={(value) =>
+                  onValueChange={(value: string) =>
                     set("cobradorId", value === "__none__" ? null : Number(value))
                   }
                 >
@@ -1632,7 +1636,7 @@ function CustomerForm({
               <Switch
                 id="facturable"
                 checked={form.facturable}
-                onCheckedChange={(value) => set("facturable", value)}
+                onCheckedChange={(value: boolean) => set("facturable", value)}
               />
               <Label htmlFor="facturable">Facturable</Label>
             </div>
@@ -1640,7 +1644,7 @@ function CustomerForm({
               <Switch
                 id="aplica-comision-vendedor"
                 checked={Boolean(form.aplicaComisionVendedor)}
-                onCheckedChange={(value) => set("aplicaComisionVendedor", value)}
+                onCheckedChange={(value: boolean) => set("aplicaComisionVendedor", value)}
               />
               <Label htmlFor="aplica-comision-vendedor">Aplica comisión vendedor</Label>
             </div>
@@ -1648,7 +1652,7 @@ function CustomerForm({
               <Switch
                 id="aplica-comision-cobrador"
                 checked={Boolean(form.aplicaComisionCobrador)}
-                onCheckedChange={(value) => set("aplicaComisionCobrador", value)}
+                onCheckedChange={(value: boolean) => set("aplicaComisionCobrador", value)}
               />
               <Label htmlFor="aplica-comision-cobrador">Aplica comisión cobrador</Label>
             </div>
@@ -1702,7 +1706,7 @@ function CustomerForm({
                 <Label>Riesgo crediticio</Label>
                 <Select
                   value={sections.perfilComercial.riesgoCrediticio ?? "NORMAL"}
-                  onValueChange={(value) =>
+                  onValueChange={(value: string) =>
                     updateSections("perfilComercial", {
                       ...sections.perfilComercial,
                       riesgoCrediticio: value,
@@ -1928,7 +1932,7 @@ function CustomerForm({
                       <Switch
                         id={`contact-principal-${contact.id}`}
                         checked={Boolean(contact.principal)}
-                        onCheckedChange={(checked) =>
+                        onCheckedChange={(checked: boolean) =>
                           updateContact(contact.id, { principal: checked })
                         }
                       />
@@ -2038,7 +2042,7 @@ function CustomerForm({
                       ) : null}
                       <Switch
                         checked={Boolean(branch.principal)}
-                        onCheckedChange={(checked) =>
+                        onCheckedChange={(checked: boolean) =>
                           updateBranch(branch.id, { principal: checked })
                         }
                       />
@@ -2152,7 +2156,7 @@ function CustomerForm({
                         <div className="flex items-center gap-2">
                           <Switch
                             checked={Boolean(transport.activo)}
-                            onCheckedChange={(checked) =>
+                            onCheckedChange={(checked: boolean) =>
                               updateTransport(transport.id, { activo: checked })
                             }
                           />
@@ -2161,7 +2165,7 @@ function CustomerForm({
                         <div className="flex items-center gap-2">
                           <Switch
                             checked={Boolean(transport.principal)}
-                            onCheckedChange={(checked) =>
+                            onCheckedChange={(checked: boolean) =>
                               updateTransport(transport.id, { principal: checked })
                             }
                           />
@@ -2216,7 +2220,7 @@ function CustomerForm({
                         <Switch
                           id="esCliente"
                           checked={form.esCliente}
-                          onCheckedChange={(value) =>
+                          onCheckedChange={(value: boolean) =>
                             setForm((prev) => ({
                               ...prev,
                               esCliente: value,
@@ -2231,7 +2235,7 @@ function CustomerForm({
                         <Switch
                           id="esProveedor"
                           checked={form.esProveedor}
-                          onCheckedChange={(v) => set("esProveedor", v)}
+                          onCheckedChange={(v: boolean) => set("esProveedor", v)}
                         />
                         <Label htmlFor="esProveedor">Es proveedor</Label>
                       </div>
@@ -2239,7 +2243,7 @@ function CustomerForm({
                         <Switch
                           id="esEmpleado"
                           checked={form.esEmpleado}
-                          onCheckedChange={(v) => set("esEmpleado", v)}
+                          onCheckedChange={(v: boolean) => set("esEmpleado", v)}
                         />
                         <Label htmlFor="esEmpleado">Es empleado</Label>
                       </div>
@@ -2313,7 +2317,7 @@ function CustomerForm({
                           ) : null}
                           <Switch
                             checked={Boolean(window.principal)}
-                            onCheckedChange={(checked) =>
+                            onCheckedChange={(checked: boolean) =>
                               updateCollectionWindow(window.id, { principal: checked })
                             }
                           />
@@ -3290,7 +3294,7 @@ export default function ClientesPage() {
               <Label className="text-xs text-muted-foreground">Activos</Label>
               <Select
                 value={soloActivosFilter}
-                onValueChange={(value) => setSoloActivosFilter(value as "all" | "active")}
+                onValueChange={(value: string) => setSoloActivosFilter(value as "all" | "active")}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -3305,7 +3309,7 @@ export default function ClientesPage() {
               <Label className="text-xs text-muted-foreground">Condición IVA</Label>
               <Select
                 value={condicionIvaFilter ? String(condicionIvaFilter) : "__none__"}
-                onValueChange={(value) =>
+                onValueChange={(value: string) =>
                   setCondicionIvaFilter(value === "__none__" ? null : Number(value))
                 }
               >
@@ -3326,7 +3330,7 @@ export default function ClientesPage() {
               <Label className="text-xs text-muted-foreground">Categoría cliente</Label>
               <Select
                 value={categoriaClienteFilter ? String(categoriaClienteFilter) : "__none__"}
-                onValueChange={(value) =>
+                onValueChange={(value: string) =>
                   setCategoriaClienteFilter(value === "__none__" ? null : Number(value))
                 }
               >
@@ -3347,7 +3351,7 @@ export default function ClientesPage() {
               <Label className="text-xs text-muted-foreground">Estado cliente</Label>
               <Select
                 value={estadoClienteFilter ? String(estadoClienteFilter) : "__none__"}
-                onValueChange={(value) =>
+                onValueChange={(value: string) =>
                   setEstadoClienteFilter(value === "__none__" ? null : Number(value))
                 }
               >
@@ -3371,7 +3375,7 @@ export default function ClientesPage() {
                 <Label className="text-xs text-muted-foreground">Sucursal facturación</Label>
                 <Select
                   value={sucursalFilter ? String(sucursalFilter) : "__none__"}
-                  onValueChange={(value) =>
+                  onValueChange={(value: string) =>
                     setSucursalFilter(value === "__none__" ? null : Number(value))
                   }
                 >
