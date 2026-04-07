@@ -11,7 +11,6 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -24,7 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import {
   Table,
   TableBody,
@@ -215,7 +215,7 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
   return (
     <div className="space-y-4">
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-3">
+        <SalesTabsList className="md:grid-cols-3">
           <TabsTrigger value="principal" className="py-2 text-xs">
             Alcance
           </TabsTrigger>
@@ -225,7 +225,7 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
           <TabsTrigger value="legado" className="py-2 text-xs">
             Cobertura actual
           </TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="principal" className="mt-4 space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
@@ -556,12 +556,12 @@ function DiscountDetail({
 
   return (
     <Tabs defaultValue="principal" className="w-full">
-      <TabsList className="grid w-full grid-cols-4">
+      <SalesTabsList className="md:grid-cols-2 xl:grid-cols-4">
         <TabsTrigger value="principal">Principal</TabsTrigger>
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
         <TabsTrigger value="vigencia">Vigencia</TabsTrigger>
         <TabsTrigger value="legado">Cobertura actual</TabsTrigger>
-      </TabsList>
+      </SalesTabsList>
 
       <TabsContent value="principal" className="space-y-4">
         <Card>
@@ -1313,7 +1313,7 @@ export default function DescuentosComercialesPage() {
                     <TableCell>{getCustomerName(descuento.terceroId)}</TableCell>
                     <TableCell>{getItemName(descuento.itemId)}</TableCell>
                     <TableCell>{getDiscountScope(descuento)}</TableCell>
-                    <TableCell className="max-w-65 text-sm text-muted-foreground">
+                    <TableCell className="max-w-64 whitespace-normal wrap-break-word text-sm text-muted-foreground">
                       {getValidityStatus(descuento)}
                     </TableCell>
                     <TableCell>{formatDate(descuento.desde)}</TableCell>
@@ -1362,7 +1362,7 @@ export default function DescuentosComercialesPage() {
       </Card>
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <SalesDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Nuevo descuento comercial</DialogTitle>
             <DialogDescription>
@@ -1378,7 +1378,7 @@ export default function DescuentosComercialesPage() {
               refetch()
             }}
           />
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
@@ -1387,7 +1387,7 @@ export default function DescuentosComercialesPage() {
           if (!open) setEditingDiscount(null)
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <SalesDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Editar descuento comercial</DialogTitle>
             <DialogDescription>
@@ -1405,7 +1405,7 @@ export default function DescuentosComercialesPage() {
               refetch()
             }}
           />
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
@@ -1414,7 +1414,7 @@ export default function DescuentosComercialesPage() {
           if (!open) setDetailDiscount(null)
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Detalle de descuento</DialogTitle>
             <DialogDescription>
@@ -1456,7 +1456,7 @@ export default function DescuentosComercialesPage() {
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
@@ -1465,7 +1465,7 @@ export default function DescuentosComercialesPage() {
           if (!open) setLegacyDiscount(null)
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Contexto ampliado del descuento</DialogTitle>
             <DialogDescription>
@@ -1481,7 +1481,7 @@ export default function DescuentosComercialesPage() {
               onSave={saveLegacyProfile}
             />
           ) : null}
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

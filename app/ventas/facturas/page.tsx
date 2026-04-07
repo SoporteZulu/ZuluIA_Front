@@ -26,7 +26,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -50,7 +49,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { Textarea } from "@/components/ui/textarea"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useItems, useItemsConfig } from "@/lib/hooks/useItems"
@@ -85,6 +85,16 @@ function formatCustomerAddress(customer?: Tercero | null) {
   ].filter(Boolean)
 
   return parts.length > 0 ? parts.join(" · ") : "Sin domicilio fiscal visible"
+}
+
+function getPrimaryDeliveryAddress(customer?: Tercero | null) {
+  if (!customer?.sucursalesEntrega?.length) return null
+
+  const branch =
+    customer.sucursalesEntrega.find((entry) => entry.principal) ?? customer.sucursalesEntrega[0]
+
+  const parts = [branch.descripcion, branch.direccion, branch.localidad].filter(Boolean)
+  return parts.length > 0 ? parts.join(" · ") : null
 }
 
 function getDaysPastDue(value?: string | null) {
@@ -330,7 +340,7 @@ function InvoiceForm({ onClose, onSaved, emitir }: InvoiceFormProps) {
         customer?.vendedorNombre ??
         (customer?.vendedorId ? `Vendedor #${customer.vendedorId}` : ""),
       contactoAdministrativo: customer?.email ?? customer?.telefono ?? customer?.celular ?? "",
-      domicilioEntrega: formatCustomerAddress(customer),
+      domicilioEntrega: getPrimaryDeliveryAddress(customer) ?? formatCustomerAddress(customer),
       monedaId: current.monedaId ?? customer?.monedaId ?? null,
     }))
   }
@@ -486,7 +496,7 @@ function InvoiceForm({ onClose, onSaved, emitir }: InvoiceFormProps) {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 md:grid-cols-4">
+        <SalesTabsList className="gap-2 md:grid-cols-4">
           <TabsTrigger value="cabecera" className="py-2 text-xs">
             Cabecera
           </TabsTrigger>
@@ -499,7 +509,7 @@ function InvoiceForm({ onClose, onSaved, emitir }: InvoiceFormProps) {
           <TabsTrigger value="totales" className="py-2 text-xs">
             Totales y notas
           </TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="cabecera" className="mt-4 space-y-4">
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,1fr)]">
@@ -917,7 +927,7 @@ function InvoiceForm({ onClose, onSaved, emitir }: InvoiceFormProps) {
                           return (
                             <TableRow key={item.id}>
                               <TableCell>
-                                <div className="max-w-70 space-y-2">
+                                <div className="max-w-72 space-y-2">
                                   <Input
                                     value={item.descripcion}
                                     onChange={(event) =>
@@ -1189,11 +1199,11 @@ function InvoiceDetail({
 
   return (
     <Tabs defaultValue="resumen" className="w-full">
-      <TabsList className="grid h-auto w-full grid-cols-3 gap-2">
+      <SalesTabsList className="gap-2 md:grid-cols-3">
         <TabsTrigger value="resumen">Resumen</TabsTrigger>
         <TabsTrigger value="items">Ítems</TabsTrigger>
         <TabsTrigger value="fiscal">Fiscal</TabsTrigger>
-      </TabsList>
+      </SalesTabsList>
 
       <TabsContent value="resumen" className="space-y-4 pt-4">
         <Card>
@@ -1659,13 +1669,13 @@ export default function FacturasPage() {
                             <TableCell className="font-mono font-semibold">
                               {invoice.nroComprobante ?? `#${invoice.id}`}
                             </TableCell>
-                            <TableCell className="max-w-45 whitespace-normal wrap-break-word">
+                            <TableCell className="max-w-44 whitespace-normal wrap-break-word">
                               {getTypeName(
                                 invoice.tipoComprobanteId,
                                 invoice.tipoComprobanteDescripcion
                               )}
                             </TableCell>
-                            <TableCell className="max-w-55 whitespace-normal wrap-break-word">
+                            <TableCell className="max-w-56 whitespace-normal wrap-break-word">
                               {getCustomerName(invoice.terceroId)}
                             </TableCell>
                             <TableCell>{formatDate(invoice.fecha)}</TableCell>
@@ -1680,7 +1690,7 @@ export default function FacturasPage() {
                             <TableCell>
                               <Badge variant={status.variant}>{status.label}</Badge>
                             </TableCell>
-                            <TableCell className="max-w-55 whitespace-normal wrap-break-word text-sm text-muted-foreground">
+                            <TableCell className="max-w-56 whitespace-normal wrap-break-word text-sm text-muted-foreground">
                               {getDocumentStatus(invoice as ComprobanteDetalle)}
                             </TableCell>
                             <TableCell className="text-right font-semibold">
@@ -1813,7 +1823,7 @@ export default function FacturasPage() {
       ) : null}
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[92vh] max-w-7xl overflow-hidden p-0">
+        <SalesDialogContent size="2xl" className="overflow-hidden p-0">
           <div className="flex h-full max-h-[92vh] flex-col">
             <DialogHeader className="border-b px-6 py-5">
               <DialogTitle>Nueva factura de venta</DialogTitle>
@@ -1829,7 +1839,7 @@ export default function FacturasPage() {
               />
             </ScrollArea>
           </div>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
@@ -1842,7 +1852,7 @@ export default function FacturasPage() {
           }
         }}
       >
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-hidden p-0">
+        <SalesDialogContent size="xl" className="overflow-hidden p-0">
           <div className="flex h-full max-h-[92vh] flex-col">
             <DialogHeader className="border-b px-6 py-5">
               <DialogTitle className="flex items-center gap-2">
@@ -1910,14 +1920,14 @@ export default function FacturasPage() {
               ) : null}
             </DialogFooter>
           </div>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
         open={caeState.open}
         onOpenChange={(open) => setCaeState((current) => ({ ...current, open }))}
       >
-        <DialogContent className="max-w-lg">
+        <SalesDialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Asignar CAE</DialogTitle>
             <DialogDescription>
@@ -1967,7 +1977,7 @@ export default function FacturasPage() {
             </Button>
             <Button onClick={handleAssignCae}>Guardar CAE</Button>
           </DialogFooter>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

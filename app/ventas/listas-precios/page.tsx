@@ -29,13 +29,13 @@ import {
 } from "@/components/ui/table"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import {
   Select,
   SelectContent,
@@ -186,7 +186,7 @@ function PriceListForm({ list, onClose, onSaved, saveList, monedas }: PriceListF
   return (
     <div className="space-y-4">
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-3">
+        <SalesTabsList className="md:grid-cols-3">
           <TabsTrigger value="principal" className="py-2 text-xs">
             Cabecera
           </TabsTrigger>
@@ -196,7 +196,7 @@ function PriceListForm({ list, onClose, onSaved, saveList, monedas }: PriceListF
           <TabsTrigger value="legado" className="py-2 text-xs">
             Cobertura actual
           </TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="principal" className="mt-4 space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
@@ -239,15 +239,23 @@ function PriceListForm({ list, onClose, onSaved, saveList, monedas }: PriceListF
               </CardHeader>
               <CardContent className="grid gap-3 text-sm md:grid-cols-2">
                 <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Nombre visible</p>
-                  <p className="mt-1 font-medium wrap-break-word">{form.nombre || "Sin nombre definido"}</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Nombre visible
+                  </p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {form.nombre || "Sin nombre definido"}
+                  </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Tipo de lista</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Tipo de lista
+                  </p>
                   <p className="mt-1 font-medium">Venta</p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Moneda</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Moneda
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">
                     {selectedCurrency
                       ? `${selectedCurrency.descripcion} (${selectedCurrency.simbolo})`
@@ -255,7 +263,9 @@ function PriceListForm({ list, onClose, onSaved, saveList, monedas }: PriceListF
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Prioridad comercial</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Prioridad comercial
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">
                     {form.esDefault
                       ? "Lista principal para cotización y venta inmediata."
@@ -270,8 +280,14 @@ function PriceListForm({ list, onClose, onSaved, saveList, monedas }: PriceListF
                 <CardTitle className="text-base">Cobertura del modelo actual</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <p>La API actual permite administrar cabecera, moneda, vigencia y precios por producto con persistencia real.</p>
-                <p>Las promociones encadenadas, herencias entre listas y reglas por cliente o canal siguen reservadas para una segunda fase.</p>
+                <p>
+                  La API actual permite administrar cabecera, moneda, vigencia y precios por
+                  producto con persistencia real.
+                </p>
+                <p>
+                  Las promociones encadenadas, herencias entre listas y reglas por cliente o canal
+                  siguen reservadas para una segunda fase.
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -302,8 +318,8 @@ function PriceListForm({ list, onClose, onSaved, saveList, monedas }: PriceListF
           <Card>
             <CardContent className="pt-6 text-sm text-muted-foreground">
               El circuito histórico contemplaba promociones encadenadas, herencia entre listas,
-              precios especiales por cliente y campañas por período. Esta base deja el maestro
-              real listo para esa siguiente fase sin simular reglas inexistentes en la API.
+              precios especiales por cliente y campañas por período. Esta base deja el maestro real
+              listo para esa siguiente fase sin simular reglas inexistentes en la API.
             </CardContent>
           </Card>
         </TabsContent>
@@ -463,112 +479,116 @@ function PriceListItemsManager({ list, onChanged, upsert, remove }: PriceListIte
       </Card>
 
       <div className="w-full overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Producto</TableHead>
-            <TableHead className="text-right">Precio base</TableHead>
-            <TableHead className="text-right">Precio</TableHead>
-            <TableHead className="text-right">Descuento</TableHead>
-            <TableHead className="text-right">Variación</TableHead>
-            <TableHead className="text-right">Acciones</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {list.items.length === 0 ? (
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                Esta lista todavía no tiene productos asociados.
-              </TableCell>
+              <TableHead>Producto</TableHead>
+              <TableHead className="text-right">Precio base</TableHead>
+              <TableHead className="text-right">Precio</TableHead>
+              <TableHead className="text-right">Descuento</TableHead>
+              <TableHead className="text-right">Variación</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
-          ) : (
-            list.items.map((item) => {
-              const draft = drafts[item.itemId] ?? {
-                precio: item.precio,
-                descuentoPct: item.descuentoPct,
-              }
-              const catalogItem = items.find((catalogRow) => catalogRow.id === item.itemId)
-              const referencePrice = catalogItem?.precioVenta ?? 0
-              const variation = getPriceVariation(draft.precio, referencePrice)
-              return (
-                <TableRow key={item.itemId}>
-                  <TableCell>
-                    <p className="font-medium">{item.itemDescripcion}</p>
-                    <p className="text-xs text-muted-foreground font-mono">{item.itemCodigo}</p>
-                  </TableCell>
-                  <TableCell className="text-right text-sm text-muted-foreground">
-                    {referencePrice > 0 ? formatMoney(referencePrice) : "-"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Input
-                      className="ml-auto w-32 text-right"
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={draft.precio}
-                      onChange={(event) =>
-                        setDrafts((prev) => ({
-                          ...prev,
-                          [item.itemId]: {
-                            ...draft,
-                            precio: parseFloat(event.target.value) || 0,
-                          },
-                        }))
-                      }
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Input
-                      className="ml-auto w-28 text-right"
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={0.01}
-                      value={draft.descuentoPct}
-                      onChange={(event) =>
-                        setDrafts((prev) => ({
-                          ...prev,
-                          [item.itemId]: {
-                            ...draft,
-                            descuentoPct: parseFloat(event.target.value) || 0,
-                          },
-                        }))
-                      }
-                    />
-                  </TableCell>
-                  <TableCell className="text-right text-sm">
-                    <span
-                      className={
-                        variation < 0
-                          ? "text-emerald-700"
-                          : variation > 0
-                            ? "text-amber-700"
-                            : "text-muted-foreground"
-                      }
-                    >
-                      {referencePrice > 0 ? formatPercent(variation) : "-"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleSaveRow(item.itemId)}
+          </TableHeader>
+          <TableBody>
+            {list.items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                  Esta lista todavía no tiene productos asociados.
+                </TableCell>
+              </TableRow>
+            ) : (
+              list.items.map((item) => {
+                const draft = drafts[item.itemId] ?? {
+                  precio: item.precio,
+                  descuentoPct: item.descuentoPct,
+                }
+                const catalogItem = items.find((catalogRow) => catalogRow.id === item.itemId)
+                const referencePrice = catalogItem?.precioVenta ?? 0
+                const variation = getPriceVariation(draft.precio, referencePrice)
+                return (
+                  <TableRow key={item.itemId}>
+                    <TableCell>
+                      <p className="font-medium">{item.itemDescripcion}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{item.itemCodigo}</p>
+                    </TableCell>
+                    <TableCell className="text-right text-sm text-muted-foreground">
+                      {referencePrice > 0 ? formatMoney(referencePrice) : "-"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Input
+                        className="ml-auto w-32 text-right"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={draft.precio}
+                        onChange={(event) =>
+                          setDrafts((prev) => ({
+                            ...prev,
+                            [item.itemId]: {
+                              ...draft,
+                              precio: parseFloat(event.target.value) || 0,
+                            },
+                          }))
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Input
+                        className="ml-auto w-28 text-right"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.01}
+                        value={draft.descuentoPct}
+                        onChange={(event) =>
+                          setDrafts((prev) => ({
+                            ...prev,
+                            [item.itemId]: {
+                              ...draft,
+                              descuentoPct: parseFloat(event.target.value) || 0,
+                            },
+                          }))
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="text-right text-sm">
+                      <span
+                        className={
+                          variation < 0
+                            ? "text-emerald-700"
+                            : variation > 0
+                              ? "text-amber-700"
+                              : "text-muted-foreground"
+                        }
                       >
-                        <Save className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleRemove(item.itemId)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )
-            })
-          )}
-        </TableBody>
-      </Table>
+                        {referencePrice > 0 ? formatPercent(variation) : "-"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleSaveRow(item.itemId)}
+                        >
+                          <Save className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleRemove(item.itemId)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
       </div>
     </div>
   )
@@ -622,12 +642,12 @@ function PriceListDetail({
 
   return (
     <Tabs defaultValue="principal" className="w-full">
-      <TabsList className="grid w-full grid-cols-4">
+      <SalesTabsList className="md:grid-cols-2 xl:grid-cols-4">
         <TabsTrigger value="principal">Principal</TabsTrigger>
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
         <TabsTrigger value="items">Items</TabsTrigger>
         <TabsTrigger value="legado">Cobertura actual</TabsTrigger>
-      </TabsList>
+      </SalesTabsList>
 
       <TabsContent value="principal" className="space-y-4">
         <Card>
@@ -1117,7 +1137,7 @@ export default function ListasPreciosPage() {
                         <Badge variant="secondary">Inactiva</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="max-w-65 text-sm text-muted-foreground">
+                    <TableCell className="max-w-64 whitespace-normal wrap-break-word text-sm text-muted-foreground">
                       {getValidityStatus(list)}
                     </TableCell>
                     <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
@@ -1178,7 +1198,7 @@ export default function ListasPreciosPage() {
       </div>
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <SalesDialogContent size="md">
           <DialogHeader>
             <DialogTitle>
               {editingList ? "Editar lista de precios" : "Nueva lista de precios"}
@@ -1198,11 +1218,11 @@ export default function ListasPreciosPage() {
             saveList={handleSaveList}
             monedas={monedas}
           />
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{detailList?.nombre ?? "Detalle de lista"}</DialogTitle>
             <DialogDescription>
@@ -1244,7 +1264,7 @@ export default function ListasPreciosPage() {
               </Button>
             )}
           </DialogFooter>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

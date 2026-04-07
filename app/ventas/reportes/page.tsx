@@ -19,7 +19,7 @@ import {
 import { Download, TrendingDown, TrendingUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table,
   TableBody,
@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { SalesTabsList } from "@/components/ventas/sales-responsive"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useItems } from "@/lib/hooks/useItems"
 import { useTerceros } from "@/lib/hooks/useTerceros"
@@ -596,7 +597,9 @@ export default function ReportesPage() {
           <div>
             <CardDescription>Foco ejecutivo</CardDescription>
             <CardTitle className="mt-1 text-xl">{periodoLabel}</CardTitle>
-            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{highlightedExecutiveNote}</p>
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              {highlightedExecutiveNote}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline">{filteredComprobantes.length} comprobantes</Badge>
@@ -607,16 +610,28 @@ export default function ReportesPage() {
         <CardContent>
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-lg border bg-background/80 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Facturación</p>
-              <p className="mt-2 text-sm font-medium">{formatCurrency(executiveKpis.ingresos)} en ingresos visibles para el período.</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Facturación
+              </p>
+              <p className="mt-2 text-sm font-medium">
+                {formatCurrency(executiveKpis.ingresos)} en ingresos visibles para el período.
+              </p>
             </div>
             <div className="rounded-lg border bg-background/80 p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cobranza</p>
-              <p className="mt-2 text-sm font-medium">{formatCurrency(cobranzasSummary.saldoPendiente)} siguen abiertos y {cobranzasSummary.vencidos} ya están vencidos.</p>
+              <p className="mt-2 text-sm font-medium">
+                {formatCurrency(cobranzasSummary.saldoPendiente)} siguen abiertos y{" "}
+                {cobranzasSummary.vencidos} ya están vencidos.
+              </p>
             </div>
             <div className="rounded-lg border bg-background/80 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Rentabilidad</p>
-              <p className="mt-2 text-sm font-medium">Margen promedio visible de {executiveKpis.margenPromedio.toFixed(1)}% sobre el catálogo actual.</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Rentabilidad
+              </p>
+              <p className="mt-2 text-sm font-medium">
+                Margen promedio visible de {executiveKpis.margenPromedio.toFixed(1)}% sobre el
+                catálogo actual.
+              </p>
             </div>
           </div>
         </CardContent>
@@ -673,13 +688,13 @@ export default function ReportesPage() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid w-full grid-cols-5">
+        <SalesTabsList className="md:grid-cols-3 xl:grid-cols-5">
           <TabsTrigger value="ejecutivo">Ejecutivo</TabsTrigger>
           <TabsTrigger value="libros">Libro IVA</TabsTrigger>
           <TabsTrigger value="margenes">Márgenes</TabsTrigger>
           <TabsTrigger value="cobranzas">Cobranzas</TabsTrigger>
           <TabsTrigger value="clientes">Clientes</TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="ejecutivo" className="mt-4 space-y-4">
           <div className="grid gap-4 md:grid-cols-2">

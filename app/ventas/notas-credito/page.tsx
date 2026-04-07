@@ -24,7 +24,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -47,7 +46,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { Textarea } from "@/components/ui/textarea"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
@@ -647,7 +647,7 @@ function CreditDebitNoteForm({
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-4">
+        <SalesTabsList className="md:grid-cols-2 xl:grid-cols-4">
           <TabsTrigger value="principal" className="py-2 text-xs">
             Principal
           </TabsTrigger>
@@ -660,7 +660,7 @@ function CreditDebitNoteForm({
           <TabsTrigger value="legado" className="py-2 text-xs">
             Alcance actual
           </TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="principal" className="mt-4 space-y-4">
           {formWarnings.length > 0 ? (
@@ -1304,13 +1304,13 @@ function NoteDetail({
 
   return (
     <Tabs defaultValue="principal" className="w-full">
-      <TabsList className="grid w-full grid-cols-5">
+      <SalesTabsList className="md:grid-cols-3 xl:grid-cols-5">
         <TabsTrigger value="principal">Principal</TabsTrigger>
         <TabsTrigger value="items">Items</TabsTrigger>
         <TabsTrigger value="totales">Totales</TabsTrigger>
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
         <TabsTrigger value="legado">Cobertura</TabsTrigger>
-      </TabsList>
+      </SalesTabsList>
 
       <TabsContent value="principal" className="space-y-4">
         <Card>
@@ -1778,10 +1778,10 @@ export function VentasNotasPage({
       </Card>
 
       <Tabs value={activeKind} onValueChange={(value) => setActiveKind(value as NoteKind)}>
-        <TabsList>
+        <SalesTabsList>
           <TabsTrigger value="credito">Notas de Crédito ({kpis.creditos})</TabsTrigger>
           <TabsTrigger value="debito">Notas de Débito ({kpis.debitos})</TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
         <TabsContent value="credito" className="mt-4">
           <Card>
             <CardHeader>
@@ -1902,7 +1902,7 @@ export function VentasNotasPage({
       </div>
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>
               {activeKind === "credito" ? "Nueva Nota de Crédito" : "Nueva Nota de Débito"}
@@ -1923,7 +1923,7 @@ export function VentasNotasPage({
             crearNotaDebito={crearNotaDebito}
             motivosDebito={motivosDebito}
           />
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
@@ -1936,7 +1936,7 @@ export function VentasNotasPage({
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -1985,7 +1985,7 @@ export function VentasNotasPage({
               </Button>
             )}
           </DialogFooter>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )
@@ -2073,7 +2073,7 @@ function NoteTable({
                   <TableCell>
                     <Badge variant={status.variant}>{status.label}</Badge>
                   </TableCell>
-                  <TableCell className="max-w-65 text-sm text-muted-foreground">
+                  <TableCell className="max-w-64 whitespace-normal wrap-break-word text-sm text-muted-foreground">
                     {getApplicationStatus(note)}
                   </TableCell>
                   <TableCell className="text-right font-semibold">

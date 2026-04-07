@@ -22,7 +22,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -45,7 +44,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { Textarea } from "@/components/ui/textarea"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
@@ -271,14 +271,24 @@ function SalesOrderForm({
     if (!form.sucursalId) warnings.push("Falta seleccionar la sucursal emisora.")
     if (!vendedor.trim()) warnings.push("Conviene indicar el vendedor responsable del pedido.")
     if (!entregaEstimada) warnings.push("Conviene informar una fecha de entrega comprometida.")
-    if (!domicilioEntrega.trim()) warnings.push("Falta un domicilio o punto de entrega para el pedido.")
-    if (lineItems.length === 0) warnings.push("Agregá al menos un renglón antes de registrar el pedido.")
+    if (!domicilioEntrega.trim())
+      warnings.push("Falta un domicilio o punto de entrega para el pedido.")
+    if (lineItems.length === 0)
+      warnings.push("Agregá al menos un renglón antes de registrar el pedido.")
     if (!detalleOperativo.trim()) {
       warnings.push("Sumá un detalle comercial para que el pedido sea más claro en seguimiento.")
     }
 
     return warnings
-  }, [detalleOperativo, domicilioEntrega, entregaEstimada, form.sucursalId, form.terceroId, lineItems.length, vendedor])
+  }, [
+    detalleOperativo,
+    domicilioEntrega,
+    entregaEstimada,
+    form.sucursalId,
+    form.terceroId,
+    lineItems.length,
+    vendedor,
+  ])
 
   const addItem = (itemId: string) => {
     const item = items.find((current) => current.id === Number(itemId))
@@ -418,7 +428,7 @@ function SalesOrderForm({
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-5">
+        <SalesTabsList className="md:grid-cols-3 xl:grid-cols-5">
           <TabsTrigger value="principal" className="py-2 text-xs">
             Principal
           </TabsTrigger>
@@ -434,7 +444,7 @@ function SalesOrderForm({
           <TabsTrigger value="legado" className="py-2 text-xs">
             Cobertura
           </TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="principal" className="mt-4 space-y-4">
           {operationalWarnings.length > 0 ? (
@@ -588,13 +598,17 @@ function SalesOrderForm({
               </CardHeader>
               <CardContent className="grid gap-3 md:grid-cols-2 text-sm">
                 <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cliente</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Cliente
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">
                     {selectedCustomer?.razonSocial ?? "Sin cliente seleccionado"}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Sucursal</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Sucursal
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">
                     {selectedSucursal?.descripcion ?? "Sin sucursal"}
                   </p>
@@ -612,7 +626,9 @@ function SalesOrderForm({
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Contacto</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Contacto
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">
                     {selectedCustomer?.telefono ?? selectedCustomer?.email ?? "Sin contacto"}
                   </p>
@@ -626,7 +642,9 @@ function SalesOrderForm({
               </CardHeader>
               <CardContent className="grid gap-3 md:grid-cols-2 text-sm">
                 <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Vendedor</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Vendedor
+                  </p>
                   <p className="mt-1 font-medium wrap-break-word">{vendedor || "Sin vendedor"}</p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
@@ -634,12 +652,18 @@ function SalesOrderForm({
                   <p className="mt-1 font-medium capitalize">{canal}</p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Condición</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Condición
+                  </p>
                   <p className="mt-1 font-medium capitalize">{condicionVenta}</p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Compromiso</p>
-                  <p className="mt-1 font-medium">{entregaEstimada ? formatDate(entregaEstimada) : "Sin fecha"}</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    Compromiso
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {entregaEstimada ? formatDate(entregaEstimada) : "Sin fecha"}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -779,11 +803,17 @@ function SalesOrderForm({
                           step={0.01}
                           value={item.descuento}
                           onChange={(event) =>
-                            updateLineItem(item.id, "descuento", parseFloat(event.target.value) || 0)
+                            updateLineItem(
+                              item.id,
+                              "descuento",
+                              parseFloat(event.target.value) || 0
+                            )
                           }
                         />
                       </TableCell>
-                      <TableCell className="text-right">{item.alicuotaIvaPct.toFixed(2)}%</TableCell>
+                      <TableCell className="text-right">
+                        {item.alicuotaIvaPct.toFixed(2)}%
+                      </TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}>
                           <AlertCircle className="h-4 w-4 text-destructive" />
@@ -822,9 +852,9 @@ function SalesOrderForm({
         <TabsContent value="legado" className="mt-4 space-y-4">
           <Card>
             <CardContent className="pt-6 text-sm text-muted-foreground">
-              La pantalla ya cubre cabecera comercial, detalle, programación y datos de entrega.
-              La reserva de stock, las aprobaciones, la preparación por área y la transformación
-              formal a remito o factura siguen dependiendo de integración backend adicional.
+              La pantalla ya cubre cabecera comercial, detalle, programación y datos de entrega. La
+              reserva de stock, las aprobaciones, la preparación por área y la transformación formal
+              a remito o factura siguen dependiendo de integración backend adicional.
             </CardContent>
           </Card>
         </TabsContent>
@@ -924,13 +954,13 @@ function SalesOrderDetail({
 
   return (
     <Tabs defaultValue="principal" className="w-full">
-      <TabsList className="grid w-full grid-cols-5">
+      <SalesTabsList className="md:grid-cols-3 xl:grid-cols-5">
         <TabsTrigger value="principal">Principal</TabsTrigger>
         <TabsTrigger value="items">Items</TabsTrigger>
         <TabsTrigger value="totales">Totales</TabsTrigger>
         <TabsTrigger value="circuito">Circuito</TabsTrigger>
         <TabsTrigger value="legado">Cobertura</TabsTrigger>
-      </TabsList>
+      </SalesTabsList>
       <TabsContent value="principal" className="space-y-4">
         <Card>
           <CardHeader>
@@ -1203,21 +1233,27 @@ export default function PedidosPage() {
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Total</p>
             <p className="mt-2 text-2xl font-bold text-slate-950">{kpis.total}</p>
-            <p className="mt-1 text-xs text-slate-600">Pedidos detectados en el circuito comercial.</p>
+            <p className="mt-1 text-xs text-slate-600">
+              Pedidos detectados en el circuito comercial.
+            </p>
           </CardContent>
         </Card>
         <Card className="border-amber-200 bg-amber-50/80">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Borradores</p>
             <p className="mt-2 text-2xl font-bold text-amber-950">{kpis.borradores}</p>
-            <p className="mt-1 text-xs text-amber-800">Todavía requieren validación comercial o cierre operativo.</p>
+            <p className="mt-1 text-xs text-amber-800">
+              Todavía requieren validación comercial o cierre operativo.
+            </p>
           </CardContent>
         </Card>
         <Card className="border-emerald-200 bg-emerald-50/80">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Confirmados</p>
             <p className="mt-2 text-2xl font-bold text-emerald-950">{kpis.confirmados}</p>
-            <p className="mt-1 text-xs text-emerald-800">Pedidos ya emitidos dentro del flujo disponible.</p>
+            <p className="mt-1 text-xs text-emerald-800">
+              Pedidos ya emitidos dentro del flujo disponible.
+            </p>
           </CardContent>
         </Card>
         <Card className="border-sky-200 bg-sky-50/80">
@@ -1245,7 +1281,9 @@ export default function PedidosPage() {
               </p>
               <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                 <span className="rounded-full border bg-background/80 px-3 py-1">
-                  {highlightedContext?.vendedor ? `Vendedor: ${highlightedContext.vendedor}` : "Vendedor sin asignar"}
+                  {highlightedContext?.vendedor
+                    ? `Vendedor: ${highlightedContext.vendedor}`
+                    : "Vendedor sin asignar"}
                 </span>
                 <span className="rounded-full border bg-background/80 px-3 py-1">
                   {highlightedContext?.tipoEntrega
@@ -1329,76 +1367,76 @@ export default function PedidosPage() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Pedido</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Compromiso</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Circuito</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
-                    <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                    Cargando pedidos...
-                  </TableCell>
+                  <TableHead>Pedido</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Compromiso</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Circuito</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              ) : filtered.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
-                    No se encontraron pedidos para los filtros actuales.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filtered.map((order) => {
-                  const status = STATUS_CONFIG[order.estado] ?? {
-                    label: order.estado,
-                    variant: "outline" as const,
-                  }
-                  return (
-                    <TableRow
-                      key={order.id}
-                      className="cursor-pointer hover:bg-muted/40"
-                      onClick={() => openDetail(order)}
-                    >
-                      <TableCell className="font-mono font-semibold">
-                        {order.nroComprobante ?? `#${order.id}`}
-                      </TableCell>
-                      <TableCell>
-                        {getTypeName(order.tipoComprobanteId, order.tipoComprobanteDescripcion)}
-                      </TableCell>
-                      <TableCell>{getCustomerName(order.terceroId)}</TableCell>
-                      <TableCell>{formatDate(order.fecha)}</TableCell>
-                      <TableCell>{formatDate(order.fechaVto)}</TableCell>
-                      <TableCell>
-                        <Badge variant={status.variant}>{status.label}</Badge>
-                      </TableCell>
-                      <TableCell className="max-w-65 text-sm text-muted-foreground">
-                        {getOrderDocumentStatus(order as ComprobanteDetalle)}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">
-                        {formatMoney(order.total)}
-                      </TableCell>
-                      <TableCell
-                        className="text-right"
-                        onClick={(event) => event.stopPropagation()}
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                      <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                      Cargando pedidos...
+                    </TableCell>
+                  </TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                      No se encontraron pedidos para los filtros actuales.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filtered.map((order) => {
+                    const status = STATUS_CONFIG[order.estado] ?? {
+                      label: order.estado,
+                      variant: "outline" as const,
+                    }
+                    return (
+                      <TableRow
+                        key={order.id}
+                        className="cursor-pointer hover:bg-muted/40"
+                        onClick={() => openDetail(order)}
                       >
-                        <Button variant="ghost" size="icon" onClick={() => openDetail(order)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })
-              )}
-            </TableBody>
+                        <TableCell className="font-mono font-semibold">
+                          {order.nroComprobante ?? `#${order.id}`}
+                        </TableCell>
+                        <TableCell>
+                          {getTypeName(order.tipoComprobanteId, order.tipoComprobanteDescripcion)}
+                        </TableCell>
+                        <TableCell>{getCustomerName(order.terceroId)}</TableCell>
+                        <TableCell>{formatDate(order.fecha)}</TableCell>
+                        <TableCell>{formatDate(order.fechaVto)}</TableCell>
+                        <TableCell>
+                          <Badge variant={status.variant}>{status.label}</Badge>
+                        </TableCell>
+                        <TableCell className="max-w-64 whitespace-normal wrap-break-word text-sm text-muted-foreground">
+                          {getOrderDocumentStatus(order as ComprobanteDetalle)}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {formatMoney(order.total)}
+                        </TableCell>
+                        <TableCell
+                          className="text-right"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <Button variant="ghost" size="icon" onClick={() => openDetail(order)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
             </Table>
           </div>
         </CardContent>
@@ -1460,14 +1498,14 @@ export default function PedidosPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-amber-950/80">
-            {kpis.confirmados} confirmados y {kpis.cerrados} cerrados ya quedan controlados;
-            reserva de stock, preparación, aprobaciones y transformación formal siguen pendientes.
+            {kpis.confirmados} confirmados y {kpis.cerrados} cerrados ya quedan controlados; reserva
+            de stock, preparación, aprobaciones y transformación formal siguen pendientes.
           </CardContent>
         </Card>
       </div>
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Nuevo Pedido</DialogTitle>
             <DialogDescription>
@@ -1482,7 +1520,7 @@ export default function PedidosPage() {
             onSaved={handleSaved}
             emitir={emitir}
           />
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
@@ -1495,7 +1533,7 @@ export default function PedidosPage() {
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+        <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -1535,7 +1573,7 @@ export default function PedidosPage() {
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

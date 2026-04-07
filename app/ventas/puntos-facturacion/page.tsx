@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -48,7 +47,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { usePuntosFacturacion, useTiposPuntoFacturacion } from "@/lib/hooks/usePuntosFacturacion"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
@@ -275,7 +275,7 @@ function PuntoForm({ punto, sucursalId, onClose, onSaved }: PuntoFormProps) {
       </div>
 
       <Tabs defaultValue="ficha" className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-3 gap-2">
+        <SalesTabsList className="gap-2 md:grid-cols-3">
           <TabsTrigger value="ficha" className="py-2 text-xs">
             Ficha
           </TabsTrigger>
@@ -285,7 +285,7 @@ function PuntoForm({ punto, sucursalId, onClose, onSaved }: PuntoFormProps) {
           <TabsTrigger value="operacion" className="py-2 text-xs">
             Operación
           </TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="ficha" className="mt-4 space-y-4">
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_320px]">
@@ -927,10 +927,10 @@ export default function PuntosFacturacionPage() {
                           <TableCell className="font-mono font-semibold">
                             {formatPointNumber(punto.numero)}
                           </TableCell>
-                          <TableCell className="max-w-70 whitespace-normal wrap-break-word font-medium">
+                          <TableCell className="max-w-72 whitespace-normal wrap-break-word font-medium">
                             {punto.descripcion}
                           </TableCell>
-                          <TableCell className="max-w-55 whitespace-normal wrap-break-word text-sm text-muted-foreground">
+                          <TableCell className="max-w-56 whitespace-normal wrap-break-word text-sm text-muted-foreground">
                             {getTipoDescripcion(punto.tipoPuntoFacturacionId)}
                           </TableCell>
                           <TableCell>
@@ -1054,7 +1054,7 @@ export default function PuntosFacturacionPage() {
       </Card>
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-hidden p-0">
+        <SalesDialogContent size="xl" className="overflow-hidden p-0">
           <div className="flex h-full max-h-[92vh] flex-col">
             <DialogHeader className="border-b px-6 py-5">
               <DialogTitle>
@@ -1079,7 +1079,7 @@ export default function PuntosFacturacionPage() {
               />
             </ScrollArea>
           </div>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
@@ -1092,7 +1092,7 @@ export default function PuntosFacturacionPage() {
           }
         }}
       >
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden p-0">
+        <SalesDialogContent size="lg" className="overflow-hidden p-0">
           <div className="flex h-full max-h-[92vh] flex-col">
             <DialogHeader className="border-b px-6 py-5">
               <DialogTitle className="flex items-center gap-2">
@@ -1105,11 +1105,11 @@ export default function PuntosFacturacionPage() {
             <ScrollArea className="flex-1 px-6 py-5">
               {selected ? (
                 <Tabs defaultValue="ficha" className="w-full">
-                  <TabsList className="grid h-auto w-full grid-cols-3 gap-2">
+                  <SalesTabsList className="gap-2 md:grid-cols-3">
                     <TabsTrigger value="ficha">Ficha</TabsTrigger>
                     <TabsTrigger value="numeracion">Numeración</TabsTrigger>
                     <TabsTrigger value="operacion">Operación</TabsTrigger>
-                  </TabsList>
+                  </SalesTabsList>
 
                   <TabsContent value="ficha" className="space-y-4 pt-4">
                     <Card>
@@ -1226,7 +1226,7 @@ export default function PuntosFacturacionPage() {
               ) : null}
             </DialogFooter>
           </div>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )

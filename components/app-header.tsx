@@ -42,7 +42,7 @@ export function AppHeader() {
 
       // Find title from navigation
       let title = segment.charAt(0).toUpperCase() + segment.slice(1)
-      
+
       for (const navItem of navigation) {
         if (navItem.url === currentPath) {
           title = navItem.title
@@ -65,29 +65,39 @@ export function AppHeader() {
   }
 
   const breadcrumbs = getBreadcrumbs()
+  const compactBreadcrumbs = breadcrumbs.length > 0 ? [breadcrumbs[breadcrumbs.length - 1]] : []
 
   const handleLogout = () => {
     logout()
-    router.replace('/login')
+    router.replace("/login")
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4">
+    <header className="flex h-14 min-w-0 shrink-0 items-center gap-2 border-b bg-background px-3 sm:px-4">
       <SidebarTrigger className="-ml-1" />
-      <Separator orientation="vertical" className="mr-2 h-4" />
-      <Breadcrumb className="flex-1">
-        <BreadcrumbList>
+      <Separator orientation="vertical" className="mr-1 hidden h-4 sm:block" />
+      <Breadcrumb className="min-w-0 flex-1 overflow-hidden">
+        <BreadcrumbList className="hidden min-w-0 flex-nowrap overflow-hidden md:flex">
           {breadcrumbs.map((crumb, index) => (
             <span key={crumb.url} className="contents">
               {index > 0 && <BreadcrumbSeparator />}
               <BreadcrumbItem>
                 {crumb.isLast ? (
-                  <BreadcrumbPage>{crumb.title}</BreadcrumbPage>
+                  <BreadcrumbPage className="truncate">{crumb.title}</BreadcrumbPage>
                 ) : (
-                  <BreadcrumbLink href={crumb.url}>{crumb.title}</BreadcrumbLink>
+                  <BreadcrumbLink href={crumb.url} className="truncate">
+                    {crumb.title}
+                  </BreadcrumbLink>
                 )}
               </BreadcrumbItem>
             </span>
+          ))}
+        </BreadcrumbList>
+        <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden md:hidden">
+          {compactBreadcrumbs.map((crumb) => (
+            <BreadcrumbItem key={crumb.url} className="min-w-0">
+              <BreadcrumbPage className="truncate">{crumb.title}</BreadcrumbPage>
+            </BreadcrumbItem>
           ))}
         </BreadcrumbList>
       </Breadcrumb>
@@ -100,7 +110,10 @@ export function AppHeader() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive cursor-pointer">
+          <DropdownMenuItem
+            onClick={handleLogout}
+            className="text-destructive focus:text-destructive cursor-pointer"
+          >
             <LogOut className="mr-2 h-4 w-4" />
             Cerrar sesión
           </DropdownMenuItem>
@@ -109,4 +122,3 @@ export function AppHeader() {
     </header>
   )
 }
-

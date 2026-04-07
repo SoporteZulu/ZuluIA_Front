@@ -1,13 +1,18 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useSyncExternalStore } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { isAuthenticated } from "@/lib/auth"
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const mounted = typeof window !== "undefined"
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  )
+
   const authenticated = mounted ? isAuthenticated() : false
 
   useEffect(() => {

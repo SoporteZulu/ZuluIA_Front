@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -47,7 +46,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { Textarea } from "@/components/ui/textarea"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useDepositos } from "@/lib/hooks/useDepositos"
@@ -502,7 +502,7 @@ function DeliveryNoteForm({
       </Alert>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid h-auto w-full grid-cols-4">
+        <SalesTabsList className="md:grid-cols-2 xl:grid-cols-4">
           <TabsTrigger value="cabecera" className="py-2 text-xs">
             Cabecera
           </TabsTrigger>
@@ -515,7 +515,7 @@ function DeliveryNoteForm({
           <TabsTrigger value="cierre" className="py-2 text-xs">
             Cierre
           </TabsTrigger>
-        </TabsList>
+        </SalesTabsList>
 
         <TabsContent value="cabecera" className="mt-4 space-y-4">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -961,7 +961,7 @@ function DeliveryNoteForm({
 
                     return (
                       <TableRow key={item.id}>
-                        <TableCell className="max-w-[320px] whitespace-normal font-medium">
+                        <TableCell className="max-w-[20rem] whitespace-normal wrap-break-word font-medium">
                           {item.descripcion}
                         </TableCell>
                         <TableCell className="text-right">
@@ -1208,12 +1208,12 @@ function DeliveryNoteDetail({
 
   return (
     <Tabs defaultValue="cabecera" className="w-full">
-      <TabsList className="grid h-auto w-full grid-cols-4">
+      <SalesTabsList className="md:grid-cols-2 xl:grid-cols-4">
         <TabsTrigger value="cabecera">Cabecera</TabsTrigger>
         <TabsTrigger value="renglones">Renglones</TabsTrigger>
         <TabsTrigger value="logistica">Logística</TabsTrigger>
         <TabsTrigger value="totales">Totales</TabsTrigger>
-      </TabsList>
+      </SalesTabsList>
 
       <TabsContent value="cabecera" className="space-y-4">
         <Card>
@@ -1262,7 +1262,7 @@ function DeliveryNoteDetail({
               ) : (
                 remito.items.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell className="max-w-90 whitespace-normal font-medium">
+                    <TableCell className="max-w-[22rem] whitespace-normal wrap-break-word font-medium">
                       {item.descripcion}
                     </TableCell>
                     <TableCell className="text-right">{item.cantidad}</TableCell>
@@ -1757,14 +1757,14 @@ export default function RemitosPage() {
                         <TableCell className="font-mono font-semibold">
                           {remito.nroComprobante ?? `#${remito.id}`}
                         </TableCell>
-                        <TableCell className="max-w-55 whitespace-normal font-medium">
+                        <TableCell className="max-w-56 whitespace-normal wrap-break-word font-medium">
                           {getCustomerName(remito.terceroId)}
                         </TableCell>
                         <TableCell>{getSucursalName(remito.sucursalId)}</TableCell>
-                        <TableCell className="max-w-45 whitespace-normal">
+                        <TableCell className="max-w-44 whitespace-normal wrap-break-word">
                           {logistics.deposito || "-"}
                         </TableCell>
-                        <TableCell className="max-w-55 whitespace-normal">
+                        <TableCell className="max-w-56 whitespace-normal wrap-break-word">
                           {logistics.transportista || "-"}
                         </TableCell>
                         <TableCell>{logistics.cot || "-"}</TableCell>
@@ -1869,7 +1869,7 @@ export default function RemitosPage() {
       </div>
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+        <SalesDialogContent size="xl">
           <DialogHeader>
             <DialogTitle>Nuevo remito</DialogTitle>
             <DialogDescription>
@@ -1885,7 +1885,7 @@ export default function RemitosPage() {
             onSaved={handleSaved}
             emitir={emitir}
           />
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
 
       <Dialog
@@ -1898,7 +1898,7 @@ export default function RemitosPage() {
           }
         }}
       >
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+        <SalesDialogContent size="xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -1946,7 +1946,7 @@ export default function RemitosPage() {
               </Button>
             ) : null}
           </DialogFooter>
-        </DialogContent>
+        </SalesDialogContent>
       </Dialog>
     </div>
   )
