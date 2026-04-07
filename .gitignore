@@ -9,6 +9,7 @@
 
 # production
 /build
+/vm-package
 
 # debug
 npm-debug.log*

@@ -1262,7 +1262,7 @@ function DeliveryNoteDetail({
               ) : (
                 remito.items.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell className="max-w-[22rem] whitespace-normal wrap-break-word font-medium">
+                    <TableCell className="max-w-88 whitespace-normal wrap-break-word font-medium">
                       {item.descripcion}
                     </TableCell>
                     <TableCell className="text-right">{item.cantidad}</TableCell>

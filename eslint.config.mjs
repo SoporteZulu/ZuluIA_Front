@@ -5,7 +5,7 @@ const config = [
   ...nextCoreWebVitals,
   ...nextTypeScript,
   {
-    ignores: ["node_modules/**"],
+    ignores: ["node_modules/**", ".next/**", "vm-package/**"],
   },
 ]
 

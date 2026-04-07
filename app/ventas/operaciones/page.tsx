@@ -594,7 +594,7 @@ export default function VentasOperacionesPage() {
                           <TableCell>{row.responsable}</TableCell>
                           <TableCell>{priorityBadge(row.prioridad)}</TableCell>
                           <TableCell>{stateBadge(row.estado)}</TableCell>
-                          <TableCell className="max-w-[22rem] whitespace-normal wrap-break-word text-muted-foreground">
+                          <TableCell className="max-w-88 whitespace-normal wrap-break-word text-muted-foreground">
                             {row.observacion}
                           </TableCell>
                         </TableRow>
@@ -955,7 +955,10 @@ export default function VentasOperacionesPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={editingBatch !== null} onOpenChange={(open) => !open && setEditingBatch(null)}>
+      <Dialog
+        open={editingBatch !== null}
+        onOpenChange={(open: boolean) => !open && setEditingBatch(null)}
+      >
         <SalesDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Editar tanda interna</DialogTitle>
@@ -1007,7 +1010,7 @@ function BatchEditor({
         <OperationsFormField label="Tipo">
           <Select
             value={draft.tipo}
-            onValueChange={(value) =>
+            onValueChange={(value: string) =>
               setDraft((prev) => ({ ...prev, tipo: value as OperacionesBatchJob["tipo"] }))
             }
             disabled={draft.source !== "programacion"}
@@ -1026,7 +1029,7 @@ function BatchEditor({
         <OperationsFormField label="Estado">
           <Select
             value={draft.estado}
-            onValueChange={(value) =>
+            onValueChange={(value: string) =>
               setDraft((prev) => ({ ...prev, estado: value as OperacionesBatchJob["estado"] }))
             }
             disabled={draft.source !== "programacion"}

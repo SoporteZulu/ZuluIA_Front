@@ -688,7 +688,7 @@ function CreditDebitNoteForm({
               <Label>Sucursal</Label>
               <Select
                 value={form.sucursalId ? String(form.sucursalId) : ""}
-                onValueChange={(value) =>
+                onValueChange={(value: string) =>
                   setForm((prev) => ({ ...prev, sucursalId: Number(value) }))
                 }
               >
@@ -708,7 +708,7 @@ function CreditDebitNoteForm({
               <Label>Tipo de {kindConfig.singular}</Label>
               <Select
                 value={form.tipoComprobanteId ? String(form.tipoComprobanteId) : ""}
-                onValueChange={(value) =>
+                onValueChange={(value: string) =>
                   setForm((prev) => ({ ...prev, tipoComprobanteId: Number(value) }))
                 }
               >
@@ -728,7 +728,7 @@ function CreditDebitNoteForm({
               <Label>Cliente</Label>
               <Select
                 value={form.terceroId ? String(form.terceroId) : ""}
-                onValueChange={(value) => {
+                onValueChange={(value: string) => {
                   const terceroId = Number(value)
                   const selectedClient = clientes.find((cliente) => cliente.id === terceroId)
                   setForm((prev) => ({ ...prev, terceroId }))
@@ -827,7 +827,7 @@ function CreditDebitNoteForm({
                     </div>
                     <Switch
                       checked={inheritReferenceDueDate}
-                      onCheckedChange={(checked) => {
+                      onCheckedChange={(checked: boolean) => {
                         setInheritReferenceDueDate(checked)
                         if (checked && selectedReference?.fechaVto) {
                           setForm((prev) => ({
@@ -848,7 +848,7 @@ function CreditDebitNoteForm({
                     </div>
                     <Switch
                       checked={deliveryChannel === "mail"}
-                      onCheckedChange={(checked) =>
+                      onCheckedChange={(checked: boolean) =>
                         setDeliveryChannel(checked && selectedCustomer?.email ? "mail" : "manual")
                       }
                       disabled={!selectedCustomer?.email}
@@ -861,7 +861,7 @@ function CreditDebitNoteForm({
               <Label>Comprobante de referencia</Label>
               <Select
                 value={comprobanteReferenciaId}
-                onValueChange={(value) => {
+                onValueChange={(value: string) => {
                   setComprobanteReferenciaId(value)
                   if (!inheritReferenceDueDate || value === "none") return
                   const reference = filteredReferenceDocuments.find(
@@ -1777,7 +1777,7 @@ export function VentasNotasPage({
         </CardContent>
       </Card>
 
-      <Tabs value={activeKind} onValueChange={(value) => setActiveKind(value as NoteKind)}>
+      <Tabs value={activeKind} onValueChange={(value: string) => setActiveKind(value as NoteKind)}>
         <SalesTabsList>
           <TabsTrigger value="credito">Notas de Crédito ({kpis.creditos})</TabsTrigger>
           <TabsTrigger value="debito">Notas de Débito ({kpis.debitos})</TabsTrigger>
@@ -1928,7 +1928,7 @@ export function VentasNotasPage({
 
       <Dialog
         open={isDetailOpen}
-        onOpenChange={(open) => {
+        onOpenChange={(open: boolean) => {
           setIsDetailOpen(open)
           if (!open) {
             setSelectedNoteId(null)
