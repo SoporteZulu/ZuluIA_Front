@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useMemo, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   AlertCircle,
   ArrowLeft,
@@ -117,9 +117,9 @@ function getInteractionLabel(type: string) {
 }
 
 export default function ClienteDetallePage() {
-  const params = useParams()
+  const searchParams = useSearchParams()
   const router = useRouter()
-  const id = params.id as string
+  const id = searchParams.get("id") ?? ""
   const [todayTimestamp] = useState(() => Date.now())
 
   const { clientes, loading: loadingCliente, error: errorCliente } = useCrmClientes()
@@ -206,6 +206,10 @@ export default function ClienteDetallePage() {
 
   const highlightedContact = activeContacts[0] ?? contactos[0] ?? null
 
+  if (!id) {
+    return <div className="p-8 text-center text-muted-foreground">Cliente no especificado</div>
+  }
+
   if (loading && !client) {
     return <div className="p-8 text-center text-muted-foreground">Cargando cliente...</div>
   }
@@ -288,9 +292,7 @@ export default function ClienteDetallePage() {
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Última gestión</p>
-            <p className="mt-2 text-sm font-semibold">
-              {formatDateTime(lastInteraction?.fechaHora)}
-            </p>
+            <p className="mt-2 text-sm font-semibold">{formatDateTime(lastInteraction?.fechaHora)}</p>
           </CardContent>
         </Card>
       </div>

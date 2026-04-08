@@ -9,6 +9,8 @@ import { Inter } from "next/font/google"
 
 // Initialize fonts - ZULU ERP Design System
 const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700"] })
+const appBasePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/+$/, "")
+const withBasePath = (path: string) => `${appBasePath}${path}`
 
 export const metadata: Metadata = {
   title: "ZULU ERP - Sistema de Gestion Empresarial",
@@ -17,19 +19,19 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: "/icon-light-32x32.png",
+        url: withBasePath("/icon-light-32x32.png"),
         media: "(prefers-color-scheme: light)",
       },
       {
-        url: "/icon-dark-32x32.png",
+        url: withBasePath("/icon-dark-32x32.png"),
         media: "(prefers-color-scheme: dark)",
       },
       {
-        url: "/icon.svg",
+        url: withBasePath("/icon.svg"),
         type: "image/svg+xml",
       },
     ],
-    apple: "/apple-icon.png",
+    apple: withBasePath("/apple-icon.png"),
   },
 }
 

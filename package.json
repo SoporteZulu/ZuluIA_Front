@@ -5,10 +5,10 @@
   "packageManager": "pnpm@10.0.0",
   "scripts": {
     "build": "next build",
-    "build:vm": "next build && powershell -ExecutionPolicy Bypass -File scripts/prepare-vm.ps1",
+    "build:iis": "powershell -ExecutionPolicy Bypass -File scripts/build-iis.ps1",
     "dev": "next dev",
     "lint": "eslint .",
-    "prepare:vm": "powershell -ExecutionPolicy Bypass -File scripts/prepare-vm.ps1",
+    "prepare:iis": "powershell -ExecutionPolicy Bypass -File scripts/prepare-iis.ps1",
     "start": "next start"
   },
   "dependencies": {

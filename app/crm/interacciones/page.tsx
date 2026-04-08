@@ -616,7 +616,9 @@ function InteraccionesContent() {
               </CardDescription>
             </div>
             {highlightedClient && (
-              <Link href={`/crm/clientes/${highlightedClient.client.id}`}>
+              <Link
+                href={`/crm/clientes/detalle?id=${encodeURIComponent(highlightedClient.client.id)}`}
+              >
                 <Button variant="ghost" size="sm">
                   Ver cliente
                   <ArrowRight className="ml-2 h-4 w-4" />
@@ -730,7 +732,7 @@ function InteraccionesContent() {
                         <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                           {cliente && (
                             <Link
-                              href={`/crm/clientes/${cliente.id}`}
+                              href={`/crm/clientes/detalle?id=${encodeURIComponent(cliente.id)}`}
                               className="hover:underline flex items-center gap-1"
                             >
                               <Building2 className="h-3 w-3" />

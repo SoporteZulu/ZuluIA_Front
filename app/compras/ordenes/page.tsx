@@ -870,7 +870,7 @@ export default function OrdenesCompraPage() {
               </p>
             </div>
             <Button asChild variant="outline" className="bg-transparent">
-              <a href="/compras/cotizaciones">Abrir cotizaciones</a>
+              <Link href="/compras/cotizaciones">Abrir cotizaciones</Link>
             </Button>
           </CardContent>
         </Card>
@@ -883,7 +883,7 @@ export default function OrdenesCompraPage() {
               </p>
             </div>
             <Button asChild variant="outline" className="bg-transparent">
-              <a href="/compras/requisiciones">Abrir requisiciones</a>
+              <Link href="/compras/requisiciones">Abrir requisiciones</Link>
             </Button>
           </CardContent>
         </Card>
@@ -897,7 +897,7 @@ export default function OrdenesCompraPage() {
               </p>
             </div>
             <Button asChild variant="outline" className="bg-transparent">
-              <a href="/compras/imputaciones">Ver imputaciones</a>
+              <Link href="/compras/imputaciones">Ver imputaciones</Link>
             </Button>
           </CardContent>
         </Card>

@@ -405,7 +405,7 @@ function ClientesHDContent() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Link href={`/crm/clientes/${cliente.id}`}>
+                      <Link href={`/crm/clientes/detalle?id=${encodeURIComponent(cliente.id)}`}>
                         <Button variant="ghost" size="sm">
                           <ExternalLink className="h-4 w-4 mr-1" />
                           Ver en CRM

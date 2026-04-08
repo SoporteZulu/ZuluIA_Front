@@ -706,7 +706,7 @@ function TareasContent() {
                       <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                         {task.cliente ? (
                           <Link
-                            href={`/crm/clientes/${task.cliente.id}`}
+                            href={`/crm/clientes/detalle?id=${encodeURIComponent(task.cliente.id)}`}
                             className="hover:underline"
                           >
                             {task.cliente.nombre}
