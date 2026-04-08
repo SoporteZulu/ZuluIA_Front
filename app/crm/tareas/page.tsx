@@ -16,6 +16,7 @@ import {
   Trash2,
   UserCircle2,
 } from "lucide-react"
+import { CrmPageHero, CrmStatCard, crmPanelClassName } from "@/components/crm/crm-page-kit"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -57,6 +58,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  useCrmCatalogos,
   useCrmClientes,
   useCrmOportunidades,
   useCrmTareas,
@@ -162,9 +164,17 @@ function TareasContent() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const { tareas, loading, error, createTarea, updateTarea, deleteTarea } = useCrmTareas(
-    clienteIdParam || undefined
-  )
+  const {
+    tareas,
+    loading,
+    error,
+    createTarea,
+    updateTarea,
+    completeTarea,
+    reopenTarea,
+    deleteTarea,
+  } = useCrmTareas(clienteIdParam || undefined)
+  const { data: catalogos } = useCrmCatalogos()
   const { clientes } = useCrmClientes()
   const { usuarios } = useCrmUsuarios()
   const { oportunidades } = useCrmOportunidades()
@@ -182,6 +192,50 @@ function TareasContent() {
   const opportunitiesMap = useMemo(
     () => new Map(oportunidades.map((oportunidad) => [oportunidad.id, oportunidad])),
     [oportunidades]
+  )
+
+  const tipoOptions = useMemo(
+    () =>
+      catalogos.tiposTarea.length > 0
+        ? catalogos.tiposTarea
+        : Object.entries(tipoLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.tiposTarea]
+  )
+
+  const prioridadOptions = useMemo(
+    () =>
+      catalogos.prioridadesTarea.length > 0
+        ? catalogos.prioridadesTarea
+        : Object.entries(prioridadLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.prioridadesTarea]
+  )
+
+  const estadoOptions = useMemo(
+    () =>
+      catalogos.estadosTarea.length > 0
+        ? catalogos.estadosTarea
+        : Object.entries(estadoLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.estadosTarea]
+  )
+
+  const responsableOptions = useMemo(
+    () =>
+      catalogos.usuarios.length > 0
+        ? catalogos.usuarios
+        : usuarios.map((user) => ({
+            id: user.id,
+            nombre: `${user.nombre} ${user.apellido}`,
+            rol: user.rol,
+          })),
+    [catalogos.usuarios, usuarios]
+  )
+
+  const clienteOptions = useMemo(
+    () =>
+      catalogos.clientes.length > 0
+        ? catalogos.clientes.map((cliente) => ({ id: cliente.id, nombre: cliente.nombre }))
+        : clientes.map((cliente) => ({ id: cliente.id, nombre: cliente.nombre })),
+    [catalogos.clientes, clientes]
   )
 
   const tasksWithContext = useMemo(() => {
@@ -356,10 +410,12 @@ function TareasContent() {
 
   const toggleComplete = async (task: CRMTask) => {
     setFormError(null)
-    await updateTarea(task.id, {
-      estado: task.estado === "completada" ? "pendiente" : "completada",
-      fechaCompletado: task.estado === "completada" ? undefined : new Date(),
-    })
+    if (task.estado === "completada") {
+      await reopenTarea(task.id)
+      return
+    }
+
+    await completeTarea(task.id, new Date())
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -430,19 +486,17 @@ function TareasContent() {
 
   return (
     <div className="space-y-6 pb-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Tareas CRM</h1>
-          <p className="text-muted-foreground">
-            Consola operativa de seguimientos, vencimientos y carga comercial usando el contrato
-            real de tareas.
-          </p>
-        </div>
-        <Button onClick={openNewForm}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nueva tarea
-        </Button>
-      </div>
+      <CrmPageHero
+        eyebrow="CRM ejecución"
+        title="Tareas CRM"
+        description="Consola operativa de seguimientos, vencimientos y asignación comercial apoyada en el contrato real de tareas del backend."
+        actions={
+          <Button onClick={openNewForm}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nueva tarea
+          </Button>
+        }
+      />
 
       {(error || formError) && (
         <Alert variant="destructive">
@@ -453,40 +507,45 @@ function TareasContent() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Tareas visibles</p>
-            <p className="mt-2 text-2xl font-bold">{stats.total}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Abiertas</p>
-            <p className="mt-2 text-2xl font-bold">{stats.abiertas}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">En curso</p>
-            <p className="mt-2 text-2xl font-bold text-blue-600">{stats.enCurso}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Vencidas</p>
-            <p className="mt-2 text-2xl font-bold text-red-600">{stats.vencidas}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Prioridad alta</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{stats.prioridadAlta}</p>
-          </CardContent>
-        </Card>
+        <CrmStatCard
+          label="Tareas visibles"
+          value={stats.total}
+          hint="Volumen total con filtros aplicados"
+          icon={Briefcase}
+          tone="slate"
+        />
+        <CrmStatCard
+          label="Abiertas"
+          value={stats.abiertas}
+          hint="Pendientes o en curso"
+          icon={Clock3}
+          tone="blue"
+        />
+        <CrmStatCard
+          label="En curso"
+          value={stats.enCurso}
+          hint="Trabajo activo del equipo comercial"
+          icon={UserCircle2}
+          tone="violet"
+        />
+        <CrmStatCard
+          label="Vencidas"
+          value={stats.vencidas}
+          hint="Fuera de término al día de hoy"
+          icon={CalendarClock}
+          tone="rose"
+        />
+        <CrmStatCard
+          label="Prioridad alta"
+          value={stats.prioridadAlta}
+          hint="Seguimientos críticos visibles"
+          icon={AlertCircle}
+          tone="amber"
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="text-sm font-medium">Radar de vencimiento</CardTitle>
@@ -500,7 +559,7 @@ function TareasContent() {
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="text-sm font-medium">Responsables exigidos</CardTitle>
@@ -516,7 +575,7 @@ function TareasContent() {
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="text-sm font-medium">Clientes con backlog</CardTitle>
@@ -530,7 +589,7 @@ function TareasContent() {
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="text-sm font-medium">Cobertura comercial</CardTitle>
@@ -549,7 +608,7 @@ function TareasContent() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Filtros de seguimiento</CardTitle>
             <CardDescription>
@@ -573,9 +632,9 @@ function TareasContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
-                  {Object.entries(estadoLabels).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
+                  {estadoOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.nombre}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -586,9 +645,9 @@ function TareasContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas</SelectItem>
-                  {Object.entries(prioridadLabels).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
+                  {prioridadOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.nombre}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -599,9 +658,9 @@ function TareasContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
-                  {usuarios.map((usuario) => (
+                  {responsableOptions.map((usuario) => (
                     <SelectItem key={usuario.id} value={usuario.id}>
-                      {usuario.nombre} {usuario.apellido}
+                      {usuario.nombre}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -610,7 +669,7 @@ function TareasContent() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Tarea destacada</CardTitle>
             <CardDescription>
@@ -662,7 +721,7 @@ function TareasContent() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Backlog operativo</CardTitle>
             <CardDescription>
@@ -678,7 +737,10 @@ function TareasContent() {
               </p>
             ) : (
               filteredTasks.map((task) => (
-                <div key={task.id} className="rounded-lg border p-4">
+                <div
+                  key={task.id}
+                  className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
@@ -759,7 +821,7 @@ function TareasContent() {
         </Card>
 
         <div className="space-y-6">
-          <Card>
+          <Card className={crmPanelClassName}>
             <CardHeader>
               <CardTitle>Carga por responsable</CardTitle>
               <CardDescription>
@@ -773,7 +835,10 @@ function TareasContent() {
                 </p>
               ) : (
                 responsablesCarga.slice(0, 5).map((item) => (
-                  <div key={item.userId} className="rounded-lg border p-3">
+                  <div
+                    key={item.userId}
+                    className="rounded-2xl border border-slate-200 bg-white p-3"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium">
@@ -796,7 +861,7 @@ function TareasContent() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={crmPanelClassName}>
             <CardHeader>
               <CardTitle>Clientes con seguimiento pendiente</CardTitle>
               <CardDescription>
@@ -882,9 +947,9 @@ function TareasContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(tipoLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
+                      {tipoOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -905,9 +970,9 @@ function TareasContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(prioridadLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
+                      {prioridadOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -930,9 +995,9 @@ function TareasContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(estadoLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
+                      {estadoOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -968,7 +1033,7 @@ function TareasContent() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Sin cliente</SelectItem>
-                      {clientes.map((client) => (
+                      {clienteOptions.map((client) => (
                         <SelectItem key={client.id} value={client.id}>
                           {client.nombre}
                         </SelectItem>
@@ -1016,9 +1081,9 @@ function TareasContent() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Seleccionar</SelectItem>
-                      {usuarios.map((user) => (
+                      {responsableOptions.map((user) => (
                         <SelectItem key={user.id} value={user.id}>
-                          {user.nombre} {user.apellido}
+                          {user.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>

@@ -56,6 +56,7 @@ import {
 } from "lucide-react"
 import {
   useCrmCampanas,
+  useCrmCatalogos,
   useCrmClientes,
   useCrmInteracciones,
   useCrmOportunidades,
@@ -122,6 +123,7 @@ function getDaysSince(value: Date | string | undefined) {
 
 export default function UsuariosPage() {
   const { usuarios, loading, error, createUsuario, updateUsuario, deleteUsuario } = useCrmUsuarios()
+  const { data: catalogos } = useCrmCatalogos()
   const { clientes } = useCrmClientes()
   const { oportunidades } = useCrmOportunidades()
   const { tareas } = useCrmTareas()
@@ -142,6 +144,44 @@ export default function UsuariosPage() {
     rol: "comercial" as CRMUser["rol"],
     estado: "activo" as CRMUser["estado"],
   })
+
+  const roleOptions = useMemo(
+    () =>
+      catalogos.rolesUsuario.length > 0
+        ? catalogos.rolesUsuario
+        : Object.entries(rolLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.rolesUsuario]
+  )
+
+  const estadoOptions = useMemo(
+    () =>
+      catalogos.estadosUsuario.length > 0
+        ? catalogos.estadosUsuario
+        : [
+            { id: "activo", nombre: "Activo" },
+            { id: "inactivo", nombre: "Inactivo" },
+          ],
+    [catalogos.estadosUsuario]
+  )
+
+  const roleLabelById = useMemo(() => {
+    const labels = Object.fromEntries(Object.entries(rolLabels))
+    roleOptions.forEach((option) => {
+      labels[option.id] = option.nombre
+    })
+    return labels as Record<string, string>
+  }, [roleOptions])
+
+  const estadoLabelById = useMemo(() => {
+    const labels: Record<string, string> = {
+      activo: "Activo",
+      inactivo: "Inactivo",
+    }
+    estadoOptions.forEach((option) => {
+      labels[option.id] = option.nombre
+    })
+    return labels
+  }, [estadoOptions])
 
   const filteredUsers = useMemo(() => {
     return usuarios.filter((user) => {
@@ -166,7 +206,7 @@ export default function UsuariosPage() {
   }, [usuarios, tareas])
 
   const roleCoverage = useMemo(() => {
-    return Object.keys(rolLabels).map((rol) => {
+    return roleOptions.map(({ id: rol }) => {
       const usuariosRol = usuarios.filter((usuario) => usuario.rol === rol)
       const activosRol = usuariosRol.filter((usuario) => usuario.estado === "activo").length
       const ids = new Set(usuariosRol.map((usuario) => usuario.id))
@@ -188,7 +228,7 @@ export default function UsuariosPage() {
         ).length,
       }
     })
-  }, [usuarios, oportunidades, tareas])
+  }, [usuarios, oportunidades, roleOptions, tareas])
 
   const userRadar = useMemo(() => {
     return usuarios
@@ -367,9 +407,9 @@ export default function UsuariosPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(rolLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
+                        {roleOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.nombre}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -387,8 +427,11 @@ export default function UsuariosPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="activo">Activo</SelectItem>
-                        <SelectItem value="inactivo">Inactivo</SelectItem>
+                        {estadoOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.nombre}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -518,7 +561,7 @@ export default function UsuariosPage() {
                               {entry.user.nombre} {entry.user.apellido}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              {rolLabels[entry.user.rol]}
+                              {roleLabelById[entry.user.rol] ?? entry.user.rol}
                             </div>
                           </div>
                         </div>
@@ -563,8 +606,7 @@ export default function UsuariosPage() {
               <div className="rounded-lg border bg-muted/30 p-4">
                 <p className="text-sm font-medium">Roles cubiertos</p>
                 <p className="mt-1 text-2xl font-semibold">
-                  {roleCoverage.filter((item) => item.total > 0).length} /{" "}
-                  {Object.keys(rolLabels).length}
+                  {roleCoverage.filter((item) => item.total > 0).length} / {roleOptions.length}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   La estructura visible ya cubre administración, ventas, marketing y soporte según
@@ -592,7 +634,7 @@ export default function UsuariosPage() {
                             {user.nombre} {user.apellido}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {rolLabels[user.rol]} • {user.email}
+                            {roleLabelById[user.rol] ?? user.rol} • {user.email}
                           </p>
                         </div>
                         <Badge variant={user.estado === "activo" ? "secondary" : "outline"}>
@@ -633,7 +675,9 @@ export default function UsuariosPage() {
                 {roleCoverage.map((item) => (
                   <TableRow key={item.rol}>
                     <TableCell>
-                      <Badge className={rolColors[item.rol]}>{rolLabels[item.rol]}</Badge>
+                      <Badge className={rolColors[item.rol]}>
+                        {roleLabelById[item.rol] ?? item.rol}
+                      </Badge>
                     </TableCell>
                     <TableCell>{item.total}</TableCell>
                     <TableCell>{item.activos}</TableCell>
@@ -675,9 +719,9 @@ export default function UsuariosPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todos los roles</SelectItem>
-                    {Object.entries(rolLabels).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
+                    {roleOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.nombre}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -688,8 +732,11 @@ export default function UsuariosPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todos</SelectItem>
-                    <SelectItem value="activo">Activo</SelectItem>
-                    <SelectItem value="inactivo">Inactivo</SelectItem>
+                    {estadoOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.nombre}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {hasActiveFilters && (
@@ -745,10 +792,14 @@ export default function UsuariosPage() {
                     </TableCell>
                     <TableCell>{user.email}</TableCell>
                     <TableCell>
-                      <Badge className={rolColors[user.rol]}>{rolLabels[user.rol]}</Badge>
+                      <Badge className={rolColors[user.rol]}>
+                        {roleLabelById[user.rol] ?? user.rol}
+                      </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge className={estadoColors[user.estado]}>{user.estado}</Badge>
+                      <Badge className={estadoColors[user.estado]}>
+                        {estadoLabelById[user.estado] ?? user.estado}
+                      </Badge>
                     </TableCell>
                     <TableCell>{formatDate(user.createdAt)}</TableCell>
                     <TableCell className="text-right">

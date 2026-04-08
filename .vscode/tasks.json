@@ -1,112 +1,119 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "📦 Install (pnpm install)",
-      "type": "shell",
-      "command": "pnpm install",
-      "group": "build",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "clear": true
-      }
-    },
-    {
-      "label": "🚀 Dev Server (pnpm dev)",
-      "type": "shell",
-      "command": "pnpm dev",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "clear": true
-      },
-      "isBackground": true,
-      "problemMatcher": {
-        "owner": "nextjs",
-        "pattern": {
-          "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
-          "file": 1,
-          "line": 2,
-          "column": 3,
-          "severity": 4,
-          "message": 5
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": ".*Starting.*|.*Compiling.*",
-          "endsPattern": ".*Ready on http.*|.*compiled.*"
-        }
-      }
-    },
-    {
-      "label": "🏗️ Build (pnpm build)",
-      "type": "shell",
-      "command": "pnpm build",
-      "group": "build",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "clear": true
-      }
-    },
-    {
-      "label": "▶️ Start Production (pnpm start)",
-      "type": "shell",
-      "command": "pnpm start",
-      "group": "build",
-      "dependsOn": "🏗️ Build (pnpm build)",
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
-      }
-    },
-    {
-      "label": "🔎 Lint (pnpm lint)",
-      "type": "shell",
-      "command": "pnpm lint",
-      "group": {
-        "kind": "test",
-        "isDefault": true
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      }
-    },
-    {
-      "label": "🎨 shadcn: Agregar componente",
-      "type": "shell",
-      "command": "pnpm dlx shadcn@latest add ${input:componentName}",
-      "group": "none",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      }
-    },
-    {
-      "label": "🧹 Clean .next cache",
-      "type": "shell",
-      "command": "rm -rf .next",
-      "windows": {
-        "command": "if exist .next rmdir /s /q .next"
-      },
-      "group": "none",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      }
-    }
-  ],
-  "inputs": [
-    {
-      "id": "componentName",
-      "type": "promptString",
-      "description": "Nombre del componente shadcn/ui (ej: button, dialog, table, form)"
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "📦 Install (pnpm install)",
+			"type": "shell",
+			"command": "pnpm install",
+			"group": "build",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new",
+				"clear": true
+			}
+		},
+		{
+			"label": "🚀 Dev Server (pnpm dev)",
+			"type": "shell",
+			"command": "pnpm dev",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			},
+			"isBackground": true,
+			"problemMatcher": {
+				"owner": "nextjs",
+				"pattern": {
+					"regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+					"file": 1,
+					"line": 2,
+					"column": 3,
+					"severity": 4,
+					"message": 5
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": ".*Starting.*|.*Compiling.*",
+					"endsPattern": ".*Ready on http.*|.*compiled.*"
+				}
+			}
+		},
+		{
+			"label": "🏗️ Build (pnpm build)",
+			"type": "shell",
+			"command": "pnpm build",
+			"group": "build",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new",
+				"clear": true
+			}
+		},
+		{
+			"label": "▶️ Start Production (pnpm start)",
+			"type": "shell",
+			"command": "pnpm start",
+			"group": "build",
+			"dependsOn": "🏗️ Build (pnpm build)",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "🔎 Lint (pnpm lint)",
+			"type": "shell",
+			"command": "pnpm lint",
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		{
+			"label": "🎨 shadcn: Agregar componente",
+			"type": "shell",
+			"command": "pnpm dlx shadcn@latest add ${input:componentName}",
+			"group": "none",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		{
+			"label": "🧹 Clean .next cache",
+			"type": "shell",
+			"command": "rm -rf .next",
+			"windows": {
+				"command": "if exist .next rmdir /s /q .next"
+			},
+			"group": "none",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		{
+			"label": "noop",
+			"type": "shell",
+			"command": "echo noop",
+			"args": [],
+			"isBackground": false
+		}
+	],
+	"inputs": [
+		{
+			"id": "componentName",
+			"type": "promptString",
+			"description": "Nombre del componente shadcn/ui (ej: button, dialog, table, form)"
+		}
+	]
 }

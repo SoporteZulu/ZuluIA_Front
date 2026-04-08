@@ -61,7 +61,9 @@ import {
   ArrowRight,
   BriefcaseBusiness,
 } from "lucide-react"
+import { CrmPageHero, CrmStatCard, crmPanelClassName } from "@/components/crm/crm-page-kit"
 import {
+  useCrmCatalogos,
   useCrmContactos,
   useCrmClientes,
   useCrmInteracciones,
@@ -135,6 +137,7 @@ function ContactosContent() {
   const [selectedContact, setSelectedContact] = useState<CRMContact | null>(null)
   const { contactos, loading, error, createContacto, updateContacto, deleteContacto } =
     useCrmContactos(clienteIdParam || undefined)
+  const { data: catalogos } = useCrmCatalogos()
   const { clientes: crmClients } = useCrmClientes()
   const { interacciones } = useCrmInteracciones(clienteIdParam || undefined)
   const { oportunidades } = useCrmOportunidades(clienteIdParam || undefined)
@@ -143,6 +146,30 @@ function ContactosContent() {
   const clientsById = useMemo(
     () => new Map(crmClients.map((client) => [client.id, client])),
     [crmClients]
+  )
+
+  const canalOptions = useMemo(
+    () =>
+      catalogos.canalesContacto.length > 0
+        ? catalogos.canalesContacto
+        : Object.entries(canalLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.canalesContacto]
+  )
+
+  const estadoOptions = useMemo(
+    () =>
+      catalogos.estadosContacto.length > 0
+        ? catalogos.estadosContacto
+        : Object.entries(estadoLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.estadosContacto]
+  )
+
+  const clienteOptions = useMemo(
+    () =>
+      catalogos.clientes.length > 0
+        ? catalogos.clientes.map((client) => ({ id: client.id, nombre: client.nombre }))
+        : crmClients.map((client) => ({ id: client.id, nombre: client.nombre })),
+    [catalogos.clientes, crmClients]
   )
 
   const emptyForm: Partial<CRMContact> = {
@@ -375,42 +402,47 @@ function ContactosContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Contactos</h1>
-          <p className="text-muted-foreground">Personas de contacto de los clientes</p>
-        </div>
-        <Button onClick={openNewForm}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nuevo Contacto
-        </Button>
-      </div>
+      <CrmPageHero
+        eyebrow="CRM red de contacto"
+        title="Contactos"
+        description="Mapa operativo de personas clave, preferencia de canal y cuentas con señales de seguimiento pendientes."
+        actions={
+          <Button onClick={openNewForm}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nuevo Contacto
+          </Button>
+        }
+      />
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Contactos visibles</p>
-            <p className="mt-2 text-2xl font-bold">{stats.visible}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Activos</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-500">{stats.activos}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Canal WhatsApp</p>
-            <p className="mt-2 text-2xl font-bold text-blue-500">{stats.preferWhatsApp}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Sin gestión reciente</p>
-            <p className="mt-2 text-2xl font-bold text-amber-500">{stats.sinGestionReciente}</p>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <CrmStatCard
+          label="Contactos visibles"
+          value={stats.visible}
+          hint="Red disponible para gestión comercial"
+          icon={User}
+          tone="slate"
+        />
+        <CrmStatCard
+          label="Activos"
+          value={stats.activos}
+          hint="Contactos en estado operativo"
+          icon={Building2}
+          tone="emerald"
+        />
+        <CrmStatCard
+          label="Canal WhatsApp"
+          value={stats.preferWhatsApp}
+          hint="Preferencia dominante dentro de la red filtrada"
+          icon={Mail}
+          tone="blue"
+        />
+        <CrmStatCard
+          label="Sin gestión reciente"
+          value={stats.sinGestionReciente}
+          hint="Contactos sin actividad comercial reciente"
+          icon={BriefcaseBusiness}
+          tone="amber"
+        />
       </div>
 
       {error && (
@@ -421,7 +453,7 @@ function ContactosContent() {
         </Card>
       )}
 
-      <Card>
+      <Card className={crmPanelClassName}>
         <CardContent className="pt-6">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
@@ -452,9 +484,9 @@ function ContactosContent() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
-                {Object.entries(estadoLabels).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
+                {estadoOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.nombre}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -464,7 +496,7 @@ function ContactosContent() {
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Radar de red comercial</CardTitle>
             <CardDescription>
@@ -474,7 +506,10 @@ function ContactosContent() {
           </CardHeader>
           <CardContent className="space-y-3">
             {alerts.map((alert) => (
-              <div key={alert.title} className="rounded-lg border p-4">
+              <div
+                key={alert.title}
+                className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4"
+              >
                 <p className="font-medium">{alert.title}</p>
                 <p className="mt-2 text-sm text-muted-foreground">{alert.detail}</p>
               </div>
@@ -482,7 +517,7 @@ function ContactosContent() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Cobertura por canal</CardTitle>
             <CardDescription>
@@ -493,7 +528,7 @@ function ContactosContent() {
             {channelCoverage.map(([channel, total]) => (
               <div
                 key={channel}
-                className="flex items-center justify-between rounded-lg border p-4"
+                className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4"
               >
                 <div>
                   <p className="font-medium">
@@ -511,7 +546,7 @@ function ContactosContent() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Contacto destacado</CardTitle>
@@ -531,7 +566,7 @@ function ContactosContent() {
           </CardHeader>
           <CardContent>
             {highlightedContact ? (
-              <div className="space-y-4 rounded-lg border p-4">
+              <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-lg font-semibold">
@@ -551,7 +586,7 @@ function ContactosContent() {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border p-3">
+                  <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
                     <p className="text-sm text-muted-foreground">Última interacción</p>
                     <p className="mt-2 font-medium">
                       {formatDateTime(highlightedContact.lastInteraction)}
@@ -562,7 +597,7 @@ function ContactosContent() {
                         : `${highlightedContact.daysSinceLastTouch} días desde el último contacto`}
                     </p>
                   </div>
-                  <div className="rounded-lg border p-3">
+                  <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
                     <p className="text-sm text-muted-foreground">Pendientes</p>
                     <p className="mt-2 font-medium">
                       {highlightedContact.contactTasks.length} tareas abiertas
@@ -573,7 +608,7 @@ function ContactosContent() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border p-3">
+                <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <BriefcaseBusiness className="h-4 w-4 text-primary" />
                     Pipeline asociado
@@ -603,7 +638,7 @@ function ContactosContent() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Cobertura por cuenta</CardTitle>
             <CardDescription>
@@ -612,7 +647,7 @@ function ContactosContent() {
           </CardHeader>
           <CardContent className="space-y-3">
             {accountCoverage.map((account) => (
-              <div key={account.id} className="rounded-lg border p-4">
+              <div key={account.id} className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="font-medium">{account.nombre}</p>
@@ -638,7 +673,7 @@ function ContactosContent() {
         </Card>
       </div>
 
-      <Card>
+      <Card className={crmPanelClassName}>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -772,7 +807,7 @@ function ContactosContent() {
                     <SelectValue placeholder="Seleccionar cliente" />
                   </SelectTrigger>
                   <SelectContent>
-                    {crmClients.map((client) => (
+                    {clienteOptions.map((client) => (
                       <SelectItem key={client.id} value={client.id}>
                         {client.nombre}
                       </SelectItem>
@@ -838,9 +873,9 @@ function ContactosContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(canalLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
+                      {canalOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -861,9 +896,9 @@ function ContactosContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(estadoLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
+                      {estadoOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>

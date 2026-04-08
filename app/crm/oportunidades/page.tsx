@@ -63,7 +63,9 @@ import {
   ArrowRight,
   Clock,
 } from "lucide-react"
+import { CrmPageHero, CrmStatCard, crmPanelClassName } from "@/components/crm/crm-page-kit"
 import {
+  useCrmCatalogos,
   useCrmOportunidades,
   useCrmClientes,
   useCrmContactos,
@@ -133,8 +135,24 @@ function OportunidadesContent() {
   const [isFormOpen, setIsFormOpen] = useState(action === "new")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [selectedOpp, setSelectedOpp] = useState<CRMOpportunity | null>(null)
-  const { oportunidades, loading, error, createOportunidad, updateOportunidad, deleteOportunidad } =
-    useCrmOportunidades(clienteIdParam || undefined)
+  const [closeWonOpp, setCloseWonOpp] = useState<CRMOpportunity | null>(null)
+  const [closeLostOpp, setCloseLostOpp] = useState<CRMOpportunity | null>(null)
+  const [reassignOpp, setReassignOpp] = useState<CRMOpportunity | null>(null)
+  const [motivoPerdida, setMotivoPerdida] = useState("")
+  const [responsableReasignadoId, setResponsableReasignadoId] = useState("")
+  const [actionBusy, setActionBusy] = useState(false)
+  const {
+    oportunidades,
+    loading,
+    error,
+    createOportunidad,
+    updateOportunidad,
+    closeOportunidadGanada,
+    closeOportunidadPerdida,
+    reassignOportunidad,
+    deleteOportunidad,
+  } = useCrmOportunidades(clienteIdParam || undefined)
+  const { data: catalogos } = useCrmCatalogos()
   const { clientes: crmClients } = useCrmClientes()
   const { contactos: crmContacts } = useCrmContactos()
   const { usuarios: crmUsers } = useCrmUsuarios()
@@ -146,6 +164,54 @@ function OportunidadesContent() {
     [crmClients]
   )
   const usersById = useMemo(() => new Map(crmUsers.map((user) => [user.id, user])), [crmUsers])
+
+  const etapaOptions = useMemo(
+    () =>
+      catalogos.etapasOportunidad.length > 0
+        ? catalogos.etapasOportunidad
+        : Object.entries(etapaLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.etapasOportunidad]
+  )
+
+  const monedaOptions = useMemo(
+    () =>
+      catalogos.monedas.length > 0
+        ? catalogos.monedas
+        : ["USD", "ARS", "EUR", "MXN"].map((id) => ({ id, nombre: id })),
+    [catalogos.monedas]
+  )
+
+  const origenOptions = useMemo(
+    () =>
+      catalogos.origenesOportunidad.length > 0
+        ? catalogos.origenesOportunidad
+        : Object.entries(origenLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.origenesOportunidad]
+  )
+
+  const clienteOptions = useMemo(
+    () =>
+      catalogos.clientes.length > 0
+        ? catalogos.clientes.map((cliente) => ({ id: cliente.id, nombre: cliente.nombre }))
+        : crmClients.map((cliente) => ({ id: cliente.id, nombre: cliente.nombre })),
+    [catalogos.clientes, crmClients]
+  )
+
+  const responsableOptions = useMemo(() => {
+    if (catalogos.usuarios.length > 0) {
+      return catalogos.usuarios.filter(
+        (user) => user.rol === "comercial" || user.rol === "administrador"
+      )
+    }
+
+    return crmUsers
+      .filter((user) => ["comercial", "administrador"].includes(user.rol))
+      .map((user) => ({
+        id: user.id,
+        nombre: `${user.nombre} ${user.apellido}`,
+        rol: user.rol,
+      }))
+  }, [catalogos.usuarios, crmUsers])
 
   const emptyForm: Partial<CRMOpportunity> = {
     clienteId: clienteIdParam || "",
@@ -338,6 +404,16 @@ function OportunidadesContent() {
     setIsDeleteOpen(true)
   }
 
+  const handleOpenCloseLost = (opp: CRMOpportunity) => {
+    setCloseLostOpp(opp)
+    setMotivoPerdida(opp.motivoPerdida ?? "")
+  }
+
+  const handleOpenReassign = (opp: CRMOpportunity) => {
+    setReassignOpp(opp)
+    setResponsableReasignadoId(opp.responsableId ?? "")
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (selectedOpp) {
@@ -356,12 +432,64 @@ function OportunidadesContent() {
     setSelectedOpp(null)
   }
 
+  const confirmCloseWon = async () => {
+    if (!closeWonOpp) return
+    setActionBusy(true)
+    try {
+      await closeOportunidadGanada(closeWonOpp.id)
+      setCloseWonOpp(null)
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const confirmCloseLost = async () => {
+    if (!closeLostOpp || !motivoPerdida.trim()) return
+    setActionBusy(true)
+    try {
+      await closeOportunidadPerdida(closeLostOpp.id, motivoPerdida.trim())
+      setCloseLostOpp(null)
+      setMotivoPerdida("")
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const confirmReassign = async () => {
+    if (!reassignOpp || !responsableReasignadoId) return
+    setActionBusy(true)
+    try {
+      await reassignOportunidad(reassignOpp.id, responsableReasignadoId)
+      setReassignOpp(null)
+      setResponsableReasignadoId("")
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   const closeForm = () => {
     setIsFormOpen(false)
     setSelectedOpp(null)
     setFormData(emptyForm)
     router.push("/crm/oportunidades")
   }
+
+  const clientContacts = useMemo(() => {
+    if (!formData.clienteId) return []
+
+    if (catalogos.contactos.length > 0) {
+      return catalogos.contactos
+        .filter((contact) => contact.clienteId === formData.clienteId)
+        .map((contact) => ({ id: contact.id, nombre: contact.nombre }))
+    }
+
+    return crmContacts
+      .filter((contact) => contact.clienteId === formData.clienteId)
+      .map((contact) => ({
+        id: contact.id,
+        nombre: `${contact.nombre} ${contact.apellido}`,
+      }))
+  }, [catalogos.contactos, crmContacts, formData.clienteId])
 
   if (loading && oportunidades.length === 0) {
     return (
@@ -371,22 +499,19 @@ function OportunidadesContent() {
     )
   }
 
-  const clientContacts = formData.clienteId
-    ? crmContacts.filter((c) => c.clienteId === formData.clienteId)
-    : []
-
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Oportunidades</h1>
-          <p className="text-muted-foreground">Pipeline de ventas y negocios</p>
-        </div>
-        <Button onClick={openNewForm}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nueva Oportunidad
-        </Button>
-      </div>
+      <CrmPageHero
+        eyebrow="CRM pipeline"
+        title="Oportunidades"
+        description="Pipeline comercial con foco en cierres, carga por responsable y negocios que requieren intervención inmediata."
+        actions={
+          <Button onClick={openNewForm}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nueva Oportunidad
+          </Button>
+        }
+      />
 
       {error && (
         <Card className="border-red-500/40">
@@ -396,65 +521,57 @@ function OportunidadesContent() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total</p>
-                <p className="text-2xl font-bold">{stats.total}</p>
-              </div>
-              <Target className="h-8 w-8 text-primary/50" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <CrmStatCard
+          label="Total"
+          value={stats.total}
+          hint="Negocios visibles con el filtro actual"
+          icon={Target}
+          tone="slate"
+        />
+        <CrmStatCard
+          label="Valor pipeline"
+          value={
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(pipelineByCurrency).length > 0 ? (
+                Object.entries(pipelineByCurrency).map(([currency, total]) => (
+                  <Badge
+                    key={currency}
+                    variant="outline"
+                    className="border-emerald-200 bg-white/90 text-emerald-700"
+                  >
+                    {formatCurrency(total, currency)}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-base font-medium text-slate-500">
+                  Sin pipeline abierto visible
+                </span>
+              )}
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Valor Pipeline</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {Object.entries(pipelineByCurrency).length > 0 ? (
-                    Object.entries(pipelineByCurrency).map(([currency, total]) => (
-                      <Badge key={currency} variant="outline">
-                        {formatCurrency(total, currency)}
-                      </Badge>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Sin pipeline abierto visible</p>
-                  )}
-                </div>
-              </div>
-              <DollarSign className="h-8 w-8 text-emerald-500/50" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">En Pipeline</p>
-                <p className="text-2xl font-bold text-blue-500">{stats.enPipeline}</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-blue-500/50" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Por vencer</p>
-                <p className="text-2xl font-bold text-amber-500">{stats.porVencer}</p>
-              </div>
-              <Clock className="h-8 w-8 text-amber-500/50" />
-            </div>
-          </CardContent>
-        </Card>
+          }
+          hint="Valor agregado por moneda sobre oportunidades abiertas"
+          icon={DollarSign}
+          tone="emerald"
+        />
+        <CrmStatCard
+          label="En pipeline"
+          value={stats.enPipeline}
+          hint="Oportunidades activas dentro del embudo"
+          icon={TrendingUp}
+          tone="blue"
+        />
+        <CrmStatCard
+          label="Por vencer"
+          value={stats.porVencer}
+          hint="Cierres con presión de calendario inmediata"
+          icon={Clock}
+          tone="amber"
+        />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Radar de pipeline</CardTitle>
             <CardDescription>
@@ -463,7 +580,10 @@ function OportunidadesContent() {
           </CardHeader>
           <CardContent className="space-y-3">
             {alerts.map((alert) => (
-              <div key={alert.title} className="rounded-lg border p-4">
+              <div
+                key={alert.title}
+                className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4"
+              >
                 <p className="font-medium">{alert.title}</p>
                 <p className="mt-2 text-sm text-muted-foreground">{alert.detail}</p>
               </div>
@@ -471,7 +591,7 @@ function OportunidadesContent() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Responsables con carga</CardTitle>
             <CardDescription>
@@ -480,7 +600,7 @@ function OportunidadesContent() {
           </CardHeader>
           <CardContent className="space-y-3">
             {ownerLoad.map((owner) => (
-              <div key={owner.id} className="rounded-lg border p-4">
+              <div key={owner.id} className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="font-medium">{owner.nombre}</p>
@@ -506,7 +626,7 @@ function OportunidadesContent() {
         </Card>
       </div>
 
-      <Card>
+      <Card className={crmPanelClassName}>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle>Oportunidad destacada</CardTitle>
@@ -526,15 +646,17 @@ function OportunidadesContent() {
         </CardHeader>
         <CardContent>
           {highlightedOpp ? (
-            <div className="grid gap-4 rounded-lg border p-4 lg:grid-cols-3">
+            <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 lg:grid-cols-3">
               <div>
                 <p className="text-lg font-semibold">{highlightedOpp.opp.titulo}</p>
                 <p className="text-sm text-muted-foreground">
                   {highlightedOpp.cliente?.nombre || "Cliente no disponible"}
                 </p>
-                <Badge className="mt-3 {''}">{etapaLabels[highlightedOpp.opp.etapa]}</Badge>
+                <Badge className={`mt-3 ${getEtapaColor(highlightedOpp.opp.etapa)}`}>
+                  {etapaLabels[highlightedOpp.opp.etapa]}
+                </Badge>
               </div>
-              <div className="rounded-lg border p-3">
+              <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
                 <p className="text-sm text-muted-foreground">Seguimiento</p>
                 <p className="mt-2 font-medium">
                   {highlightedOpp.lastInteraction
@@ -545,7 +667,7 @@ function OportunidadesContent() {
                   {highlightedOpp.relatedInteractions.length} interacciones visibles
                 </p>
               </div>
-              <div className="rounded-lg border p-3">
+              <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
                 <p className="text-sm text-muted-foreground">Presión operativa</p>
                 <p className="mt-2 font-medium">
                   {highlightedOpp.relatedTasks.length} tareas abiertas
@@ -565,7 +687,7 @@ function OportunidadesContent() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={crmPanelClassName}>
         <CardContent className="pt-6">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
@@ -583,9 +705,9 @@ function OportunidadesContent() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas</SelectItem>
-                {Object.entries(etapaLabels).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
+                {etapaOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.nombre}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -594,7 +716,7 @@ function OportunidadesContent() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={crmPanelClassName}>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -685,6 +807,19 @@ function OportunidadesContent() {
                             <Pencil className="mr-2 h-4 w-4" />
                             Editar
                           </DropdownMenuItem>
+                          {!["cerrado_ganado", "cerrado_perdido"].includes(opp.etapa) && (
+                            <>
+                              <DropdownMenuItem onClick={() => setCloseWonOpp(opp)}>
+                                Marcar ganada
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleOpenCloseLost(opp)}>
+                                Marcar perdida
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleOpenReassign(opp)}>
+                                Reasignar responsable
+                              </DropdownMenuItem>
+                            </>
+                          )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             onClick={() => handleDelete(opp)}
@@ -742,7 +877,7 @@ function OportunidadesContent() {
                       <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
-                      {crmClients.map((client) => (
+                      {clienteOptions.map((client) => (
                         <SelectItem key={client.id} value={client.id}>
                           {client.nombre}
                         </SelectItem>
@@ -765,7 +900,7 @@ function OportunidadesContent() {
                     <SelectContent>
                       {clientContacts.map((contact) => (
                         <SelectItem key={contact.id} value={contact.id}>
-                          {contact.nombre} {contact.apellido}
+                          {contact.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -785,9 +920,9 @@ function OportunidadesContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(etapaLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
+                      {etapaOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -830,10 +965,11 @@ function OportunidadesContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="USD">USD</SelectItem>
-                      <SelectItem value="ARS">ARS</SelectItem>
-                      <SelectItem value="EUR">EUR</SelectItem>
-                      <SelectItem value="MXN">MXN</SelectItem>
+                      {monedaOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -866,13 +1002,11 @@ function OportunidadesContent() {
                       <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
-                      {crmUsers
-                        .filter((u) => ["comercial", "administrador"].includes(u.rol))
-                        .map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            {user.nombre} {user.apellido}
-                          </SelectItem>
-                        ))}
+                      {responsableOptions.map((user) => (
+                        <SelectItem key={user.id} value={user.id}>
+                          {user.nombre}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -889,9 +1023,9 @@ function OportunidadesContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.entries(origenLabels).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
+                    {origenOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.nombre}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -932,6 +1066,125 @@ function OportunidadesContent() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={!!closeWonOpp} onOpenChange={() => !actionBusy && setCloseWonOpp(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar oportunidad como ganada</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se cerrará como ganada “{closeWonOpp?.titulo}” y saldrá del pipeline abierto.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmCloseWon} disabled={actionBusy}>
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={!!closeLostOpp}
+        onOpenChange={(open) => {
+          if (!open && !actionBusy) {
+            setCloseLostOpp(null)
+            setMotivoPerdida("")
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Marcar oportunidad como perdida</DialogTitle>
+            <DialogDescription>
+              Registrá el motivo de pérdida para “{closeLostOpp?.titulo}”.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            <Label>Motivo de pérdida</Label>
+            <Textarea
+              value={motivoPerdida}
+              onChange={(event) => setMotivoPerdida(event.target.value)}
+              rows={4}
+              placeholder="Detalle breve del motivo comercial o presupuestario"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={actionBusy}
+              onClick={() => {
+                setCloseLostOpp(null)
+                setMotivoPerdida("")
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={actionBusy || !motivoPerdida.trim()}
+              onClick={confirmCloseLost}
+            >
+              Confirmar pérdida
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!reassignOpp}
+        onOpenChange={(open) => {
+          if (!open && !actionBusy) {
+            setReassignOpp(null)
+            setResponsableReasignadoId("")
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reasignar oportunidad</DialogTitle>
+            <DialogDescription>
+              Cambiá el responsable comercial de “{reassignOpp?.titulo}”.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            <Label>Nuevo responsable</Label>
+            <Select value={responsableReasignadoId} onValueChange={setResponsableReasignadoId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar responsable" />
+              </SelectTrigger>
+              <SelectContent>
+                {responsableOptions.map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={actionBusy}
+              onClick={() => {
+                setReassignOpp(null)
+                setResponsableReasignadoId("")
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={actionBusy || !responsableReasignadoId}
+              onClick={confirmReassign}
+            >
+              Reasignar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
