@@ -37,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -46,6 +47,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
 import { useProveedores } from "@/lib/hooks/useTerceros"
@@ -155,6 +157,13 @@ function getOperationalStatus(order: OrdenCompra) {
     }
   }
 
+  if (order.recepcionParcial) {
+    return {
+      label: "Recepción parcial",
+      detail: "La orden ya ingresó parcialmente y conserva saldo pendiente.",
+    }
+  }
+
   if (!order.habilitada) {
     return {
       label: "Pendiente bloqueada",
@@ -166,6 +175,13 @@ function getOperationalStatus(order: OrdenCompra) {
     label: "Pendiente habilitada",
     detail: "La orden puede procesarse como recepción operativa.",
   }
+}
+
+function formatQuantity(value?: number | null) {
+  return new Intl.NumberFormat("es-AR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(Number(value ?? 0))
 }
 
 function getDocumentStatus(comprobante?: Comprobante | null) {
@@ -253,12 +269,22 @@ export default function RecepcionesPage() {
     useOrdenesCompra()
   const { terceros: proveedores } = useProveedores()
   const { comprobantes } = useComprobantes({ esCompra: true })
+  const { tipos: tiposComprobante } = useComprobantesConfig()
 
   const [search, setSearch] = useState("")
   const [selectedOrder, setSelectedOrder] = useState<OrdenCompra | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const [isReceiveOpen, setIsReceiveOpen] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [processingId, setProcessingId] = useState<number | null>(null)
+  const [orderToReceive, setOrderToReceive] = useState<OrdenCompra | null>(null)
+  const [receiveDraft, setReceiveDraft] = useState({
+    fechaRecepcion: new Date().toISOString().slice(0, 10),
+    cantidadRecibida: "",
+    tipoComprobanteRemitoId: "auto",
+    remitoValorizado: false,
+    observacion: "",
+  })
 
   const getProveedor = (proveedorId: number) =>
     proveedores.find((item) => item.id === proveedorId) ?? null
@@ -299,6 +325,7 @@ export default function RecepcionesPage() {
   }, [comprobanteById, ordenes, proveedorById, search])
 
   const pendientes = ordenes.filter((order) => order.estadoOc === "PENDIENTE").length
+  const parciales = ordenes.filter((order) => order.recepcionParcial).length
   const recibidas = ordenes.filter((order) => order.estadoOc === "RECIBIDA").length
   const canceladas = ordenes.filter((order) => order.estadoOc === "CANCELADA").length
   const vencidas = ordenes.filter((order) => {
@@ -316,6 +343,17 @@ export default function RecepcionesPage() {
   const selectedDeliveryStatus = selectedOrder ? getDeliveryStatus(selectedOrder) : null
   const selectedDocumentStatus = selectedOrder ? getDocumentStatus(selectedComprobante) : null
 
+  const remitoCompraTipos = useMemo(
+    () =>
+      tiposComprobante.filter(
+        (tipo) =>
+          tipo.esCompra &&
+          ((tipo.descripcion ?? "").toUpperCase().includes("REMIT") ||
+            (tipo.codigo ?? "").toUpperCase().includes("REMIT"))
+      ),
+    [tiposComprobante]
+  )
+
   const openDetail = async (order: OrdenCompra) => {
     setActionError(null)
     const detail = await getById(order.id)
@@ -323,11 +361,39 @@ export default function RecepcionesPage() {
     setIsDetailOpen(true)
   }
 
-  const handleReceive = async (order: OrdenCompra) => {
+  const openReceive = (order: OrdenCompra) => {
+    setActionError(null)
+    setOrderToReceive(order)
+    setReceiveDraft({
+      fechaRecepcion: new Date().toISOString().slice(0, 10),
+      cantidadRecibida: String(order.saldoPendiente || order.cantidadTotal || ""),
+      tipoComprobanteRemitoId: remitoCompraTipos[0] ? String(remitoCompraTipos[0].id) : "auto",
+      remitoValorizado: false,
+      observacion: "",
+    })
+    setIsReceiveOpen(true)
+  }
+
+  const handleReceive = async (order: OrdenCompra, payload?: { full?: boolean }) => {
     setProcessingId(order.id)
     setActionError(null)
 
-    const ok = await recibir(order.id)
+    const cantidadRecibida = Number(receiveDraft.cantidadRecibida)
+    const ok = await recibir(
+      order.id,
+      payload?.full
+        ? {}
+        : {
+            fechaRecepcion: receiveDraft.fechaRecepcion,
+            cantidadRecibida,
+            tipoComprobanteRemitoId:
+              receiveDraft.tipoComprobanteRemitoId === "auto"
+                ? undefined
+                : Number(receiveDraft.tipoComprobanteRemitoId),
+            remitoValorizado: receiveDraft.remitoValorizado,
+            observacion: receiveDraft.observacion || undefined,
+          }
+    )
     if (!ok) {
       setActionError(`No se pudo registrar la recepción de la orden ${order.id}.`)
       setProcessingId(null)
@@ -339,7 +405,29 @@ export default function RecepcionesPage() {
       const detail = await getById(order.id)
       setSelectedOrder(detail)
     }
+    setIsReceiveOpen(false)
+    setOrderToReceive(null)
     setProcessingId(null)
+  }
+
+  const handleReceiveSubmit = async () => {
+    if (!orderToReceive) return
+
+    const cantidad = Number(receiveDraft.cantidadRecibida)
+    if (!receiveDraft.fechaRecepcion) {
+      setActionError("Informá la fecha efectiva de recepción.")
+      return
+    }
+    if (Number.isNaN(cantidad) || cantidad <= 0) {
+      setActionError("La cantidad recibida debe ser mayor a cero.")
+      return
+    }
+    if (cantidad > Number(orderToReceive.saldoPendiente ?? 0)) {
+      setActionError("La cantidad recibida no puede superar el saldo pendiente de la orden.")
+      return
+    }
+
+    await handleReceive(orderToReceive)
   }
 
   const handleCancel = async (order: OrdenCompra) => {
@@ -409,6 +497,12 @@ export default function RecepcionesPage() {
           icon={<PackageCheck className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
+          title="Parciales"
+          value={parciales}
+          description="Con recepción iniciada y saldo pendiente"
+          icon={<ClipboardList className="h-4 w-4 text-muted-foreground" />}
+        />
+        <SummaryCard
           title="Recibidas"
           value={recibidas}
           description="Procesadas correctamente"
@@ -436,8 +530,9 @@ export default function RecepcionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {pendientes} órdenes siguen abiertas para ingreso y {conDocumentoVisible} ya pueden
-            leerse con documento base visible dentro del frontend actual.
+            {pendientes} órdenes siguen abiertas para ingreso, {parciales} ya tienen recepción
+            parcial y {conDocumentoVisible} ya pueden leerse con documento base visible dentro del
+            frontend actual.
           </CardContent>
         </Card>
         <Card>
@@ -458,8 +553,8 @@ export default function RecepcionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            El alta y la recepción parcial todavía no están expuestas por esta API. La consola se
-            enfoca en legajo, trazabilidad y cierre operativo de órdenes existentes.
+            La API actual ya soporta recepción parcial con fecha, cantidad, remito y observación.
+            Esta consola concentra esa operatoria sobre órdenes existentes.
           </CardContent>
         </Card>
       </div>
@@ -576,7 +671,10 @@ export default function RecepcionesPage() {
                       <TableCell>
                         <div className="space-y-1">
                           <div className="text-sm font-medium">{operationalStatus.label}</div>
-                          <p className="text-xs text-muted-foreground">{deliveryStatus.label}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {deliveryStatus.label} · {formatQuantity(order.cantidadRecibida)} /{" "}
+                            {formatQuantity(order.cantidadTotal)}
+                          </p>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -599,11 +697,7 @@ export default function RecepcionesPage() {
                           </Button>
                           {order.estadoOc === "PENDIENTE" && (
                             <>
-                              <Button
-                                size="sm"
-                                disabled={busy}
-                                onClick={() => void handleReceive(order)}
-                              >
+                              <Button size="sm" disabled={busy} onClick={() => openReceive(order)}>
                                 {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                                 Recibir
                               </Button>
@@ -660,6 +754,22 @@ export default function RecepcionesPage() {
                     {
                       label: "Entrega requerida",
                       value: formatDate(selectedOrder.fechaEntregaReq),
+                    },
+                    {
+                      label: "Cantidad total",
+                      value: formatQuantity(selectedOrder.cantidadTotal),
+                    },
+                    {
+                      label: "Cantidad recibida",
+                      value: formatQuantity(selectedOrder.cantidadRecibida),
+                    },
+                    {
+                      label: "Saldo pendiente",
+                      value: formatQuantity(selectedOrder.saldoPendiente),
+                    },
+                    {
+                      label: "Última recepción",
+                      value: formatDate(selectedOrder.fechaUltimaRecepcion),
                     },
                     { label: "Alta de orden", value: formatDateTime(selectedOrder.createdAt) },
                     {
@@ -728,6 +838,10 @@ export default function RecepcionesPage() {
                           value: selectedOperationalStatus?.label ?? "-",
                         },
                         {
+                          label: "Recepción parcial",
+                          value: selectedOrder.recepcionParcial ? "Sí" : "No",
+                        },
+                        {
                           label: "Compromiso entrega",
                           value: selectedDeliveryStatus?.label ?? "-",
                         },
@@ -762,6 +876,11 @@ export default function RecepcionesPage() {
                   <CardContent className="space-y-3 text-sm text-muted-foreground">
                     <p>{selectedDeliveryStatus?.detail}</p>
                     <p>
+                      Recibido {formatQuantity(selectedOrder.cantidadRecibida)} de{" "}
+                      {formatQuantity(selectedOrder.cantidadTotal)}. Saldo pendiente:{" "}
+                      {formatQuantity(selectedOrder.saldoPendiente)}.
+                    </p>
+                    <p>
                       {selectedOrder.condicionesEntrega
                         ? `Condiciones informadas: ${selectedOrder.condicionesEntrega}`
                         : "La orden no informa condiciones adicionales de entrega en la API actual."}
@@ -782,7 +901,7 @@ export default function RecepcionesPage() {
               <>
                 <Button
                   disabled={processingId === selectedOrder.id}
-                  onClick={() => void handleReceive(selectedOrder)}
+                  onClick={() => openReceive(selectedOrder)}
                 >
                   {processingId === selectedOrder.id ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -800,6 +919,129 @@ export default function RecepcionesPage() {
             )}
             <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
               Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isReceiveOpen} onOpenChange={setIsReceiveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Registrar recepción</DialogTitle>
+            <DialogDescription>
+              Podés registrar una recepción parcial o total con fecha, remito y observación
+              operativa.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-lg border p-3 text-sm">
+                <p className="text-muted-foreground">Orden</p>
+                <p className="font-medium">#{orderToReceive?.id ?? "-"}</p>
+              </div>
+              <div className="rounded-lg border p-3 text-sm">
+                <p className="text-muted-foreground">Saldo pendiente</p>
+                <p className="font-medium">{formatQuantity(orderToReceive?.saldoPendiente)}</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Fecha de recepción</Label>
+                <Input
+                  type="date"
+                  value={receiveDraft.fechaRecepcion}
+                  onChange={(event) =>
+                    setReceiveDraft((current) => ({
+                      ...current,
+                      fechaRecepcion: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Cantidad recibida</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={receiveDraft.cantidadRecibida}
+                  onChange={(event) =>
+                    setReceiveDraft((current) => ({
+                      ...current,
+                      cantidadRecibida: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tipo comprobante remito</Label>
+              <Select
+                value={receiveDraft.tipoComprobanteRemitoId}
+                onValueChange={(value) =>
+                  setReceiveDraft((current) => ({ ...current, tipoComprobanteRemitoId: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Automático" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Automático del backend</SelectItem>
+                  {remitoCompraTipos.map((tipo) => (
+                    <SelectItem key={tipo.id} value={String(tipo.id)}>
+                      {tipo.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-lg border p-3">
+              <Switch
+                checked={receiveDraft.remitoValorizado}
+                onCheckedChange={(checked) =>
+                  setReceiveDraft((current) => ({ ...current, remitoValorizado: checked }))
+                }
+              />
+              <div>
+                <p className="text-sm font-medium">Remito valorizado</p>
+                <p className="text-xs text-muted-foreground">
+                  Marca el ingreso con valorización cuando el circuito de compras lo requiera.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Observación</Label>
+              <Input
+                value={receiveDraft.observacion}
+                onChange={(event) =>
+                  setReceiveDraft((current) => ({ ...current, observacion: event.target.value }))
+                }
+                placeholder="Remito físico, diferencia, turno o incidencia"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsReceiveOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!orderToReceive || processingId === orderToReceive.id}
+              onClick={() => orderToReceive && void handleReceive(orderToReceive, { full: true })}
+            >
+              Recibir saldo completo
+            </Button>
+            <Button
+              disabled={!orderToReceive || processingId === orderToReceive.id}
+              onClick={() => void handleReceiveSubmit()}
+            >
+              {processingId === orderToReceive?.id ? "Procesando..." : "Registrar recepción"}
             </Button>
           </DialogFooter>
         </DialogContent>

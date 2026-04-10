@@ -2,6 +2,8 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
+import { AlertCircle, Eye, Play, Plus, RefreshCcw, Search, Square, XCircle } from "lucide-react"
+
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -32,12 +34,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Textarea } from "@/components/ui/textarea"
 import { useDepositos } from "@/lib/hooks/useDepositos"
 import { useFormulasProduccion } from "@/lib/hooks/useFormulasProduccion"
 import { useOrdenesTrabajo } from "@/lib/hooks/useOrdenesTrabajo"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 import type { OrdenTrabajo } from "@/lib/types/ordenes-trabajo"
-import { AlertCircle, Eye, Plus, RefreshCcw, Search } from "lucide-react"
+import { toast } from "@/hooks/use-toast"
 
 function formatDate(value?: string) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"
@@ -45,22 +48,16 @@ function formatDate(value?: string) {
 
 function formatDateTime(value?: string) {
   if (!value) return "-"
-
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return "-"
 
-  return new Intl.DateTimeFormat("es-AR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date)
+  return new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(date)
 }
 
 function getDaysOffset(value?: string) {
   if (!value) return null
-
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-
   return Math.floor((date.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
 }
 
@@ -81,10 +78,9 @@ function estadoVariant(estado: string) {
 
 function getOperationalStatus(orden: OrdenTrabajo) {
   const finPrevistoOffset = getDaysOffset(orden.fechaFinPrevista)
-
   if (orden.estado === "COMPLETADO") return "Finalizada"
   if (orden.estado === "CANCELADO") return "Cancelada"
-  if (orden.estado === "EN_PROCESO") return "En produccion"
+  if (orden.estado === "EN_PROCESO") return "En producción"
   if (finPrevistoOffset !== null && finPrevistoOffset < 0) return "Pendiente vencida"
   return "Programada"
 }
@@ -92,7 +88,7 @@ function getOperationalStatus(orden: OrdenTrabajo) {
 function getPlanningStatus(orden: OrdenTrabajo) {
   if (orden.depositoOrigenId && orden.depositoDestinoId) return "Circuito completo"
   if (orden.depositoOrigenId || orden.depositoDestinoId) return "Circuito parcial"
-  return "Sin depositos definidos"
+  return "Sin depósitos definidos"
 }
 
 function SummaryCard({
@@ -133,6 +129,9 @@ export default function OrdenesTrabajPage() {
     totalPages,
     getById,
     crear,
+    iniciar,
+    finalizar,
+    cancelar,
     refetch,
   } = useOrdenesTrabajo({
     sucursalId: defaultSucursalId,
@@ -149,6 +148,7 @@ export default function OrdenesTrabajPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detail, setDetail] = useState<OrdenTrabajo | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [finalizeOpen, setFinalizeOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [draft, setDraft] = useState({
@@ -159,6 +159,10 @@ export default function OrdenesTrabajPage() {
     fechaFinPrevista: "",
     cantidad: "",
     observacion: "",
+  })
+  const [finalizeDraft, setFinalizeDraft] = useState({
+    fechaFinReal: new Date().toISOString().slice(0, 10),
+    cantidadProducida: "",
   })
 
   const filtered = useMemo(
@@ -190,13 +194,12 @@ export default function OrdenesTrabajPage() {
   ).length
 
   const selected = useMemo(
-    () => filtered.find((orden) => orden.id === selectedId) ?? null,
+    () => filtered.find((orden) => orden.id === selectedId) ?? filtered[0] ?? null,
     [filtered, selectedId]
   )
 
   const getFormulaName = (formulaId: number) =>
     formulas.find((formula) => formula.id === formulaId)?.descripcion ?? `Fórmula #${formulaId}`
-
   const getDepositoName = (depositoId?: number) =>
     depositos.find((deposito) => deposito.id === depositoId)?.descripcion ??
     (depositoId ? `Depósito #${depositoId}` : "No definido")
@@ -211,7 +214,6 @@ export default function OrdenesTrabajPage() {
 
   const handleCreate = async () => {
     setActionError(null)
-
     if (!draft.formulaId || !draft.fecha || !draft.cantidad) {
       setActionError("Completá fórmula, fecha y cantidad para generar la orden.")
       return
@@ -247,6 +249,44 @@ export default function OrdenesTrabajPage() {
       cantidad: "",
       observacion: "",
     })
+    toast({ title: "Orden creada", description: "La orden de trabajo quedó registrada." })
+  }
+
+  const handleIniciar = async () => {
+    if (!selected) return
+    setSaving(true)
+    const ok = await iniciar(selected.id)
+    setSaving(false)
+    if (!ok) return
+    toast({ title: "Orden iniciada", description: `La OT #${selected.id} pasó a En proceso.` })
+    void handleOpenDetail(selected.id)
+  }
+
+  const handleCancelar = async () => {
+    if (!selected) return
+    setSaving(true)
+    const ok = await cancelar(selected.id)
+    setSaving(false)
+    if (!ok) return
+    toast({ title: "Orden cancelada", description: `La OT #${selected.id} fue cancelada.` })
+    void handleOpenDetail(selected.id)
+  }
+
+  const handleFinalizar = async () => {
+    if (!selected) return
+    setSaving(true)
+    const ok = await finalizar(selected.id, {
+      fechaFinReal: finalizeDraft.fechaFinReal,
+      cantidadProducida: finalizeDraft.cantidadProducida
+        ? Number(finalizeDraft.cantidadProducida)
+        : undefined,
+    })
+    setSaving(false)
+    if (!ok) return
+
+    setFinalizeOpen(false)
+    toast({ title: "Orden finalizada", description: `La OT #${selected.id} quedó cerrada.` })
+    void handleOpenDetail(selected.id)
   }
 
   return (
@@ -255,18 +295,15 @@ export default function OrdenesTrabajPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Órdenes de trabajo</h1>
           <p className="text-muted-foreground">
-            Consola operativa de producción con filtros reales, alta de órdenes y detalle de
-            ejecución sobre la sucursal activa.
+            Consola operativa de producción con alta y mutaciones reales de workflow sobre backend.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={refetch} disabled={loading}>
-            <RefreshCcw className="h-4 w-4" />
-            Actualizar
+          <Button variant="outline" onClick={() => void refetch()} disabled={loading}>
+            <RefreshCcw className="h-4 w-4" /> Actualizar
           </Button>
           <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Nueva orden
+            <Plus className="h-4 w-4" /> Nueva orden
           </Button>
         </div>
       </div>
@@ -305,12 +342,12 @@ export default function OrdenesTrabajPage() {
         <SummaryCard
           title="Circuito completo"
           value={String(conCircuitoCompleto)}
-          description="Ordenes con deposito origen y destino visibles."
+          description="Órdenes con depósito origen y destino visibles."
         />
         <SummaryCard
-          title="Con observacion"
+          title="Con observación"
           value={String(conObservacion)}
-          description="Ordenes con contexto operativo registrado."
+          description="Órdenes con contexto operativo registrado."
         />
         <SummaryCard
           title="Vencidas"
@@ -441,7 +478,7 @@ export default function OrdenesTrabajPage() {
                   filtered.map((orden) => (
                     <TableRow
                       key={orden.id}
-                      className={orden.id === selectedId ? "bg-accent/40" : undefined}
+                      className={orden.id === selected?.id ? "bg-accent/40" : undefined}
                       onClick={() => setSelectedId(orden.id)}
                     >
                       <TableCell className="font-mono text-sm">#{orden.id}</TableCell>
@@ -453,7 +490,7 @@ export default function OrdenesTrabajPage() {
                           <p>{formatDate(orden.fechaFinPrevista)}</p>
                           <p className="text-xs text-muted-foreground">
                             {orden.fechaFinPrevista
-                              ? `${getDaysOffset(orden.fechaFinPrevista) ?? 0} dias`
+                              ? `${getDaysOffset(orden.fechaFinPrevista) ?? 0} días`
                               : "Sin fecha"}
                           </p>
                         </div>
@@ -509,7 +546,7 @@ export default function OrdenesTrabajPage() {
             <CardDescription>
               {selected
                 ? `${getFormulaName(selected.formulaId)} · ${selected.estado}`
-                : "Seleccioná una orden para revisar planificación y depósitos."}
+                : "Seleccioná una orden para revisar planificación y workflow."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -539,7 +576,7 @@ export default function OrdenesTrabajPage() {
                     <p className="mt-2 font-medium">{getOperationalStatus(selected)}</p>
                   </div>
                   <div className="rounded-lg border p-3">
-                    <p className="text-sm text-muted-foreground">Planificacion</p>
+                    <p className="text-sm text-muted-foreground">Planificación</p>
                     <p className="mt-2 font-medium">{getPlanningStatus(selected)}</p>
                   </div>
                 </div>
@@ -552,13 +589,40 @@ export default function OrdenesTrabajPage() {
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2">
+                  {selected.estado === "PENDIENTE" ? (
+                    <Button
+                      className="w-full"
+                      onClick={() => void handleIniciar()}
+                      disabled={saving}
+                    >
+                      <Play className="h-4 w-4" /> Iniciar orden
+                    </Button>
+                  ) : null}
+                  {selected.estado === "EN_PROCESO" ? (
+                    <Button
+                      className="w-full"
+                      onClick={() => setFinalizeOpen(true)}
+                      disabled={saving}
+                    >
+                      <Square className="h-4 w-4" /> Finalizar orden
+                    </Button>
+                  ) : null}
+                  {["PENDIENTE", "EN_PROCESO"].includes(selected.estado) ? (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => void handleCancelar()}
+                      disabled={saving}
+                    >
+                      <XCircle className="h-4 w-4" /> Cancelar orden
+                    </Button>
+                  ) : null}
                   <Button
                     variant="outline"
                     className="w-full"
-                    onClick={() => handleOpenDetail(selected.id)}
+                    onClick={() => void handleOpenDetail(selected.id)}
                   >
-                    <Eye className="h-4 w-4" />
-                    Ver detalle completo
+                    <Eye className="h-4 w-4" /> Ver detalle completo
                   </Button>
                   <Button asChild className="w-full">
                     <Link href={`/almacenes/produccion?orden=${selected.id}`}>
@@ -646,18 +710,18 @@ export default function OrdenesTrabajPage() {
                   <p className="text-sm font-medium">{formatDateTime(detail.fechaFinReal)}</p>
                 </div>
                 <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Desvio</span>
+                  <span className="mb-1 block text-xs text-muted-foreground">Desvío</span>
                   <p className="text-sm font-medium">
                     {detail.fechaFinPrevista
-                      ? `${getDaysOffset(detail.fechaFinPrevista) ?? 0} dias`
+                      ? `${getDaysOffset(detail.fechaFinPrevista) ?? 0} días`
                       : "Sin fecha prevista"}
                   </p>
                 </div>
                 <div className="rounded-lg border p-3 sm:col-span-2">
                   <p className="text-sm text-muted-foreground">Circuito productivo ampliado</p>
                   <p className="mt-2 text-sm font-medium">
-                    Consumos, ingresos y ajustes de producción se siguen desde la consola nueva de
-                    frontend mientras el backend no publique mutaciones específicas por orden.
+                    Consumos, cierre y empaques ya se gestionan desde la consola de producción
+                    usando endpoints reales.
                   </p>
                   <Button asChild variant="outline" className="mt-3 bg-transparent">
                     <Link href={`/almacenes/produccion?orden=${detail.id}`}>Ir a producción</Link>
@@ -683,7 +747,7 @@ export default function OrdenesTrabajPage() {
           <DialogHeader>
             <DialogTitle>Nueva orden de trabajo</DialogTitle>
             <DialogDescription>
-              Generá una orden productiva usando las fórmulas y depósitos ya disponibles para la
+              Generá una orden productiva usando las fórmulas y depósitos disponibles para la
               sucursal activa.
             </DialogDescription>
           </DialogHeader>
@@ -705,9 +769,6 @@ export default function OrdenesTrabajPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                La formula define el circuito base de produccion visible para la orden.
-              </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -786,20 +847,15 @@ export default function OrdenesTrabajPage() {
                   value={draft.cantidad}
                   onChange={(e) => setDraft((prev) => ({ ...prev, cantidad: e.target.value }))}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Se registra la cantidad programada actualmente expuesta por backend.
-                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="observacion">Observación</Label>
-                <Input
+                <Textarea
                   id="observacion"
+                  rows={3}
                   value={draft.observacion}
                   onChange={(e) => setDraft((prev) => ({ ...prev, observacion: e.target.value }))}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Conviene dejar turno, lote, prioridad o referencia del circuito productivo.
-                </p>
               </div>
             </div>
           </div>
@@ -807,8 +863,54 @@ export default function OrdenesTrabajPage() {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleCreate} disabled={saving}>
+            <Button onClick={() => void handleCreate()} disabled={saving}>
               {saving ? "Guardando..." : "Crear orden"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={finalizeOpen} onOpenChange={setFinalizeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Finalizar orden</DialogTitle>
+            <DialogDescription>
+              Cerrá la orden en backend con fecha real y cantidad producida opcional.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="fecha-fin-real">Fecha fin real</Label>
+              <Input
+                id="fecha-fin-real"
+                type="date"
+                value={finalizeDraft.fechaFinReal}
+                onChange={(event) =>
+                  setFinalizeDraft((prev) => ({ ...prev, fechaFinReal: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cantidad-producida">Cantidad producida</Label>
+              <Input
+                id="cantidad-producida"
+                type="number"
+                min="0"
+                step="0.01"
+                value={finalizeDraft.cantidadProducida}
+                onChange={(event) =>
+                  setFinalizeDraft((prev) => ({ ...prev, cantidadProducida: event.target.value }))
+                }
+                placeholder="Opcional"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFinalizeOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void handleFinalizar()} disabled={saving}>
+              {saving ? "Guardando..." : "Finalizar orden"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -17,6 +17,7 @@ import {
   Warehouse,
   XCircle,
 } from "lucide-react"
+import { toast } from "@/hooks/use-toast"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -88,8 +89,10 @@ function SummaryCard({
 
 export default function PlantasPage() {
   const sucursalId = useDefaultSucursalId() ?? 1
-  const { depositos, loading, error, crear, actualizar, eliminar, refetch } =
-    useDepositos(sucursalId)
+  const { depositos, loading, error, crear, actualizar, eliminar, activar, refetch } = useDepositos(
+    sucursalId,
+    true
+  )
 
   const [search, setSearch] = useState("")
   const [estadoFiltro, setEstadoFiltro] = useState<"todos" | "activos" | "inactivos">("todos")
@@ -103,6 +106,7 @@ export default function PlantasPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [activating, setActivating] = useState(false)
 
   const selectedDeposito = useMemo(
     () => depositos.find((deposito) => deposito.id === selectedDepositoId) ?? null,
@@ -279,6 +283,25 @@ export default function PlantasPage() {
       setIsDetailOpen(false)
     }
     setDepositoToDeleteId(null)
+  }
+
+  const handleActivate = async (deposito: Deposito) => {
+    setActivating(true)
+    setSaveError(null)
+
+    const ok = await activar(deposito.id)
+    if (!ok) {
+      setSaveError("No se pudo reactivar el depósito seleccionado.")
+      setActivating(false)
+      return
+    }
+
+    await refetch()
+    toast({
+      title: "Depósito reactivado",
+      description: `${deposito.descripcion} volvió al circuito operativo.`,
+    })
+    setActivating(false)
   }
 
   const handleDetailOpenChange = (open: boolean) => {
@@ -623,9 +646,20 @@ export default function PlantasPage() {
                         <Button size="sm" variant="outline" onClick={() => openEdit(deposito)}>
                           Editar
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => openDelete(deposito)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {deposito.activo ? (
+                          <Button size="sm" variant="outline" onClick={() => openDelete(deposito)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={activating}
+                            onClick={() => void handleActivate(deposito)}
+                          >
+                            Reactivar
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -675,9 +709,19 @@ export default function PlantasPage() {
 
           <DialogFooter>
             {selectedDeposito && (
-              <Button variant="outline" onClick={() => openEdit(selectedDeposito)}>
-                Editar depósito
-              </Button>
+              <>
+                <Button variant="outline" onClick={() => openEdit(selectedDeposito)}>
+                  Editar depósito
+                </Button>
+                {!selectedDeposito.activo && (
+                  <Button
+                    disabled={activating}
+                    onClick={() => void handleActivate(selectedDeposito)}
+                  >
+                    Reactivar depósito
+                  </Button>
+                )}
+              </>
             )}
             <Button variant="outline" onClick={() => handleDetailOpenChange(false)}>
               Cerrar

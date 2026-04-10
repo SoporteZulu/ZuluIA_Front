@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { AlertCircle, ClipboardList, Pencil, Plus, RefreshCcw, Search, Trash2 } from "lucide-react"
+import { AlertCircle, ClipboardList, Pencil, Plus, Search, Sprout, Trash2 } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -33,43 +33,25 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
-import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
+import { useConteosStock } from "@/lib/hooks/useConteosStock"
+import { useDepositos } from "@/lib/hooks/useDepositos"
 import { useStockResumen } from "@/lib/hooks/useStock"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
-import {
-  legacyWarehouseCountPlans,
-  type LegacyWarehouseCountPlan,
-} from "@/lib/inventario-legacy-data"
-
-const COUNT_STORAGE_KEY = "wms-count-plans-local-overlay"
-
-type LocalCountPlan = LegacyWarehouseCountPlan & {
-  nextStep: string
-  executionNote: string
-}
+import { useZonas } from "@/lib/hooks/useZonas"
+import type { ConteoCiclico, ConteoEstado } from "@/lib/types/almacenes-maestros"
+import { toast } from "@/hooks/use-toast"
 
 type CountFormState = {
   deposito: string
   zona: string
   frecuencia: string
   proximoConteo: string
-  estado: LegacyWarehouseCountPlan["estado"]
+  estado: ConteoEstado
   divergenciaPct: string
   responsable: string
   observacion: string
   nextStep: string
   executionNote: string
-}
-
-function seedCountPlans(): LocalCountPlan[] {
-  return legacyWarehouseCountPlans.map((row) => ({
-    ...row,
-    nextStep:
-      row.estado === "observado"
-        ? "Conciliar diferencias y definir ajuste manual o re-conteo."
-        : "Preparar equipo y validar cobertura antes del próximo conteo.",
-    executionNote: "",
-  }))
 }
 
 function emptyForm(): CountFormState {
@@ -79,7 +61,7 @@ function emptyForm(): CountFormState {
     frecuencia: "",
     proximoConteo: "",
     estado: "programado",
-    divergenciaPct: "",
+    divergenciaPct: "0",
     responsable: "",
     observacion: "",
     nextStep: "",
@@ -87,7 +69,7 @@ function emptyForm(): CountFormState {
   }
 }
 
-function formFromPlan(plan: LocalCountPlan): CountFormState {
+function formFromPlan(plan: ConteoCiclico): CountFormState {
   return {
     deposito: plan.deposito,
     zona: plan.zona,
@@ -102,7 +84,7 @@ function formFromPlan(plan: LocalCountPlan): CountFormState {
   }
 }
 
-function statusBadge(status: LegacyWarehouseCountPlan["estado"]) {
+function statusBadge(status: ConteoEstado) {
   if (status === "en-ejecucion") return <Badge>En ejecución</Badge>
   if (status === "observado") return <Badge variant="destructive">Observado</Badge>
   return <Badge variant="secondary">Programado</Badge>
@@ -133,25 +115,22 @@ function SummaryCard({
 export default function ConteosAlmacenesPage() {
   const sucursalId = useDefaultSucursalId()
   const { bajoMinimo } = useStockResumen(sucursalId)
-  const { rows, setRows, reset } = useLegacyLocalCollection<LocalCountPlan>(
-    COUNT_STORAGE_KEY,
-    seedCountPlans()
-  )
+  const { depositos } = useDepositos(sucursalId)
+  const { zonas } = useZonas("active")
+  const { conteos, loading, saving, error, crear, actualizar, eliminar, seed } = useConteosStock()
 
   const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState<"all" | LegacyWarehouseCountPlan["estado"]>(
-    "all"
-  )
-  const [selectedId, setSelectedId] = useState<string | null>(rows[0]?.id ?? null)
+  const [statusFilter, setStatusFilter] = useState<"all" | ConteoEstado>("all")
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<CountFormState>(emptyForm())
   const [formError, setFormError] = useState<string | null>(null)
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
 
-    return rows.filter((row) => {
+    return conteos.filter((row) => {
       if (statusFilter !== "all" && row.estado !== statusFilter) {
         return false
       }
@@ -170,7 +149,7 @@ export default function ConteosAlmacenesPage() {
         .toLowerCase()
         .includes(term)
     })
-  }, [rows, search, statusFilter])
+  }, [conteos, search, statusFilter])
 
   const selected = filtered.find((row) => row.id === selectedId) ?? filtered[0] ?? null
   const divergence = Math.round(
@@ -184,14 +163,14 @@ export default function ConteosAlmacenesPage() {
     setDialogOpen(true)
   }
 
-  const openEdit = (plan: LocalCountPlan) => {
+  const openEdit = (plan: ConteoCiclico) => {
     setEditingId(plan.id)
     setForm(formFromPlan(plan))
     setFormError(null)
     setDialogOpen(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.deposito.trim() || !form.zona.trim() || !form.frecuencia.trim()) {
       setFormError("Completá depósito, zona y frecuencia para guardar el conteo.")
       return
@@ -203,35 +182,41 @@ export default function ConteosAlmacenesPage() {
       return
     }
 
-    const next: LocalCountPlan = {
-      id: editingId ?? `count-local-${Date.now()}`,
+    const payload = {
+      ...form,
+      divergenciaPct,
       deposito: form.deposito.trim(),
       zona: form.zona.trim(),
       frecuencia: form.frecuencia.trim(),
-      proximoConteo: form.proximoConteo || new Date().toISOString().slice(0, 10),
-      estado: form.estado,
-      divergenciaPct,
-      responsable: form.responsable.trim() || "Sin responsable",
-      observacion: form.observacion.trim() || "Sin observación adicional.",
-      nextStep: form.nextStep.trim() || "Sin próximo paso definido.",
+      responsable: form.responsable.trim(),
+      observacion: form.observacion.trim(),
+      nextStep: form.nextStep.trim(),
       executionNote: form.executionNote.trim(),
+      proximoConteo: form.proximoConteo || new Date().toISOString().slice(0, 10),
     }
 
-    setRows((prev) => {
-      const rest = prev.filter((row) => row.id !== next.id)
-      return [...rest, next].sort((left, right) =>
-        left.proximoConteo.localeCompare(right.proximoConteo)
-      )
-    })
-    setSelectedId(next.id)
+    const success = editingId ? await actualizar(editingId, payload) : await crear(payload)
+    if (!success) return
+
     setDialogOpen(false)
+    toast({
+      title: editingId ? "Conteo actualizado" : "Conteo creado",
+      description: "La agenda cíclica quedó persistida en backend.",
+    })
   }
 
-  const handleDelete = (id: string) => {
-    setRows((prev) => prev.filter((row) => row.id !== id))
-    if (selectedId === id) {
-      setSelectedId(null)
-    }
+  const handleDelete = async (id: number) => {
+    const success = await eliminar(id)
+    if (!success) return
+
+    toast({ title: "Conteo eliminado", description: "El plan fue removido de la agenda." })
+  }
+
+  const handleSeed = async () => {
+    const result = await seed()
+    if (!result) return
+
+    toast({ title: "Base sembrada", description: result.mensaje })
   }
 
   return (
@@ -240,15 +225,20 @@ export default function ConteosAlmacenesPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Conteos</h1>
           <p className="mt-1 text-muted-foreground">
-            Agenda local de conteos cíclicos con divergencias, responsables y próximos pasos hasta
-            que exista una agenda backend de auditoría física.
+            Agenda real de conteos cíclicos con seguimiento operativo, responsables y divergencias
+            persistidas en backend.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="bg-transparent" onClick={() => reset()}>
-            <RefreshCcw className="mr-2 h-4 w-4" /> Restablecer overlay
+          <Button
+            variant="outline"
+            className="bg-transparent"
+            onClick={handleSeed}
+            disabled={saving}
+          >
+            <Sprout className="mr-2 h-4 w-4" /> Sembrar base legacy
           </Button>
-          <Button onClick={openCreate}>
+          <Button onClick={openCreate} disabled={saving}>
             <Plus className="mr-2 h-4 w-4" /> Nuevo conteo
           </Button>
         </div>
@@ -257,31 +247,41 @@ export default function ConteosAlmacenesPage() {
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          El backend no publica agenda, ejecución ni conciliación de conteos. Esta pantalla cubre la
-          planificación y seguimiento local del circuito legacy sin inventar operaciones servidor.
+          La planificación, edición y seguimiento básico de conteos ya corren sobre API real. La
+          conciliación item por item y el ajuste automático siguen dependiendo de circuitos de stock
+          posteriores.
         </AlertDescription>
       </Alert>
+
+      {error ? (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Planes visibles"
-          value={String(filtered.length)}
-          description="Conteos cíclicos dentro del overlay local actual."
+          value={loading ? "..." : String(filtered.length)}
+          description="Conteos cíclicos activos en la agenda real actual."
         />
         <SummaryCard
           title="Observados"
-          value={String(filtered.filter((row) => row.estado === "observado").length)}
+          value={
+            loading ? "..." : String(filtered.filter((row) => row.estado === "observado").length)
+          }
           description="Conteos con divergencia o conciliación pendiente."
         />
         <SummaryCard
           title="Divergencia media"
-          value={`${divergence}%`}
+          value={loading ? "..." : `${divergence}%`}
           description="Promedio visible para el lote actual de planes."
         />
         <SummaryCard
           title="Alertas stock"
           value={String(bajoMinimo.length)}
-          description="Referencia real del backend para priorizar conteos."
+          description="Referencia real para priorizar recuentos físicos."
         />
       </div>
 
@@ -306,9 +306,7 @@ export default function ConteosAlmacenesPage() {
               </div>
               <Select
                 value={statusFilter}
-                onValueChange={(value) =>
-                  setStatusFilter(value as "all" | LegacyWarehouseCountPlan["estado"])
-                }
+                onValueChange={(value) => setStatusFilter(value as "all" | ConteoEstado)}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Estado" />
@@ -335,31 +333,45 @@ export default function ConteosAlmacenesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    className={selected?.id === row.id ? "bg-accent/40" : undefined}
-                  >
-                    <TableCell onClick={() => setSelectedId(row.id)}>{row.deposito}</TableCell>
-                    <TableCell onClick={() => setSelectedId(row.id)}>{row.zona}</TableCell>
-                    <TableCell onClick={() => setSelectedId(row.id)}>{row.frecuencia}</TableCell>
-                    <TableCell onClick={() => setSelectedId(row.id)}>{row.proximoConteo}</TableCell>
-                    <TableCell onClick={() => setSelectedId(row.id)}>
-                      {statusBadge(row.estado)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(row.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                      Cargando agenda de conteos...
                     </TableCell>
                   </TableRow>
-                ))}
-                {filtered.length === 0 ? (
+                ) : (
+                  filtered.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      className={selected?.id === row.id ? "bg-accent/40" : undefined}
+                    >
+                      <TableCell onClick={() => setSelectedId(row.id)}>{row.deposito}</TableCell>
+                      <TableCell onClick={() => setSelectedId(row.id)}>{row.zona}</TableCell>
+                      <TableCell onClick={() => setSelectedId(row.id)}>{row.frecuencia}</TableCell>
+                      <TableCell onClick={() => setSelectedId(row.id)}>
+                        {row.proximoConteo}
+                      </TableCell>
+                      <TableCell onClick={() => setSelectedId(row.id)}>
+                        {statusBadge(row.estado)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => void handleDelete(row.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+                {!loading && filtered.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                       No hay conteos que coincidan con los filtros actuales.
@@ -387,7 +399,7 @@ export default function ConteosAlmacenesPage() {
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="font-semibold">{selected.responsable}</p>
+                    <p className="font-semibold">{selected.responsable || "Sin responsable"}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{selected.frecuencia}</p>
                   </div>
                   {statusBadge(selected.estado)}
@@ -399,12 +411,12 @@ export default function ConteosAlmacenesPage() {
                   </div>
                   <div className="rounded-lg border p-3">
                     <p className="text-sm text-muted-foreground">Próximo paso</p>
-                    <p className="mt-2 font-medium">{selected.nextStep}</p>
+                    <p className="mt-2 font-medium">{selected.nextStep || "Sin siguiente paso"}</p>
                   </div>
                 </div>
                 <div className="rounded-lg border p-4 text-sm text-muted-foreground">
                   <p className="font-medium text-foreground">Observación</p>
-                  <p className="mt-2">{selected.observacion}</p>
+                  <p className="mt-2">{selected.observacion || "Sin observaciones registradas."}</p>
                 </div>
                 {selected.executionNote ? (
                   <div className="rounded-lg border p-4 text-sm text-muted-foreground">
@@ -413,11 +425,10 @@ export default function ConteosAlmacenesPage() {
                   </div>
                 ) : null}
                 <div className="rounded-lg bg-muted/30 p-4 text-sm">
-                  <p className="font-medium">Gap backend</p>
+                  <p className="font-medium">Cobertura actual</p>
                   <p className="mt-1 text-muted-foreground">
-                    La ejecución del conteo, la conciliación contra stock y el ajuste resultante
-                    siguen pendientes de backend. El frontend ya cubre la planificación y el
-                    seguimiento del circuito del legacy.
+                    Esta pantalla ya persiste agenda, responsables y estado. La auditoría detallada
+                    contra stock sigue apoyándose en los circuitos de movimientos y ajustes.
                   </p>
                 </div>
               </div>
@@ -433,28 +444,46 @@ export default function ConteosAlmacenesPage() {
           <DialogHeader>
             <DialogTitle>{editingId ? "Editar conteo" : "Nuevo conteo"}</DialogTitle>
             <DialogDescription>
-              Agenda local de conteos para mantener el circuito WMS mientras no exista backend.
+              Agenda operativa persistida en backend para el circuito WMS de conteos cíclicos.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="deposito">Depósito</Label>
-                <Input
-                  id="deposito"
-                  value={form.deposito}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, deposito: event.target.value }))
-                  }
-                />
+                <Select
+                  value={form.deposito || undefined}
+                  onValueChange={(value) => setForm((prev) => ({ ...prev, deposito: value }))}
+                >
+                  <SelectTrigger id="deposito" className="w-full">
+                    <SelectValue placeholder="Seleccionar depósito" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {depositos.map((deposito) => (
+                      <SelectItem key={deposito.id} value={deposito.descripcion}>
+                        {deposito.descripcion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="zona">Zona</Label>
-                <Input
-                  id="zona"
-                  value={form.zona}
-                  onChange={(event) => setForm((prev) => ({ ...prev, zona: event.target.value }))}
-                />
+                <Select
+                  value={form.zona || undefined}
+                  onValueChange={(value) => setForm((prev) => ({ ...prev, zona: value }))}
+                >
+                  <SelectTrigger id="zona" className="w-full">
+                    <SelectValue placeholder="Seleccionar zona" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {zonas.map((zona) => (
+                      <SelectItem key={zona.id} value={zona.descripcion}>
+                        {zona.descripcion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -466,6 +495,7 @@ export default function ConteosAlmacenesPage() {
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, frecuencia: event.target.value }))
                   }
+                  placeholder="Semanal, quincenal, mensual..."
                 />
               </div>
               <div className="space-y-2">
@@ -486,10 +516,7 @@ export default function ConteosAlmacenesPage() {
                 <Select
                   value={form.estado}
                   onValueChange={(value) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      estado: value as LegacyWarehouseCountPlan["estado"],
-                    }))
+                    setForm((prev) => ({ ...prev, estado: value as ConteoEstado }))
                   }
                 >
                   <SelectTrigger id="estado" className="w-full">
@@ -560,7 +587,9 @@ export default function ConteosAlmacenesPage() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleSave}>Guardar conteo</Button>
+            <Button onClick={() => void handleSave()} disabled={saving}>
+              Guardar conteo
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,6 +1,20 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
+import {
+  AlertCircle,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Play,
+  Plus,
+  RefreshCcw,
+  Search,
+  Truck,
+  XCircle,
+} from "lucide-react"
+
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -22,7 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table,
   TableBody,
@@ -31,68 +44,102 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  ChevronLeft,
-  ChevronRight,
-  Eye,
-  Plus,
-  RefreshCcw,
-  Search,
-  Truck,
-  AlertCircle,
-} from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import { toast } from "@/hooks/use-toast"
+import { useDepositos } from "@/lib/hooks/useDepositos"
+import { useItems } from "@/lib/hooks/useItems"
 import { useOrdenesPreparacion } from "@/lib/hooks/useOrdenesPreparacion"
-import { useTerceros } from "@/lib/hooks/useTerceros"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
-import type { OrdenPreparacion } from "@/lib/types/ordenes-preparacion"
+import { useTerceros } from "@/lib/hooks/useTerceros"
+import type {
+  CreateOrdenPreparacionDetalleDto,
+  OrdenPreparacion,
+  OrdenPreparacionEvento,
+  OrdenPreparacionTrazabilidad,
+} from "@/lib/types/ordenes-preparacion"
 
-const estadoBadgeVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
-  PENDIENTE: "secondary",
-  EN_PROCESO: "default",
-  COMPLETADA: "outline",
-  CANCELADA: "destructive",
+type DetailDraft = {
+  key: string
+  itemId: string
+  depositoId: string
+  cantidad: string
+  observacion: string
+}
+
+function createEmptyDetailDraft(): DetailDraft {
+  return {
+    key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    itemId: "",
+    depositoId: "",
+    cantidad: "",
+    observacion: "",
+  }
 }
 
 function formatDate(value?: string) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat("es-AR", { dateStyle: "short" }).format(date)
 }
 
 function formatDateTime(value?: string) {
   if (!value) return "-"
-
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "-"
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(date)
+}
 
-  return new Intl.DateTimeFormat("es-AR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date)
+function formatQuantity(value?: number) {
+  return new Intl.NumberFormat("es-AR", { maximumFractionDigits: 2 }).format(Number(value ?? 0))
 }
 
 function getDaysOpen(value?: string) {
   if (!value) return null
-
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-
-  const diff = Date.now() - date.getTime()
-  return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)))
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24)))
 }
 
-function getOperationalStatus(orden: OrdenPreparacion) {
+function estadoVariant(estado?: string) {
+  switch ((estado ?? "").toUpperCase()) {
+    case "PENDIENTE":
+      return "secondary" as const
+    case "EN_PROCESO":
+      return "default" as const
+    case "COMPLETADA":
+      return "outline" as const
+    case "ANULADA":
+      return "destructive" as const
+    default:
+      return "outline" as const
+  }
+}
+
+function getEstadoLabel(estado?: string) {
+  switch ((estado ?? "").toUpperCase()) {
+    case "PENDIENTE":
+      return "Pendiente"
+    case "EN_PROCESO":
+      return "En proceso"
+    case "COMPLETADA":
+      return "Completada"
+    case "ANULADA":
+      return "Anulada"
+    default:
+      return estado ?? "-"
+  }
+}
+
+function getOperationalStatus(orden?: OrdenPreparacion | null) {
+  if (!orden) return "-"
   const daysOpen = getDaysOpen(orden.fecha)
-
-  if (orden.estado === "COMPLETADA") return "Cerrada"
-  if (orden.estado === "CANCELADA") return "Cancelada"
-  if (orden.estado === "EN_PROCESO") return "En preparacion"
-  if (daysOpen !== null && daysOpen >= 7) return "Pendiente con antiguedad"
+  if (orden.estado === "COMPLETADA") return "Lista para despacho"
+  if (orden.estado === "ANULADA") return "Fuera de circuito"
+  if (orden.estado === "EN_PROCESO") return "Picking en ejecución"
+  if ((daysOpen ?? 0) >= 7) return "Pendiente con antigüedad"
   return "Pendiente vigente"
-}
-
-function getTraceabilityStatus(orden: OrdenPreparacion) {
-  if (orden.terceroId && orden.observacion) return "Referencia completa"
-  if (orden.terceroId || orden.observacion) return "Referencia parcial"
-  return "Referencia basica"
 }
 
 function SummaryCard({
@@ -123,92 +170,312 @@ export default function PickingPage() {
   const [desde, setDesde] = useState("")
   const [hasta, setHasta] = useState("")
   const [searchTerm, setSearchTerm] = useState("")
-  const { ordenes, loading, error, page, setPage, totalCount, totalPages, crear, refetch } =
-    useOrdenesPreparacion({
-      sucursalId: defaultSucursalId,
-      estado: filterEstado || undefined,
-      desde: desde || undefined,
-      hasta: hasta || undefined,
-    })
-  const { terceros } = useTerceros()
-  const [selectedOrden, setSelectedOrden] = useState<OrdenPreparacion | null>(null)
-  const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [selectedOrdenId, setSelectedOrdenId] = useState<number | null>(null)
+  const [selectedDetail, setSelectedDetail] = useState<OrdenPreparacion | null>(null)
+  const [selectedEventos, setSelectedEventos] = useState<OrdenPreparacionEvento[]>([])
+  const [selectedTrazabilidad, setSelectedTrazabilidad] =
+    useState<OrdenPreparacionTrazabilidad | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [busyAction, setBusyAction] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [draft, setDraft] = useState({
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [isPickingOpen, setIsPickingOpen] = useState(false)
+  const [isDispatchOpen, setIsDispatchOpen] = useState(false)
+  const [createDraft, setCreateDraft] = useState({
     terceroId: "",
+    comprobanteOrigenId: "",
+    fecha: new Date().toISOString().slice(0, 10),
+    observacion: "",
+    detalles: [createEmptyDetailDraft()],
+  })
+  const [pickingDraft, setPickingDraft] = useState<Record<number, string>>({})
+  const [dispatchDraft, setDispatchDraft] = useState({
+    depositoDestinoId: "",
     fecha: new Date().toISOString().slice(0, 10),
     observacion: "",
   })
+
+  const {
+    ordenes,
+    loading,
+    summaryLoading,
+    error,
+    page,
+    setPage,
+    totalCount,
+    totalPages,
+    resumen,
+    crear,
+    getById,
+    getEventos,
+    getTrazabilidad,
+    iniciar,
+    registrarPicking,
+    confirmar,
+    despachar,
+    anular,
+    refetch,
+  } = useOrdenesPreparacion({
+    sucursalId: defaultSucursalId,
+    estado: filterEstado || undefined,
+    desde: desde || undefined,
+    hasta: hasta || undefined,
+  })
+  const { terceros } = useTerceros({ sucursalId: defaultSucursalId })
+  const { depositos } = useDepositos(defaultSucursalId)
+  const {
+    items,
+    loading: itemsLoading,
+    search: itemSearch,
+    setSearch: setItemSearch,
+  } = useItems({ enabled: isCreateOpen })
+
   const terceroNameById = useMemo(
     () => new Map(terceros.map((tercero) => [tercero.id, tercero.razonSocial])),
     [terceros]
   )
+  const depositoNameById = useMemo(
+    () => new Map(depositos.map((deposito) => [deposito.id, deposito.descripcion])),
+    [depositos]
+  )
+  const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
 
-  const getTerceroName = (id?: number) =>
-    id ? (terceros.find((tercero) => tercero.id === id)?.razonSocial ?? `#${id}`) : "-"
+  const getTerceroName = useCallback(
+    (id?: number) => (id ? (terceroNameById.get(id) ?? `#${id}`) : "-"),
+    [terceroNameById]
+  )
 
   const filteredOrdenes = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
     return ordenes.filter((orden) => {
-      const terceroName = orden.terceroId
-        ? (terceroNameById.get(orden.terceroId) ?? `#${orden.terceroId}`).toLowerCase()
-        : "-"
       if (!term) return true
+      const tercero = getTerceroName(orden.terceroId).toLowerCase()
       return (
         String(orden.id).includes(term) ||
-        terceroName.includes(term) ||
-        (orden.estado ?? "").toLowerCase().includes(term) ||
+        tercero.includes(term) ||
+        getEstadoLabel(orden.estado).toLowerCase().includes(term) ||
         (orden.observacion ?? "").toLowerCase().includes(term)
       )
     })
-  }, [ordenes, searchTerm, terceroNameById])
+  }, [getTerceroName, ordenes, searchTerm])
 
-  const pendientes = ordenes.filter((orden) => orden.estado === "PENDIENTE").length
-  const enProceso = ordenes.filter((orden) => orden.estado === "EN_PROCESO").length
-  const completadas = ordenes.filter((orden) => orden.estado === "COMPLETADA").length
-  const conTercero = ordenes.filter((orden) => Boolean(orden.terceroId)).length
-  const conObservacion = ordenes.filter((orden) => Boolean(orden.observacion)).length
-  const conAntiguedad = ordenes.filter(
-    (orden) =>
-      ["PENDIENTE", "EN_PROCESO"].includes(orden.estado) && (getDaysOpen(orden.fecha) ?? 0) >= 7
-  ).length
+  const selectedOrden = useMemo(
+    () => filteredOrdenes.find((orden) => orden.id === selectedOrdenId) ?? null,
+    [filteredOrdenes, selectedOrdenId]
+  )
 
-  const handleOpenDetail = (orden: OrdenPreparacion) => {
-    setSelectedOrden(orden)
-    setIsDetailOpen(true)
+  const reloadSelectedData = useCallback(
+    async (ordenId: number) => {
+      setDetailLoading(true)
+      const [detail, eventos, trazabilidad] = await Promise.all([
+        getById(ordenId),
+        getEventos(ordenId),
+        getTrazabilidad(ordenId),
+      ])
+      setSelectedDetail(detail)
+      setSelectedEventos(eventos)
+      setSelectedTrazabilidad(trazabilidad)
+      setDetailLoading(false)
+    },
+    [getById, getEventos, getTrazabilidad]
+  )
+
+  const pendingCount =
+    resumen?.pendientes ?? ordenes.filter((orden) => orden.estado === "PENDIENTE").length
+  const inProgressCount =
+    resumen?.enProceso ?? ordenes.filter((orden) => orden.estado === "EN_PROCESO").length
+  const deliveredRate =
+    (resumen?.cantidadSolicitada ?? 0) > 0
+      ? `${Math.round(((resumen?.cantidadEntregada ?? 0) / (resumen?.cantidadSolicitada ?? 1)) * 100)}%`
+      : "0%"
+
+  const handleSelectOrden = async (ordenId: number) => {
+    setSelectedOrdenId(ordenId)
+    await reloadSelectedData(ordenId)
   }
 
-  const handleCreate = async () => {
-    setActionError(null)
+  const resetCreateDraft = () => {
+    setCreateDraft({
+      terceroId: "",
+      comprobanteOrigenId: "",
+      fecha: new Date().toISOString().slice(0, 10),
+      observacion: "",
+      detalles: [createEmptyDetailDraft()],
+    })
+    setItemSearch("")
+  }
 
-    if (!draft.fecha) {
+  const handleRefresh = async () => {
+    setActionError(null)
+    await refetch()
+    if (selectedOrden) {
+      await reloadSelectedData(selectedOrden.id)
+    }
+  }
+
+  const runOrderAction = async (
+    actionKey: string,
+    callback: () => Promise<boolean>,
+    successTitle: string,
+    successDescription: string
+  ) => {
+    setActionError(null)
+    setBusyAction(actionKey)
+    const ok = await callback()
+    if (!ok) {
+      setActionError("La acción no pudo completarse con el backend actual.")
+      setBusyAction(null)
+      return
+    }
+
+    if (selectedOrden) {
+      await reloadSelectedData(selectedOrden.id)
+    }
+    toast({ title: successTitle, description: successDescription })
+    setBusyAction(null)
+  }
+
+  const handleOpenPicking = () => {
+    if (!selectedDetail?.detalles?.length) {
+      setActionError("La orden no tiene renglones disponibles para registrar picking.")
+      return
+    }
+
+    const nextDraft = Object.fromEntries(
+      selectedDetail.detalles.map((detalle) => [detalle.id, String(detalle.cantidadEntregada ?? 0)])
+    )
+    setPickingDraft(nextDraft)
+    setIsPickingOpen(true)
+  }
+
+  const handlePickingSubmit = async () => {
+    if (!selectedDetail?.detalles?.length) return
+
+    const payload = selectedDetail.detalles.map((detalle) => ({
+      detalleId: detalle.id,
+      cantidadEntregada: Number(pickingDraft[detalle.id] ?? detalle.cantidadEntregada ?? 0),
+    }))
+
+    if (
+      payload.some(
+        (detalle) => Number.isNaN(detalle.cantidadEntregada) || detalle.cantidadEntregada < 0
+      )
+    ) {
+      setActionError("Las cantidades entregadas deben ser numéricas y no negativas.")
+      return
+    }
+
+    setBusyAction("picking")
+    const ok = await registrarPicking(selectedDetail.id, { detalles: payload })
+    if (!ok) {
+      setActionError("No se pudo registrar el picking de la orden seleccionada.")
+      setBusyAction(null)
+      return
+    }
+
+    await reloadSelectedData(selectedDetail.id)
+    setIsPickingOpen(false)
+    toast({
+      title: "Picking registrado",
+      description: `La orden #${selectedDetail.id} actualizó sus cantidades entregadas.`,
+    })
+    setBusyAction(null)
+  }
+
+  const handleDispatchSubmit = async () => {
+    if (!selectedDetail) return
+    if (!dispatchDraft.depositoDestinoId) {
+      setActionError("Seleccioná el depósito destino para generar el despacho.")
+      return
+    }
+    if (!dispatchDraft.fecha) {
+      setActionError("Informá la fecha del despacho.")
+      return
+    }
+
+    setBusyAction("despachar")
+    const ok = await despachar(selectedDetail.id, {
+      depositoDestinoId: Number(dispatchDraft.depositoDestinoId),
+      fecha: dispatchDraft.fecha,
+      observacion: dispatchDraft.observacion || undefined,
+    })
+
+    if (!ok) {
+      setActionError("No se pudo despachar la orden seleccionada.")
+      setBusyAction(null)
+      return
+    }
+
+    await reloadSelectedData(selectedDetail.id)
+    setIsDispatchOpen(false)
+    setDispatchDraft({
+      depositoDestinoId: "",
+      fecha: new Date().toISOString().slice(0, 10),
+      observacion: "",
+    })
+    toast({
+      title: "Despacho generado",
+      description: `La orden #${selectedDetail.id} quedó ligada a una transferencia de depósito.`,
+    })
+    setBusyAction(null)
+  }
+
+  const handleCreateSubmit = async () => {
+    if (!createDraft.fecha) {
       setActionError("Informá la fecha de la orden de preparación.")
       return
     }
 
-    setSaving(true)
-    const ok = await crear({
-      sucursalId: defaultSucursalId,
-      terceroId: draft.terceroId ? Number(draft.terceroId) : undefined,
-      fecha: draft.fecha,
-      observacion: draft.observacion || undefined,
-    })
-    setSaving(false)
+    const detalles: CreateOrdenPreparacionDetalleDto[] = createDraft.detalles
+      .filter((detalle) => detalle.itemId && detalle.depositoId && detalle.cantidad)
+      .map((detalle) => ({
+        itemId: Number(detalle.itemId),
+        depositoId: Number(detalle.depositoId),
+        cantidad: Number(detalle.cantidad),
+        observacion: detalle.observacion || undefined,
+      }))
+      .filter((detalle) => detalle.itemId > 0 && detalle.depositoId > 0 && detalle.cantidad > 0)
 
-    if (!ok) {
+    if (detalles.length === 0) {
+      setActionError("Cargá al menos un renglón válido con item, depósito y cantidad.")
+      return
+    }
+
+    setBusyAction("crear")
+    const createdId = await crear({
+      sucursalId: defaultSucursalId,
+      comprobanteOrigenId: createDraft.comprobanteOrigenId
+        ? Number(createDraft.comprobanteOrigenId)
+        : undefined,
+      terceroId: createDraft.terceroId ? Number(createDraft.terceroId) : undefined,
+      fecha: createDraft.fecha,
+      observacion: createDraft.observacion || undefined,
+      detalles,
+    })
+
+    if (!createdId) {
       setActionError("No se pudo crear la orden de preparación.")
+      setBusyAction(null)
       return
     }
 
     setIsCreateOpen(false)
-    setDraft({
-      terceroId: "",
-      fecha: new Date().toISOString().slice(0, 10),
-      observacion: "",
+    resetCreateDraft()
+    setSelectedOrdenId(createdId)
+    await reloadSelectedData(createdId)
+    toast({
+      title: "Orden creada",
+      description: `La orden de picking #${createdId} quedó registrada.`,
     })
+    setBusyAction(null)
   }
+
+  const canStart = selectedDetail?.estado === "PENDIENTE"
+  const canPick = selectedDetail?.estado === "PENDIENTE" || selectedDetail?.estado === "EN_PROCESO"
+  const canConfirm = selectedDetail?.estado === "EN_PROCESO"
+  const canDispatch = selectedDetail?.estado === "COMPLETADA"
+  const canCancel =
+    selectedDetail?.estado === "PENDIENTE" || selectedDetail?.estado === "EN_PROCESO"
 
   return (
     <div className="space-y-6">
@@ -216,12 +483,16 @@ export default function PickingPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Picking y preparación</h1>
           <p className="text-muted-foreground">
-            Consola operativa para gestionar órdenes de picking con filtros reales, alta soportada y
-            consulta inmediata de los registros cargados en backend.
+            Consola operativa conectada al workflow real: alta con renglones, inicio, captura de
+            picking, confirmación, despacho y trazabilidad de transferencias.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={refetch} disabled={loading}>
+          <Button
+            variant="outline"
+            onClick={() => void handleRefresh()}
+            disabled={loading || detailLoading}
+          >
             <RefreshCcw className="h-4 w-4" />
             Actualizar
           </Button>
@@ -241,47 +512,24 @@ export default function PickingPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="Total"
-          value={String(totalCount)}
-          description={`Sucursal ${defaultSucursalId} con filtros aplicados.`}
+          title="Órdenes"
+          value={summaryLoading ? "..." : String(resumen?.cantidad ?? totalCount)}
+          description={`Sucursal ${defaultSucursalId} con resumen real de backend.`}
         />
         <SummaryCard
           title="Pendientes"
-          value={String(pendientes)}
-          description="Órdenes aún no iniciadas."
+          value={summaryLoading ? "..." : String(pendingCount)}
+          description="Aún no iniciadas para picking operativo."
         />
         <SummaryCard
           title="En proceso"
-          value={String(enProceso)}
-          description="Preparaciones actualmente activas."
+          value={summaryLoading ? "..." : String(inProgressCount)}
+          description="Órdenes abiertas y con captura de preparación disponible."
         />
         <SummaryCard
-          title="Completadas"
-          value={String(completadas)}
-          description="Listas para despacho o cierre."
-        />
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard
-          title="Con tercero"
-          value={String(conTercero)}
-          description="Ordenes con cliente o referencia comercial visible."
-        />
-        <SummaryCard
-          title="Con observacion"
-          value={String(conObservacion)}
-          description="Ordenes con detalle operativo registrado."
-        />
-        <SummaryCard
-          title="Con antiguedad"
-          value={String(conAntiguedad)}
-          description="Pendientes o en proceso con 7 dias o mas desde la fecha."
-        />
-        <SummaryCard
-          title="Trazabilidad"
-          value={selectedOrden ? getTraceabilityStatus(selectedOrden) : "-"}
-          description="Estado visible de referencia para la orden seleccionada."
+          title="Cumplimiento"
+          value={summaryLoading ? "..." : deliveredRate}
+          description="Cantidad entregada sobre solicitado en el resumen global."
         />
       </div>
 
@@ -289,8 +537,7 @@ export default function PickingPage() {
         <CardHeader>
           <CardTitle className="text-base">Filtros operativos</CardTitle>
           <CardDescription>
-            Estado y rango de fechas consultan backend; la búsqueda textual refina la página
-            descargada.
+            Estado y fechas filtran en backend; la búsqueda textual refina el lote descargado.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -301,22 +548,22 @@ export default function PickingPage() {
                 className="pl-8"
                 placeholder="Buscar por tercero, estado, observación o ID..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(event) => setSearchTerm(event.target.value)}
               />
             </div>
             <Input
               type="date"
               value={desde}
-              onChange={(e) => {
-                setDesde(e.target.value)
+              onChange={(event) => {
+                setDesde(event.target.value)
                 setPage(1)
               }}
             />
             <Input
               type="date"
               value={hasta}
-              onChange={(e) => {
-                setHasta(e.target.value)
+              onChange={(event) => {
+                setHasta(event.target.value)
                 setPage(1)
               }}
             />
@@ -335,14 +582,14 @@ export default function PickingPage() {
                 <SelectItem value="PENDIENTE">Pendiente</SelectItem>
                 <SelectItem value="EN_PROCESO">En proceso</SelectItem>
                 <SelectItem value="COMPLETADA">Completada</SelectItem>
-                <SelectItem value="CANCELADA">Cancelada</SelectItem>
+                <SelectItem value="ANULADA">Anulada</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.9fr)]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,1fr)]">
         <Card>
           <CardHeader>
             <CardTitle>Órdenes de preparación</CardTitle>
@@ -356,9 +603,9 @@ export default function PickingPage() {
                   <TableHead>Tercero</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead>Fecha</TableHead>
-                  <TableHead>Circuito</TableHead>
+                  <TableHead>Renglones</TableHead>
                   <TableHead>Observación</TableHead>
-                  <TableHead className="text-right">Acción</TableHead>
+                  <TableHead className="text-right">Detalle</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -375,43 +622,47 @@ export default function PickingPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredOrdenes.map((orden) => (
-                    <TableRow key={orden.id}>
-                      <TableCell className="font-medium">{orden.id}</TableCell>
-                      <TableCell>{getTerceroName(orden.terceroId)}</TableCell>
-                      <TableCell>
-                        <Badge variant={estadoBadgeVariant[orden.estado] ?? "outline"}>
-                          {orden.estado}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        <div className="space-y-1">
-                          <p>{formatDate(orden.fecha)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {getDaysOpen(orden.fecha) ?? 0} dias
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <Badge variant="outline" className="text-xs">
-                            {getOperationalStatus(orden)}
+                  filteredOrdenes.map((orden) => {
+                    const isSelected = selectedOrden?.id === orden.id
+                    return (
+                      <TableRow
+                        key={orden.id}
+                        className={isSelected ? "bg-muted/40" : undefined}
+                        onClick={() => void handleSelectOrden(orden.id)}
+                      >
+                        <TableCell className="font-medium">{orden.id}</TableCell>
+                        <TableCell>{getTerceroName(orden.terceroId)}</TableCell>
+                        <TableCell>
+                          <Badge variant={estadoVariant(orden.estado)}>
+                            {getEstadoLabel(orden.estado)}
                           </Badge>
-                          <p className="text-xs text-muted-foreground">
-                            {getTraceabilityStatus(orden)}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {orden.observacion ?? "-"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => handleOpenDetail(orden)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1 text-sm">
+                            <p>{formatDate(orden.fecha)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {getDaysOpen(orden.fecha) ?? 0} días abiertos
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {orden.cantidadRenglones ?? orden.detalles?.length ?? "-"}
+                        </TableCell>
+                        <TableCell className="max-w-[220px] truncate text-sm text-muted-foreground">
+                          {orden.observacion ?? "-"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => void handleSelectOrden(orden.id)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
@@ -447,45 +698,301 @@ export default function PickingPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              {selectedOrden ? `Orden #${selectedOrden.id}` : "Detalle de preparación"}
+              {selectedOrden ? `Orden #${selectedOrden.id}` : "Detalle operativo"}
             </CardTitle>
             <CardDescription>
               {selectedOrden
-                ? `${getTerceroName(selectedOrden.terceroId)} · ${selectedOrden.estado}`
-                : "Seleccioná una orden para revisar su resumen operativo."}
+                ? `${getTerceroName(selectedOrden.terceroId)} · ${getOperationalStatus(selectedDetail ?? selectedOrden)}`
+                : "Seleccioná una orden para operar el circuito de preparación."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {selectedOrden ? (
               <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border p-3">
-                    <p className="text-sm text-muted-foreground">Sucursal</p>
-                    <p className="mt-2 text-lg font-semibold">{selectedOrden.sucursalId}</p>
-                  </div>
-                  <div className="rounded-lg border p-3">
-                    <p className="text-sm text-muted-foreground">Fecha</p>
-                    <p className="mt-2 font-medium">{formatDate(selectedOrden.fecha)}</p>
-                  </div>
-                  <div className="rounded-lg border p-3">
-                    <p className="text-sm text-muted-foreground">Estado operativo</p>
-                    <p className="mt-2 font-medium">{getOperationalStatus(selectedOrden)}</p>
-                  </div>
-                  <div className="rounded-lg border p-3">
-                    <p className="text-sm text-muted-foreground">Trazabilidad</p>
-                    <p className="mt-2 font-medium">{getTraceabilityStatus(selectedOrden)}</p>
-                  </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      selectedDetail &&
+                      void runOrderAction(
+                        "iniciar",
+                        () => iniciar(selectedDetail.id),
+                        "Orden iniciada",
+                        `La orden #${selectedDetail.id} pasó a En proceso.`
+                      )
+                    }
+                    disabled={!canStart || busyAction !== null}
+                  >
+                    <Play className="h-4 w-4" />
+                    Iniciar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleOpenPicking}
+                    disabled={!canPick || busyAction !== null}
+                  >
+                    <Check className="h-4 w-4" />
+                    Registrar picking
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      selectedDetail &&
+                      void runOrderAction(
+                        "confirmar",
+                        () => confirmar(selectedDetail.id),
+                        "Orden confirmada",
+                        `La orden #${selectedDetail.id} quedó completada.`
+                      )
+                    }
+                    disabled={!canConfirm || busyAction !== null}
+                  >
+                    <Check className="h-4 w-4" />
+                    Confirmar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsDispatchOpen(true)}
+                    disabled={!canDispatch || busyAction !== null}
+                  >
+                    <Truck className="h-4 w-4" />
+                    Despachar
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() =>
+                      selectedDetail &&
+                      void runOrderAction(
+                        "anular",
+                        () => anular(selectedDetail.id),
+                        "Orden anulada",
+                        `La orden #${selectedDetail.id} fue anulada en backend.`
+                      )
+                    }
+                    disabled={!canCancel || busyAction !== null}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    Anular
+                  </Button>
                 </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">Observación</p>
-                  <p className="mt-2 font-medium">
-                    {selectedOrden.observacion ?? "Sin observaciones registradas."}
-                  </p>
-                </div>
-                <Button variant="outline" className="w-full" onClick={() => setIsDetailOpen(true)}>
-                  <Eye className="h-4 w-4" />
-                  Ver detalle
-                </Button>
+
+                {detailLoading ? (
+                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                    Cargando detalle, eventos y trazabilidad...
+                  </div>
+                ) : selectedDetail ? (
+                  <Tabs defaultValue="general" className="space-y-4">
+                    <TabsList className="grid w-full grid-cols-4">
+                      <TabsTrigger value="general">General</TabsTrigger>
+                      <TabsTrigger value="renglones">Renglones</TabsTrigger>
+                      <TabsTrigger value="eventos">Eventos</TabsTrigger>
+                      <TabsTrigger value="trazabilidad">Trazabilidad</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="general" className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-lg border p-3">
+                          <p className="text-sm text-muted-foreground">Estado</p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <Badge variant={estadoVariant(selectedDetail.estado)}>
+                              {getEstadoLabel(selectedDetail.estado)}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-sm text-muted-foreground">Fecha</p>
+                          <p className="mt-2 font-medium">{formatDate(selectedDetail.fecha)}</p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-sm text-muted-foreground">Fecha confirmación</p>
+                          <p className="mt-2 font-medium">
+                            {formatDate(selectedDetail.fechaConfirmacion)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-sm text-muted-foreground">Tercero</p>
+                          <p className="mt-2 font-medium">
+                            {getTerceroName(selectedDetail.terceroId)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-sm text-muted-foreground">Renglones</p>
+                          <p className="mt-2 text-lg font-semibold">
+                            {selectedTrazabilidad?.cantidadRenglones ??
+                              selectedDetail.detalles?.length ??
+                              0}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-sm text-muted-foreground">Cumplimiento</p>
+                          <p className="mt-2 text-lg font-semibold">
+                            {selectedTrazabilidad
+                              ? `${formatQuantity(selectedTrazabilidad.cantidadEntregada)} / ${formatQuantity(selectedTrazabilidad.cantidadSolicitada)}`
+                              : `${formatQuantity(selectedDetail.detalles?.reduce((acc, detalle) => acc + detalle.cantidadEntregada, 0))} / ${formatQuantity(selectedDetail.detalles?.reduce((acc, detalle) => acc + detalle.cantidad, 0))}`}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border p-4">
+                        <p className="text-sm text-muted-foreground">Observación</p>
+                        <p className="mt-2 font-medium">
+                          {selectedDetail.observacion ??
+                            "Sin observaciones registradas para la orden."}
+                        </p>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="renglones" className="space-y-4">
+                      <div className="rounded-lg border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Detalle</TableHead>
+                              <TableHead>Item</TableHead>
+                              <TableHead>Depósito</TableHead>
+                              <TableHead>Solicitado</TableHead>
+                              <TableHead>Entregado</TableHead>
+                              <TableHead>Estado</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {selectedDetail.detalles?.length ? (
+                              selectedDetail.detalles.map((detalle) => {
+                                const item = itemById.get(detalle.itemId)
+                                return (
+                                  <TableRow key={detalle.id}>
+                                    <TableCell className="font-medium">{detalle.id}</TableCell>
+                                    <TableCell>
+                                      <div className="space-y-1">
+                                        <p>{item?.descripcion ?? `Item #${detalle.itemId}`}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          Código {item?.codigo ?? detalle.itemId}
+                                        </p>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      {depositoNameById.get(detalle.depositoId) ??
+                                        `#${detalle.depositoId}`}
+                                    </TableCell>
+                                    <TableCell>{formatQuantity(detalle.cantidad)}</TableCell>
+                                    <TableCell>
+                                      {formatQuantity(detalle.cantidadEntregada)}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge
+                                        variant={detalle.estaCompleto ? "outline" : "secondary"}
+                                      >
+                                        {detalle.estaCompleto ? "Completo" : "Pendiente"}
+                                      </Badge>
+                                    </TableCell>
+                                  </TableRow>
+                                )
+                              })
+                            ) : (
+                              <TableRow>
+                                <TableCell
+                                  colSpan={6}
+                                  className="py-6 text-center text-muted-foreground"
+                                >
+                                  La orden no tiene renglones cargados.
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="eventos" className="space-y-3">
+                      {selectedEventos.length ? (
+                        selectedEventos.map((evento) => (
+                          <div key={evento.id} className="rounded-lg border p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="font-medium">{evento.tipo}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  {evento.descripcion ?? "Sin descripción operativa."}
+                                </p>
+                              </div>
+                              <div className="text-right text-xs text-muted-foreground">
+                                <p>{formatDateTime(evento.fecha)}</p>
+                                <p>Registro {formatDateTime(evento.createdAt)}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                          No hay eventos visibles para la orden seleccionada.
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="trazabilidad" className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-lg border p-3">
+                          <p className="text-sm text-muted-foreground">Solicitado</p>
+                          <p className="mt-2 text-lg font-semibold">
+                            {formatQuantity(selectedTrazabilidad?.cantidadSolicitada)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-sm text-muted-foreground">Entregado</p>
+                          <p className="mt-2 text-lg font-semibold">
+                            {formatQuantity(selectedTrazabilidad?.cantidadEntregada)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-sm text-muted-foreground">Transferencias</p>
+                          <p className="mt-2 text-lg font-semibold">
+                            {selectedTrazabilidad?.transferencias.length ?? 0}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {(selectedTrazabilidad?.timeline ?? []).length ? (
+                          selectedTrazabilidad?.timeline.map((evento) => (
+                            <div
+                              key={`${evento.id}-${evento.transferenciaDepositoId ?? 0}`}
+                              className="rounded-lg border p-3"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-medium">{evento.tipo}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {evento.descripcion ?? "Sin detalle adicional."}
+                                  </p>
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    {evento.transferenciaDepositoId
+                                      ? `Transferencia #${evento.transferenciaDepositoId}`
+                                      : `Orden #${evento.ordenPreparacionId ?? selectedDetail.id}`}
+                                  </p>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatDateTime(evento.fecha)}
+                                </p>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                            Todavía no hay trazabilidad extendida para esta orden.
+                          </div>
+                        )}
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                ) : (
+                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                    No fue posible cargar el detalle de la orden seleccionada.
+                  </div>
+                )}
               </>
             ) : (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
@@ -496,142 +1003,386 @@ export default function PickingPage() {
         </Card>
       </div>
 
-      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Truck className="h-5 w-5" />
-              Orden de preparación #{selectedOrden?.id}
-            </DialogTitle>
+            <DialogTitle>Nueva orden de preparación</DialogTitle>
             <DialogDescription>
-              {selectedOrden ? getTerceroName(selectedOrden.terceroId) : ""}
+              La creación ahora respeta el contrato real del backend: cabecera más renglones de
+              picking con item, depósito y cantidad.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-2 gap-4 py-4 text-sm">
-            {selectedOrden && (
-              <Tabs defaultValue="general" className="col-span-2">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="general">General</TabsTrigger>
-                  <TabsTrigger value="circuito">Circuito</TabsTrigger>
-                  <TabsTrigger value="referencias">Referencias</TabsTrigger>
-                </TabsList>
+          <div className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="space-y-2">
+                <Label htmlFor="tercero">Tercero</Label>
+                <Select
+                  value={createDraft.terceroId || "none"}
+                  onValueChange={(value) =>
+                    setCreateDraft((current) => ({
+                      ...current,
+                      terceroId: value === "none" ? "" : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger id="tercero">
+                    <SelectValue placeholder="Opcional" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin tercero</SelectItem>
+                    {terceros.map((tercero) => (
+                      <SelectItem key={tercero.id} value={String(tercero.id)}>
+                        {tercero.razonSocial}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="comprobante">Comprobante origen</Label>
+                <Input
+                  id="comprobante"
+                  type="number"
+                  min={1}
+                  value={createDraft.comprobanteOrigenId}
+                  onChange={(event) =>
+                    setCreateDraft((current) => ({
+                      ...current,
+                      comprobanteOrigenId: event.target.value,
+                    }))
+                  }
+                  placeholder="Opcional"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fecha">Fecha</Label>
+                <Input
+                  id="fecha"
+                  type="date"
+                  value={createDraft.fecha}
+                  onChange={(event) =>
+                    setCreateDraft((current) => ({ ...current, fecha: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="observacion">Observación</Label>
+                <Input
+                  id="observacion"
+                  value={createDraft.observacion}
+                  onChange={(event) =>
+                    setCreateDraft((current) => ({ ...current, observacion: event.target.value }))
+                  }
+                  placeholder="Turno, referencia o prioridad"
+                />
+              </div>
+            </div>
 
-                <TabsContent value="general" className="mt-4 grid grid-cols-2 gap-4 text-sm">
-                  {[
-                    ["ID", String(selectedOrden.id)],
-                    ["Estado", selectedOrden.estado],
-                    ["Tercero", getTerceroName(selectedOrden.terceroId)],
-                    ["Sucursal ID", String(selectedOrden.sucursalId)],
-                    ["Fecha", formatDate(selectedOrden.fecha)],
-                    ["Fecha y hora visible", formatDateTime(selectedOrden.fecha)],
-                  ].map(([label, value]) => (
-                    <div key={label}>
-                      <span className="mb-1 block text-muted-foreground">{label}</span>
-                      <p className="font-semibold">{value}</p>
+            <div className="space-y-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h3 className="font-semibold">Renglones</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Buscá ítems activos para facilitar la carga y definí desde qué depósito se toma
+                    cada uno.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={itemSearch}
+                    onChange={(event) => setItemSearch(event.target.value)}
+                    placeholder="Buscar item para los selectores..."
+                    className="w-64"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      setCreateDraft((current) => ({
+                        ...current,
+                        detalles: [...current.detalles, createEmptyDetailDraft()],
+                      }))
+                    }
+                  >
+                    <Plus className="h-4 w-4" />
+                    Agregar renglón
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {createDraft.detalles.map((detalle, index) => (
+                  <div
+                    key={detalle.key}
+                    className="grid gap-3 rounded-lg border p-3 lg:grid-cols-[1.4fr_1.1fr_140px_1fr_auto]"
+                  >
+                    <div className="space-y-2">
+                      <Label>Item</Label>
+                      <Select
+                        value={detalle.itemId || "none"}
+                        onValueChange={(value) =>
+                          setCreateDraft((current) => ({
+                            ...current,
+                            detalles: current.detalles.map((row) =>
+                              row.key === detalle.key
+                                ? { ...row, itemId: value === "none" ? "" : value }
+                                : row
+                            ),
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={itemsLoading ? "Cargando items..." : "Seleccionar item"}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Sin item</SelectItem>
+                          {items.map((item) => (
+                            <SelectItem key={item.id} value={String(item.id)}>
+                              {item.codigo} · {item.descripcion}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  ))}
-                </TabsContent>
-
-                <TabsContent value="circuito" className="mt-4 grid grid-cols-2 gap-4 text-sm">
-                  {[
-                    ["Estado operativo", getOperationalStatus(selectedOrden)],
-                    ["Antiguedad", `${getDaysOpen(selectedOrden.fecha) ?? 0} dias`],
-                    ["Trazabilidad", getTraceabilityStatus(selectedOrden)],
-                    [
-                      "Cobertura documental",
-                      selectedOrden.observacion ? "Con observacion" : "Sin observacion",
-                    ],
-                  ].map(([label, value]) => (
-                    <div key={label}>
-                      <span className="mb-1 block text-muted-foreground">{label}</span>
-                      <p className="font-semibold">{value}</p>
+                    <div className="space-y-2">
+                      <Label>Depósito origen</Label>
+                      <Select
+                        value={detalle.depositoId || "none"}
+                        onValueChange={(value) =>
+                          setCreateDraft((current) => ({
+                            ...current,
+                            detalles: current.detalles.map((row) =>
+                              row.key === detalle.key
+                                ? { ...row, depositoId: value === "none" ? "" : value }
+                                : row
+                            ),
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar depósito" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Sin depósito</SelectItem>
+                          {depositos.map((deposito) => (
+                            <SelectItem key={deposito.id} value={String(deposito.id)}>
+                              {deposito.descripcion}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  ))}
-                </TabsContent>
-
-                <TabsContent value="referencias" className="mt-4 space-y-4 text-sm">
-                  <div>
-                    <span className="mb-1 block text-muted-foreground">Observacion</span>
-                    <p className="font-semibold">{selectedOrden.observacion ?? "-"}</p>
+                    <div className="space-y-2">
+                      <Label>Cantidad</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={detalle.cantidad}
+                        onChange={(event) =>
+                          setCreateDraft((current) => ({
+                            ...current,
+                            detalles: current.detalles.map((row) =>
+                              row.key === detalle.key
+                                ? { ...row, cantidad: event.target.value }
+                                : row
+                            ),
+                          }))
+                        }
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Observación</Label>
+                      <Input
+                        value={detalle.observacion}
+                        onChange={(event) =>
+                          setCreateDraft((current) => ({
+                            ...current,
+                            detalles: current.detalles.map((row) =>
+                              row.key === detalle.key
+                                ? { ...row, observacion: event.target.value }
+                                : row
+                            ),
+                          }))
+                        }
+                        placeholder={`Renglón ${index + 1}`}
+                      />
+                    </div>
+                    <div className="flex items-end justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() =>
+                          setCreateDraft((current) => ({
+                            ...current,
+                            detalles:
+                              current.detalles.length === 1
+                                ? [createEmptyDetailDraft()]
+                                : current.detalles.filter((row) => row.key !== detalle.key),
+                          }))
+                        }
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div>
-                    <span className="mb-1 block text-muted-foreground">Lectura operativa</span>
-                    <p className="font-semibold">
-                      {selectedOrden.terceroId
-                        ? "Orden vinculada a un tercero visible en el frontend actual."
-                        : "Orden interna sin tercero asociado visible."}
-                    </p>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            )}
+                ))}
+              </div>
+            </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
-              Cerrar
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsCreateOpen(false)
+                resetCreateDraft()
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={() => void handleCreateSubmit()} disabled={busyAction === "crear"}>
+              {busyAction === "crear" ? "Guardando..." : "Crear orden"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+      <Dialog open={isPickingOpen} onOpenChange={setIsPickingOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Registrar picking</DialogTitle>
+            <DialogDescription>
+              Las cantidades se envían como valores entregados acumulados por renglón.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {selectedDetail?.detalles?.map((detalle) => {
+              const item = itemById.get(detalle.itemId)
+              return (
+                <div
+                  key={detalle.id}
+                  className="grid gap-3 rounded-lg border p-3 md:grid-cols-[1.4fr_140px_140px_140px]"
+                >
+                  <div>
+                    <p className="font-medium">{item?.descripcion ?? `Item #${detalle.itemId}`}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Depósito{" "}
+                      {depositoNameById.get(detalle.depositoId) ?? `#${detalle.depositoId}`}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Solicitado</p>
+                    <p className="font-medium">{formatQuantity(detalle.cantidad)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Entregado actual</p>
+                    <p className="font-medium">{formatQuantity(detalle.cantidadEntregada)}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Cantidad entregada</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={pickingDraft[detalle.id] ?? "0"}
+                      onChange={(event) =>
+                        setPickingDraft((current) => ({
+                          ...current,
+                          [detalle.id]: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPickingOpen(false)}>
+              Cerrar
+            </Button>
+            <Button onClick={() => void handlePickingSubmit()} disabled={busyAction === "picking"}>
+              {busyAction === "picking" ? "Guardando..." : "Registrar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDispatchOpen} onOpenChange={setIsDispatchOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Nueva orden de preparación</DialogTitle>
+            <DialogTitle>Despachar orden</DialogTitle>
             <DialogDescription>
-              Registrá una orden de picking sobre la sucursal activa. El tercero sigue siendo
-              opcional según el backend actual.
+              El backend genera la transferencia de depósito asociada al picking confirmado.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="tercero-id">ID de tercero</Label>
-              <Input
-                id="tercero-id"
-                type="number"
-                min={1}
-                value={draft.terceroId}
-                onChange={(e) => setDraft((current) => ({ ...current, terceroId: e.target.value }))}
-                placeholder="Opcional"
-              />
-              <p className="text-xs text-muted-foreground">
-                Si lo informas, la orden queda vinculada a un tercero visible en la consola.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="fecha">Fecha</Label>
-              <Input
-                id="fecha"
-                type="date"
-                value={draft.fecha}
-                onChange={(e) => setDraft((current) => ({ ...current, fecha: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="observacion">Observación</Label>
-              <Input
-                id="observacion"
-                value={draft.observacion}
-                onChange={(e) =>
-                  setDraft((current) => ({ ...current, observacion: e.target.value }))
+              <Label>Depósito destino</Label>
+              <Select
+                value={dispatchDraft.depositoDestinoId || "none"}
+                onValueChange={(value) =>
+                  setDispatchDraft((current) => ({
+                    ...current,
+                    depositoDestinoId: value === "none" ? "" : value,
+                  }))
                 }
-                placeholder="Detalle operativo"
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar depósito" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin depósito</SelectItem>
+                  {depositos.map((deposito) => (
+                    <SelectItem key={deposito.id} value={String(deposito.id)}>
+                      {deposito.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Fecha</Label>
+              <Input
+                type="date"
+                value={dispatchDraft.fecha}
+                onChange={(event) =>
+                  setDispatchDraft((current) => ({ ...current, fecha: event.target.value }))
+                }
               />
-              <p className="text-xs text-muted-foreground">
-                Conviene registrar referencia de picking, turno, remito interno o prioridad.
-              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Observación</Label>
+              <Textarea
+                value={dispatchDraft.observacion}
+                onChange={(event) =>
+                  setDispatchDraft((current) => ({ ...current, observacion: event.target.value }))
+                }
+                placeholder="Destino físico, prioridad de salida o referencia logística"
+              />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
+            <Button variant="outline" onClick={() => setIsDispatchOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleCreate} disabled={saving}>
-              {saving ? "Guardando..." : "Crear orden"}
+            <Button
+              onClick={() => void handleDispatchSubmit()}
+              disabled={busyAction === "despachar"}
+            >
+              {busyAction === "despachar" ? "Despachando..." : "Generar despacho"}
             </Button>
           </DialogFooter>
         </DialogContent>

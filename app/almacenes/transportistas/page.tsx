@@ -28,6 +28,7 @@ import {
 import { useTransportistas } from "@/lib/hooks/useTransportistas"
 import type { CreateTransportistaDto, Transportista } from "@/lib/types/transportistas"
 import { AlertCircle, Eye, Pencil, Plus, RefreshCcw, Search, Truck } from "lucide-react"
+import { toast } from "@/hooks/use-toast"
 
 type DraftState = CreateTransportistaDto & {
   activo: boolean
@@ -107,7 +108,7 @@ function getTraceabilityStatus(transportista: Transportista) {
 
 export default function TransportistasPage() {
   const [soloActivos, setSoloActivos] = useState(false)
-  const { transportistas, loading, error, getById, crear, actualizar, refetch } =
+  const { transportistas, loading, error, getById, crear, actualizar, cambiarEstado, refetch } =
     useTransportistas(soloActivos)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -119,6 +120,7 @@ export default function TransportistasPage() {
   const [draft, setDraft] = useState<DraftState>(emptyDraft())
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [statusSaving, setStatusSaving] = useState(false)
 
   const filtered = useMemo(
     () =>
@@ -217,6 +219,30 @@ export default function TransportistasPage() {
     setFormOpen(false)
     setDraft(emptyDraft())
     setEditing(null)
+  }
+
+  const handleToggleEstado = async () => {
+    if (!selected) return
+
+    setFormError(null)
+    setStatusSaving(true)
+    const nextActivo = !selected.activo
+    const ok = await cambiarEstado(selected.id, nextActivo)
+    setStatusSaving(false)
+
+    if (!ok) {
+      setFormError(
+        nextActivo
+          ? "No se pudo reactivar el transportista seleccionado."
+          : "No se pudo desactivar el transportista seleccionado."
+      )
+      return
+    }
+
+    toast({
+      title: nextActivo ? "Transportista activado" : "Transportista desactivado",
+      description: `${selected.terceroRazonSocial ?? `Legajo #${selected.id}`} actualizó su estado.`,
+    })
   }
 
   return (
@@ -468,6 +494,14 @@ export default function TransportistasPage() {
                   <Button variant="outline" className="flex-1" onClick={() => openEdit(selected)}>
                     <Pencil className="h-4 w-4" />
                     Editar
+                  </Button>
+                  <Button
+                    variant={selected.activo ? "destructive" : "outline"}
+                    className="flex-1"
+                    onClick={() => void handleToggleEstado()}
+                    disabled={statusSaving}
+                  >
+                    {selected.activo ? "Desactivar" : "Activar"}
                   </Button>
                 </div>
               </>

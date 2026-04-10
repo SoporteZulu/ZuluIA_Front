@@ -46,7 +46,13 @@ export interface OrdenCompra {
   proveedorId: number
   fechaEntregaReq: string | null
   condicionesEntrega: string | null
+  cantidadTotal: number
+  cantidadRecibida: number
+  saldoPendiente: number
+  fechaUltimaRecepcion?: string | null
   estadoOc: string // "PENDIENTE" | "RECIBIDA" | "CANCELADA"
+  estadoOperativo?: string
+  recepcionParcial?: boolean
   habilitada: boolean
   createdAt: string
 }
@@ -56,4 +62,12 @@ export interface CreateOrdenCompraDto {
   proveedorId: number
   fechaEntregaReq?: string | null
   condicionesEntrega?: string | null
+}
+
+export interface RecibirOrdenCompraDto {
+  fechaRecepcion?: string | null
+  cantidadRecibida?: number | null
+  tipoComprobanteRemitoId?: number | null
+  remitoValorizado?: boolean
+  observacion?: string | null
 }
