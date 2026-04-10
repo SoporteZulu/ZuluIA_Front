@@ -30,32 +30,6 @@ Copy-Item -Path (Join-Path $outDir "*") -Destination $targetDir -Recurse -Force
         <add value="index.html" />
       </files>
     </defaultDocument>
-    <staticContent>
-      <remove fileExtension=".json" />
-      <mimeMap fileExtension=".json" mimeType="application/json" />
-      <remove fileExtension=".webmanifest" />
-      <mimeMap fileExtension=".webmanifest" mimeType="application/manifest+json" />
-      <remove fileExtension=".woff2" />
-      <mimeMap fileExtension=".woff2" mimeType="font/woff2" />
-      <remove fileExtension=".wasm" />
-      <mimeMap fileExtension=".wasm" mimeType="application/wasm" />
-    </staticContent>
-    <rewrite>
-      <rules>
-        <rule name="StaticExportRoutes" stopProcessing="true">
-          <match url="^[^.]+$" />
-          <conditions logicalGrouping="MatchAll">
-            <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
-            <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
-          </conditions>
-          <action type="Rewrite" url="{R:0}/index.html" />
-        </rule>
-      </rules>
-    </rewrite>
-    <httpErrors errorMode="Custom">
-      <remove statusCode="404" subStatusCode="-1" />
-      <error statusCode="404" path="/404.html" responseMode="File" />
-    </httpErrors>
   </system.webServer>
 </configuration>
 "@ | Set-Content -Path $webConfigFile
@@ -71,9 +45,9 @@ What to publish:
 
 Required IIS notes:
 1. Enable Default Document with index.html
-2. Install URL Rewrite module so extensionless routes like /login work
-3. Publish this package as the physical directory of Front_IA
-4. The frontend is baked to run under /Front_IA
+2. Publish this package as the physical directory of Front_IA
+3. The frontend is baked to run under /Front_IA
+4. This package now avoids optional IIS modules for maximum compatibility
 
 Backend:
 - API URL is embedded at build time from .env.production / NEXT_PUBLIC_API_URL
