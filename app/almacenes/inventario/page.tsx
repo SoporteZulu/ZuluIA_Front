@@ -260,6 +260,22 @@ export default function InventarioPage() {
     [items]
   )
 
+  const featuredAlert = useMemo(() => {
+    if (selectedItem) {
+      return bajoMinimo.find((item) => item.itemId === selectedItem.id) ?? bajoMinimo[0] ?? null
+    }
+
+    return bajoMinimo[0] ?? null
+  }, [bajoMinimo, selectedItem])
+
+  const featuredAlertItem = useMemo(() => {
+    if (!featuredAlert) {
+      return selectedItem
+    }
+
+    return items.find((item) => item.id === featuredAlert.itemId) ?? selectedItem
+  }, [featuredAlert, items, selectedItem])
+
   const ultimoMovimientoVisible = movimientos[0] ?? null
   const ultimaActualizacionStock = stock?.depositos
     ?.map((deposito) => deposito.updatedAt)
@@ -472,6 +488,105 @@ export default function InventarioPage() {
         />
       </div>
 
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+        <Card className="border-amber-200 bg-gradient-to-br from-amber-50 via-background to-orange-50">
+          <CardHeader>
+            <CardDescription>Radar operativo</CardDescription>
+            <CardTitle className="text-xl">
+              {featuredAlert
+                ? `${featuredAlert.codigo} · ${featuredAlert.descripcion}`
+                : "Sin alertas críticas en foco"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {featuredAlert ? (
+              <>
+                <p className="max-w-3xl text-sm text-muted-foreground">
+                  {featuredAlert.depositoDescripcion} muestra {featuredAlert.stockActual} unidades
+                  visibles contra un mínimo de {featuredAlert.stockMinimo}. La consola deja el
+                  desvío operativo en primer plano sin salir de inventario.
+                </p>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-xl border border-amber-200 bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-wide text-amber-900/70">Cobertura</p>
+                    <p className="mt-2 text-sm font-semibold text-amber-950">
+                      {featuredAlert.stockActual <= 0 ? "Sin stock" : "Bajo mínimo"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-amber-200 bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-wide text-amber-900/70">
+                      Brecha visible
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-amber-950">
+                      {Math.max(featuredAlert.stockMinimo - featuredAlert.stockActual, 0)} unidades
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-amber-200 bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-wide text-amber-900/70">
+                      Depósito foco
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-amber-950">
+                      {featuredAlert.depositoDescripcion}
+                    </p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="rounded-xl border border-dashed border-amber-200 bg-white/70 p-5 text-sm text-muted-foreground">
+                No hay alertas bajo mínimo para destacar en la sucursal activa.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-sky-200 bg-gradient-to-br from-sky-50 via-background to-cyan-50">
+          <CardHeader>
+            <CardDescription>Item enfocado</CardDescription>
+            <CardTitle className="text-xl">
+              {featuredAlertItem
+                ? `${featuredAlertItem.codigo} · ${featuredAlertItem.descripcion}`
+                : "Selecciona un ítem para ver su lectura operativa"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {featuredAlertItem ? (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {getStockBadge(featuredAlertItem)}
+                  <Badge variant="outline">{getCatalogStatus(featuredAlertItem)}</Badge>
+                  <Badge variant="outline">{getCoverageStatus(featuredAlertItem)}</Badge>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-sky-200 bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-wide text-sky-900/70">Stock actual</p>
+                    <p className="mt-2 text-lg font-semibold text-sky-950">
+                      {featuredAlertItem.stock ?? 0}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-sky-200 bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-wide text-sky-900/70">
+                      Rango objetivo
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-sky-950">
+                      {featuredAlertItem.stockMinimo} / {featuredAlertItem.stockMaximo ?? "-"}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  La vista lateral usa este item como referencia para ajustes, transferencias y
+                  lectura por depósito.
+                </p>
+              </>
+            ) : (
+              <div className="rounded-xl border border-dashed border-sky-200 bg-white/70 p-5 text-sm text-muted-foreground">
+                La selección de ítems activa el radar lateral y refuerza la lectura visual del
+                inventario operativo.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Consulta operativa</CardTitle>
@@ -575,7 +690,11 @@ export default function InventarioPage() {
                   </TableRow>
                 ) : (
                   filteredProducts.map((item) => (
-                    <TableRow key={item.id}>
+                    <TableRow
+                      key={item.id}
+                      className={item.id === selectedItemId ? "bg-accent/40" : undefined}
+                      onClick={() => setSelectedItemId(item.id)}
+                    >
                       <TableCell className="font-mono text-sm font-semibold">
                         {item.codigo}
                       </TableCell>
@@ -616,15 +735,36 @@ export default function InventarioPage() {
                       <TableCell>{getStockBadge(item)}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
-                          <Button size="sm" variant="outline" onClick={() => openDetail(item)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              openDetail(item)
+                            }}
+                          >
                             <Eye className="h-4 w-4 mr-2" />
                             Ver
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => openAjuste(item)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              openAjuste(item)
+                            }}
+                          >
                             <SlidersHorizontal className="h-4 w-4 mr-2" />
                             Ajuste
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => openTransfer(item)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              openTransfer(item)
+                            }}
+                          >
                             <ArrowRightLeft className="h-4 w-4 mr-2" />
                             Transferir
                           </Button>
@@ -705,21 +845,47 @@ export default function InventarioPage() {
                 Distribución por depósito y últimos movimientos del ítem activo.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               {!selectedItem ? (
-                <p className="py-8 text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
                   Selecciona un ítem para consultar stock por depósito, movimientos y ejecutar
                   acciones.
-                </p>
+                </div>
               ) : (
                 <div className="space-y-4 text-sm">
-                  <div>
-                    <p className="font-semibold">
-                      {selectedItem.codigo} - {selectedItem.descripcion}
-                    </p>
-                    <p className="text-muted-foreground">
-                      {selectedItem.unidadMedidaDescripcion ?? "Unidad no informada"}
-                    </p>
+                  <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-sky-950">
+                          {selectedItem.codigo} - {selectedItem.descripcion}
+                        </p>
+                        <p className="text-sky-900/80">
+                          {selectedItem.unidadMedidaDescripcion ?? "Unidad no informada"}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {getStockBadge(selectedItem)}
+                        <Badge variant="outline">{getCatalogStatus(selectedItem)}</Badge>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openDetail(selectedItem)}>
+                        <Eye className="h-4 w-4 mr-2" />
+                        Ver ficha
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => openAjuste(selectedItem)}>
+                        <SlidersHorizontal className="h-4 w-4 mr-2" />
+                        Ajustar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openTransfer(selectedItem)}
+                      >
+                        <ArrowRightLeft className="h-4 w-4 mr-2" />
+                        Transferir
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2">
@@ -731,6 +897,15 @@ export default function InventarioPage() {
                       <p className="text-sm text-muted-foreground">Ficha visible</p>
                       <p className="mt-2 font-semibold">{getCatalogStatus(selectedItem)}</p>
                     </div>
+                  </div>
+
+                  <div>
+                    <p className="font-semibold">
+                      {selectedItem.codigo} - {selectedItem.descripcion}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {selectedItem.unidadMedidaDescripcion ?? "Unidad no informada"}
+                    </p>
                   </div>
 
                   <div>

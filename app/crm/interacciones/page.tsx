@@ -40,6 +40,7 @@ import {
   Phone,
   Mail,
   Users,
+  Pencil,
   MapPin,
   MessageSquare,
   Trash2,
@@ -48,7 +49,9 @@ import {
   Eye,
   Target,
 } from "lucide-react"
+import { CrmPageHero, CrmStatCard, crmPanelClassName } from "@/components/crm/crm-page-kit"
 import {
+  useCrmCatalogos,
   useCrmInteracciones,
   useCrmClientes,
   useCrmContactos,
@@ -103,6 +106,20 @@ const formatDateTime = (date?: Date | string | null) => {
   }).format(new Date(date))
 }
 
+const toDateTimeLocalValue = (value?: Date | string | null) => {
+  if (!value) return ""
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, "0")
+  const day = `${date.getDate()}`.padStart(2, "0")
+  const hours = `${date.getHours()}`.padStart(2, "0")
+  const minutes = `${date.getMinutes()}`.padStart(2, "0")
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
 const getDaysSince = (value?: Date | string | null, referenceDate?: Date) => {
   if (!value) return null
 
@@ -143,9 +160,11 @@ function InteraccionesContent() {
   const [filterResultado, setFilterResultado] = useState<string>("all")
   const [isFormOpen, setIsFormOpen] = useState(action === "new")
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+  const [dialogMode, setDialogMode] = useState<"create" | "view" | "edit">("create")
   const [selectedInteraction, setSelectedInteraction] = useState<CRMInteraction | null>(null)
-  const { interacciones, loading, error, createInteraccion, deleteInteraccion } =
+  const { interacciones, loading, error, createInteraccion, updateInteraccion, deleteInteraccion } =
     useCrmInteracciones(clienteIdParam || undefined)
+  const { data: catalogos } = useCrmCatalogos()
   const { clientes: crmClients } = useCrmClientes()
   const { contactos: crmContacts } = useCrmContactos()
   const { usuarios: crmUsers } = useCrmUsuarios()
@@ -161,6 +180,54 @@ function InteraccionesContent() {
     [crmContacts]
   )
   const usersById = useMemo(() => new Map(crmUsers.map((user) => [user.id, user])), [crmUsers])
+  const defaultUsuarioResponsableId = useMemo(
+    () => crmUsers.find((user) => user.estado === "activo")?.id ?? "",
+    [crmUsers]
+  )
+
+  const tipoOptions = useMemo(
+    () =>
+      catalogos.tiposInteraccion.length > 0
+        ? catalogos.tiposInteraccion
+        : Object.entries(tipoLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.tiposInteraccion]
+  )
+
+  const canalOptions = useMemo(
+    () =>
+      catalogos.canalesInteraccion.length > 0
+        ? catalogos.canalesInteraccion
+        : Object.entries(canalLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.canalesInteraccion]
+  )
+
+  const resultadoOptions = useMemo(
+    () =>
+      catalogos.resultadosInteraccion.length > 0
+        ? catalogos.resultadosInteraccion
+        : Object.entries(resultadoLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.resultadosInteraccion]
+  )
+
+  const clienteOptions = useMemo(
+    () =>
+      catalogos.clientes.length > 0
+        ? catalogos.clientes.map((cliente) => ({ id: cliente.id, nombre: cliente.nombre }))
+        : crmClients.map((cliente) => ({ id: cliente.id, nombre: cliente.nombre })),
+    [catalogos.clientes, crmClients]
+  )
+
+  const usuarioOptions = useMemo(
+    () =>
+      catalogos.usuarios.length > 0
+        ? catalogos.usuarios
+        : crmUsers.map((user) => ({
+            id: user.id,
+            nombre: `${user.nombre} ${user.apellido}`,
+            rol: user.rol,
+          })),
+    [catalogos.usuarios, crmUsers]
+  )
 
   const openOpportunitiesByClient = useMemo(() => {
     const map = new Map<string, CRMOpportunity[]>()
@@ -191,18 +258,18 @@ function InteraccionesContent() {
     return map
   }, [tareas])
 
-  const emptyForm: Partial<CRMInteraction> = {
+  const buildEmptyForm = (): Partial<CRMInteraction> => ({
     clienteId: clienteIdParam || "",
     contactoId: "",
     tipoInteraccion: "llamada",
     canal: "telefono",
     fechaHora: new Date(),
-    usuarioResponsableId: "usr-001",
+    usuarioResponsableId: defaultUsuarioResponsableId,
     resultado: "exitosa",
     descripcion: "",
-  }
+  })
 
-  const [formData, setFormData] = useState<Partial<CRMInteraction>>(emptyForm)
+  const [formData, setFormData] = useState<Partial<CRMInteraction>>(() => buildEmptyForm())
 
   const filteredInteractions = interacciones
     .filter((int) => {
@@ -411,14 +478,32 @@ function InteraccionesContent() {
     return colors[resultado]
   }
 
+  const mapInteractionToForm = (interaction: CRMInteraction): Partial<CRMInteraction> => ({
+    ...interaction,
+    contactoId: interaction.contactoId ?? "",
+    oportunidadId: interaction.oportunidadId ?? "",
+    usuarioResponsableId: interaction.usuarioResponsableId || defaultUsuarioResponsableId,
+    descripcion: interaction.descripcion ?? "",
+  })
+
   const openNewForm = () => {
+    setDialogMode("create")
     setSelectedInteraction(null)
-    setFormData(emptyForm)
+    setFormData(buildEmptyForm())
     setIsFormOpen(true)
   }
 
   const handleView = (interaction: CRMInteraction) => {
     setSelectedInteraction(interaction)
+    setDialogMode("view")
+    setFormData(mapInteractionToForm(interaction))
+    setIsFormOpen(true)
+  }
+
+  const handleEdit = (interaction: CRMInteraction) => {
+    setSelectedInteraction(interaction)
+    setDialogMode("edit")
+    setFormData(mapInteractionToForm(interaction))
     setIsFormOpen(true)
   }
 
@@ -429,7 +514,18 @@ function InteraccionesContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    await createInteraccion(formData as Omit<CRMInteraction, "id" | "createdAt" | "updatedAt">)
+
+    const payload = {
+      ...(formData as Omit<CRMInteraction, "id" | "createdAt" | "updatedAt">),
+      usuarioResponsableId: formData.usuarioResponsableId || defaultUsuarioResponsableId,
+    }
+
+    if (dialogMode === "edit" && selectedInteraction) {
+      await updateInteraccion(selectedInteraction.id, payload)
+    } else {
+      await createInteraccion(payload)
+    }
+
     closeForm()
   }
 
@@ -443,14 +539,31 @@ function InteraccionesContent() {
 
   const closeForm = () => {
     setIsFormOpen(false)
+    setDialogMode("create")
     setSelectedInteraction(null)
-    setFormData(emptyForm)
+    setFormData(buildEmptyForm())
     router.push("/crm/interacciones")
   }
 
-  const clientContacts = formData.clienteId
-    ? crmContacts.filter((c) => c.clienteId === formData.clienteId)
-    : []
+  const clientContacts = useMemo(() => {
+    if (!formData.clienteId) return []
+
+    if (catalogos.contactos.length > 0) {
+      return catalogos.contactos
+        .filter((contact) => contact.clienteId === formData.clienteId)
+        .map((contact) => ({
+          id: contact.id,
+          nombre: contact.nombre,
+        }))
+    }
+
+    return crmContacts
+      .filter((contact) => contact.clienteId === formData.clienteId)
+      .map((contact) => ({
+        id: contact.id,
+        nombre: `${contact.nombre} ${contact.apellido}`,
+      }))
+  }, [catalogos.contactos, crmContacts, formData.clienteId])
 
   if (loading && interacciones.length === 0) {
     return (
@@ -462,48 +575,47 @@ function InteraccionesContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Interacciones</h1>
-          <p className="text-muted-foreground">Historial de comunicaciones con clientes</p>
-        </div>
-        <Button onClick={openNewForm}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nueva Interacción
-        </Button>
-      </div>
+      <CrmPageHero
+        eyebrow="CRM agenda"
+        title="Interacciones"
+        description="Historial operativo de comunicaciones con foco en cobertura por canal, clientes a seguir y responsables con sobrecarga visible."
+        actions={
+          <Button onClick={openNewForm}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nueva Interacción
+          </Button>
+        }
+      />
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Interacciones visibles</p>
-            <p className="mt-2 text-2xl font-bold">{stats.total}</p>
-            <p className="text-xs text-muted-foreground">
-              {stats.activeClients} clientes con actividad
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Gestiones exitosas</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-500">{stats.success}</p>
-            <p className="text-xs text-muted-foreground">Resultado positivo en la carga filtrada</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Sin respuesta</p>
-            <p className="mt-2 text-2xl font-bold text-amber-500">{stats.noResponse}</p>
-            <p className="text-xs text-muted-foreground">Requieren insistencia o cambio de canal</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Reprogramadas</p>
-            <p className="mt-2 text-2xl font-bold text-blue-500">{stats.rescheduled}</p>
-            <p className="text-xs text-muted-foreground">Gestiones trasladadas a próxima acción</p>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <CrmStatCard
+          label="Interacciones visibles"
+          value={stats.total}
+          hint={`${stats.activeClients} clientes con actividad`}
+          icon={MessageSquare}
+          tone="slate"
+        />
+        <CrmStatCard
+          label="Gestiones exitosas"
+          value={stats.success}
+          hint="Resultado positivo en la carga filtrada"
+          icon={Target}
+          tone="emerald"
+        />
+        <CrmStatCard
+          label="Sin respuesta"
+          value={stats.noResponse}
+          hint="Requieren insistencia o cambio de canal"
+          icon={Phone}
+          tone="amber"
+        />
+        <CrmStatCard
+          label="Reprogramadas"
+          value={stats.rescheduled}
+          hint="Gestiones trasladadas a próxima acción"
+          icon={Users}
+          tone="blue"
+        />
       </div>
 
       {error && (
@@ -514,7 +626,7 @@ function InteraccionesContent() {
         </Card>
       )}
 
-      <Card>
+      <Card className={crmPanelClassName}>
         <CardContent className="pt-6">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
@@ -532,9 +644,9 @@ function InteraccionesContent() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
-                {Object.entries(tipoLabels).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
+                {tipoOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.nombre}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -545,9 +657,9 @@ function InteraccionesContent() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
-                {Object.entries(resultadoLabels).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
+                {resultadoOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.nombre}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -557,7 +669,7 @@ function InteraccionesContent() {
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Radar de seguimiento</CardTitle>
             <CardDescription>
@@ -566,7 +678,10 @@ function InteraccionesContent() {
           </CardHeader>
           <CardContent className="space-y-3">
             {alerts.map((alert) => (
-              <div key={alert.title} className="rounded-lg border p-4">
+              <div
+                key={alert.title}
+                className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4"
+              >
                 <p className="font-medium">{alert.title}</p>
                 <p className="mt-2 text-sm text-muted-foreground">{alert.detail}</p>
               </div>
@@ -574,7 +689,7 @@ function InteraccionesContent() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Cobertura por canal</CardTitle>
             <CardDescription>
@@ -585,7 +700,7 @@ function InteraccionesContent() {
             {channelCoverage.map(([channel, total]) => (
               <div
                 key={channel}
-                className="flex items-center justify-between rounded-lg border p-4"
+                className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4"
               >
                 <div>
                   <p className="font-medium">{canalLabels[channel as CRMInteraction["canal"]]}</p>
@@ -606,7 +721,7 @@ function InteraccionesContent() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Cliente a seguir</CardTitle>
@@ -628,7 +743,7 @@ function InteraccionesContent() {
           </CardHeader>
           <CardContent>
             {highlightedClient ? (
-              <div className="space-y-4 rounded-lg border p-4">
+              <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-lg font-semibold">{highlightedClient.client.nombre}</p>
@@ -642,7 +757,7 @@ function InteraccionesContent() {
                   </Badge>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border p-3">
+                  <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
                     <p className="text-sm text-muted-foreground">Última gestión</p>
                     <p className="mt-2 font-medium">{formatDateTime(highlightedClient.latest)}</p>
                     <p className="text-xs text-muted-foreground">
@@ -651,7 +766,7 @@ function InteraccionesContent() {
                         : `${highlightedClient.daysWithoutTouch} días desde el último contacto`}
                     </p>
                   </div>
-                  <div className="rounded-lg border p-3">
+                  <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
                     <p className="text-sm text-muted-foreground">Presión comercial</p>
                     <p className="mt-2 font-medium">
                       {highlightedClient.urgentClosings} cierres próximos
@@ -670,7 +785,7 @@ function InteraccionesContent() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Responsables con carga</CardTitle>
             <CardDescription>
@@ -679,7 +794,7 @@ function InteraccionesContent() {
           </CardHeader>
           <CardContent className="space-y-3">
             {ownerLoad.map((owner) => (
-              <div key={owner.id} className="rounded-lg border p-4">
+              <div key={owner.id} className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="font-medium">{owner.nombre}</p>
@@ -709,7 +824,7 @@ function InteraccionesContent() {
         {interactionRows.map((row) => {
           const { interaction, client: cliente, contact: contacto, owner: usuario } = row
           return (
-            <Card key={interaction.id} className="group">
+            <Card key={interaction.id} className={`${crmPanelClassName} group border-slate-200/90`}>
               <CardContent className="pt-6">
                 <div className="flex gap-4">
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10">
@@ -751,6 +866,9 @@ function InteraccionesContent() {
                         <Button variant="ghost" size="icon" onClick={() => handleView(interaction)}>
                           <Eye className="h-4 w-4" />
                         </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleEdit(interaction)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -784,7 +902,7 @@ function InteraccionesContent() {
           )
         })}
         {filteredInteractions.length === 0 && (
-          <Card>
+          <Card className={crmPanelClassName}>
             <CardContent className="py-12 text-center text-muted-foreground">
               No se encontraron interacciones
             </CardContent>
@@ -796,15 +914,21 @@ function InteraccionesContent() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {selectedInteraction ? "Detalle de Interacción" : "Nueva Interacción"}
+              {dialogMode === "view"
+                ? "Detalle de Interacción"
+                : selectedInteraction
+                  ? "Editar Interacción"
+                  : "Nueva Interacción"}
             </DialogTitle>
             <DialogDescription>
-              {selectedInteraction
-                ? "El historial queda registrado como evento inmutable; aquí se muestra el detalle visible del registro."
-                : "Registra una comunicación con el cliente"}
+              {dialogMode === "view"
+                ? "Consulta el detalle del registro y, si hace falta, continúa con una corrección manual."
+                : selectedInteraction
+                  ? "Ajusta el registro para alinearlo con la trazabilidad real del backend."
+                  : "Registra una comunicación con el cliente"}
             </DialogDescription>
           </DialogHeader>
-          {selectedInteraction ? (
+          {dialogMode === "view" && selectedInteraction ? (
             <div className="space-y-4 py-2">
               <div className="rounded-lg border p-4">
                 <div className="flex items-center gap-2">
@@ -864,6 +988,9 @@ function InteraccionesContent() {
               </div>
 
               <DialogFooter>
+                <Button type="button" onClick={() => handleEdit(selectedInteraction)}>
+                  Editar
+                </Button>
                 <Button type="button" variant="outline" onClick={closeForm}>
                   Cerrar
                 </Button>
@@ -885,7 +1012,7 @@ function InteraccionesContent() {
                         <SelectValue placeholder="Seleccionar" />
                       </SelectTrigger>
                       <SelectContent>
-                        {crmClients.map((client) => (
+                        {clienteOptions.map((client) => (
                           <SelectItem key={client.id} value={client.id}>
                             {client.nombre}
                           </SelectItem>
@@ -906,7 +1033,7 @@ function InteraccionesContent() {
                       <SelectContent>
                         {clientContacts.map((contact) => (
                           <SelectItem key={contact.id} value={contact.id}>
-                            {contact.nombre} {contact.apellido}
+                            {contact.nombre}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -929,9 +1056,9 @@ function InteraccionesContent() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(tipoLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
+                        {tipoOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.nombre}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -949,9 +1076,9 @@ function InteraccionesContent() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(canalLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
+                        {canalOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.nombre}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -963,11 +1090,7 @@ function InteraccionesContent() {
                     <Label>Fecha y Hora</Label>
                     <Input
                       type="datetime-local"
-                      value={
-                        formData.fechaHora
-                          ? new Date(formData.fechaHora).toISOString().slice(0, 16)
-                          : ""
-                      }
+                      value={toDateTimeLocalValue(formData.fechaHora)}
                       onChange={(e) =>
                         setFormData({ ...formData, fechaHora: new Date(e.target.value) })
                       }
@@ -988,9 +1111,9 @@ function InteraccionesContent() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(resultadoLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
+                        {resultadoOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.nombre}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1009,9 +1132,9 @@ function InteraccionesContent() {
                       <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
-                      {crmUsers.map((user) => (
+                      {usuarioOptions.map((user) => (
                         <SelectItem key={user.id} value={user.id}>
-                          {user.nombre} {user.apellido}
+                          {user.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1031,7 +1154,9 @@ function InteraccionesContent() {
                 <Button type="button" variant="outline" onClick={closeForm}>
                   Cancelar
                 </Button>
-                <Button type="submit">Registrar</Button>
+                <Button type="submit">
+                  {selectedInteraction ? "Guardar cambios" : "Registrar"}
+                </Button>
               </DialogFooter>
             </form>
           )}

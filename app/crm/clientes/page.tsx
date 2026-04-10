@@ -70,6 +70,7 @@ import {
   Target,
 } from "lucide-react"
 import {
+  useCrmCatalogos,
   useCrmClientes,
   useCrmInteracciones,
   useCrmOportunidades,
@@ -77,6 +78,7 @@ import {
   useCrmUsuarios,
 } from "@/lib/hooks/useCrm"
 import type { CRMClient, CRMOpportunity, CRMTask } from "@/lib/types"
+import { CrmPageHero, CrmStatCard, crmPanelClassName } from "@/components/crm/crm-page-kit"
 
 const tipoClienteLabels: Record<CRMClient["tipoCliente"], string> = {
   prospecto: "Prospecto",
@@ -170,12 +172,61 @@ function ClientesContent() {
     updateCliente,
     deleteCliente,
   } = useCrmClientes()
+  const { data: catalogos } = useCrmCatalogos()
   const { usuarios: crmUsers } = useCrmUsuarios()
   const { oportunidades } = useCrmOportunidades()
   const { interacciones } = useCrmInteracciones()
   const { tareas } = useCrmTareas()
 
   const usersById = useMemo(() => new Map(crmUsers.map((user) => [user.id, user])), [crmUsers])
+
+  const tipoClienteOptions = useMemo(
+    () =>
+      catalogos.tiposCliente.length > 0
+        ? catalogos.tiposCliente
+        : Object.entries(tipoClienteLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.tiposCliente]
+  )
+
+  const segmentoOptions = useMemo(
+    () =>
+      catalogos.segmentosCliente.length > 0
+        ? catalogos.segmentosCliente
+        : Object.entries(segmentoLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.segmentosCliente]
+  )
+
+  const origenOptions = useMemo(
+    () =>
+      catalogos.origenesCliente.length > 0
+        ? catalogos.origenesCliente
+        : Object.entries(origenLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.origenesCliente]
+  )
+
+  const estadoRelacionOptions = useMemo(
+    () =>
+      catalogos.estadosRelacion.length > 0
+        ? catalogos.estadosRelacion
+        : Object.entries(estadoRelacionLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.estadosRelacion]
+  )
+
+  const responsableOptions = useMemo(() => {
+    if (catalogos.usuarios.length > 0) {
+      return catalogos.usuarios.filter(
+        (user) => user.rol === "comercial" || user.rol === "administrador"
+      )
+    }
+
+    return crmUsers
+      .filter((user) => user.rol === "comercial" || user.rol === "administrador")
+      .map((user) => ({
+        id: user.id,
+        nombre: `${user.nombre} ${user.apellido}`,
+        rol: user.rol,
+      }))
+  }, [catalogos.usuarios, crmUsers])
 
   const opportunitiesByClient = useMemo(() => {
     const map = new Map<string, CRMOpportunity[]>()
@@ -536,86 +587,54 @@ function ClientesContent() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Clientes</h1>
-          <p className="text-muted-foreground">Gestión completa de clientes y prospectos</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm">
-            <Download className="mr-2 h-4 w-4" />
-            Exportar
-          </Button>
-          <Button onClick={openNewForm}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nuevo Cliente
-          </Button>
-        </div>
-      </div>
+      <CrmPageHero
+        eyebrow="CRM cartera"
+        title="Clientes"
+        description="Gestión completa de clientes y prospectos con foco en riesgo, cobertura y presión comercial actual."
+        actions={
+          <>
+            <Button variant="outline" size="sm">
+              <Download className="mr-2 h-4 w-4" />
+              Exportar
+            </Button>
+            <Button onClick={openNewForm}>
+              <Plus className="mr-2 h-4 w-4" />
+              Nuevo Cliente
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Cartera Visible</p>
-                <p className="text-2xl font-bold">{stats.visible}</p>
-                <p className="text-xs text-muted-foreground">{stats.total} clientes en padrón</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <Users className="h-5 w-5 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Cartera Activa</p>
-                <p className="text-2xl font-bold text-emerald-500">{stats.carteraActiva}</p>
-                <p className="text-xs text-muted-foreground">{stats.activos} clientes ya activos</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-emerald-500/10 flex items-center justify-center">
-                <UserCheck className="h-5 w-5 text-emerald-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Seguimiento Vencido</p>
-                <p className="text-2xl font-bold text-amber-500">{stats.seguimientoVencido}</p>
-                <p className="text-xs text-muted-foreground">
-                  Sin interacción reciente o sin gestión visible
-                </p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center">
-                <Clock className="h-5 w-5 text-amber-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Relaciones en Riesgo</p>
-                <p className="text-2xl font-bold text-rose-500">{stats.enRiesgo}</p>
-                <p className="text-xs text-muted-foreground">
-                  Clientes con estado comercial sensible
-                </p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-rose-500/10 flex items-center justify-center">
-                <AlertTriangle className="h-5 w-5 text-rose-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <CrmStatCard
+          label="Cartera Visible"
+          value={stats.visible}
+          hint={`${stats.total} clientes en padrón.`}
+          icon={Users}
+          tone="blue"
+        />
+        <CrmStatCard
+          label="Cartera Activa"
+          value={stats.carteraActiva}
+          hint={`${stats.activos} clientes ya activos.`}
+          icon={UserCheck}
+          tone="emerald"
+        />
+        <CrmStatCard
+          label="Seguimiento Vencido"
+          value={stats.seguimientoVencido}
+          hint="Sin interacción reciente o sin gestión visible."
+          icon={Clock}
+          tone="amber"
+        />
+        <CrmStatCard
+          label="Relaciones en Riesgo"
+          value={stats.enRiesgo}
+          hint="Clientes con estado comercial sensible."
+          icon={AlertTriangle}
+          tone="rose"
+        />
       </div>
 
       {error && (
@@ -627,7 +646,7 @@ function ClientesContent() {
       )}
 
       {/* Filters */}
-      <Card>
+      <Card className={crmPanelClassName}>
         <CardContent className="pt-6">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col md:flex-row gap-4">
@@ -646,10 +665,11 @@ function ClientesContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos los tipos</SelectItem>
-                  <SelectItem value="prospecto">Prospecto</SelectItem>
-                  <SelectItem value="activo">Activo</SelectItem>
-                  <SelectItem value="inactivo">Inactivo</SelectItem>
-                  <SelectItem value="perdido">Perdido</SelectItem>
+                  {tipoClienteOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.nombre}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Select value={filterSegmento} onValueChange={setFilterSegmento}>
@@ -658,10 +678,11 @@ function ClientesContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="pyme">PYME</SelectItem>
-                  <SelectItem value="corporativo">Corporativo</SelectItem>
-                  <SelectItem value="gobierno">Gobierno</SelectItem>
-                  <SelectItem value="startup">Startup</SelectItem>
+                  {segmentoOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.nombre}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Select value={filterEstado} onValueChange={setFilterEstado}>
@@ -670,10 +691,11 @@ function ClientesContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="nuevo">Nuevo</SelectItem>
-                  <SelectItem value="en_negociacion">En Negociación</SelectItem>
-                  <SelectItem value="en_riesgo">En Riesgo</SelectItem>
-                  <SelectItem value="fidelizado">Fidelizado</SelectItem>
+                  {estadoRelacionOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.nombre}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -693,7 +715,7 @@ function ClientesContent() {
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-        <Card>
+        <Card className={`${crmPanelClassName} border-amber-200 bg-amber-50/40`}>
           <CardHeader>
             <CardTitle>Radar comercial</CardTitle>
             <CardDescription>
@@ -703,7 +725,18 @@ function ClientesContent() {
           </CardHeader>
           <CardContent className="space-y-3">
             {alerts.map((alert) => (
-              <div key={alert.title} className="rounded-lg border p-4">
+              <div
+                key={alert.title}
+                className={
+                  alert.title.includes("riesgo") || alert.title.includes("vencidas")
+                    ? "rounded-xl border border-rose-200 bg-rose-50 p-4"
+                    : alert.title.includes("Seguimiento") || alert.title.includes("Cierres")
+                      ? "rounded-xl border border-amber-200 bg-amber-50 p-4"
+                      : alert.title.includes("Sin alertas")
+                        ? "rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+                        : "rounded-xl border border-sky-200 bg-sky-50 p-4"
+                }
+              >
                 <p className="font-medium">{alert.title}</p>
                 <p className="mt-2 text-sm text-muted-foreground">{alert.detail}</p>
               </div>
@@ -711,7 +744,7 @@ function ClientesContent() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Pipeline visible</CardTitle>
             <CardDescription>
@@ -759,7 +792,7 @@ function ClientesContent() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Cliente destacado</CardTitle>
@@ -852,7 +885,7 @@ function ClientesContent() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={crmPanelClassName}>
           <CardHeader>
             <CardTitle>Responsables con carga</CardTitle>
             <CardDescription>
@@ -888,7 +921,7 @@ function ClientesContent() {
       </div>
 
       {/* Table */}
-      <Card>
+      <Card className={crmPanelClassName}>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -1092,9 +1125,9 @@ function ClientesContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(tipoClienteLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
+                      {tipoClienteOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1112,9 +1145,9 @@ function ClientesContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(segmentoLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
+                      {segmentoOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1147,9 +1180,9 @@ function ClientesContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(origenLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
+                      {origenOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1264,9 +1297,9 @@ function ClientesContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(estadoRelacionLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
+                      {estadoRelacionOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1282,13 +1315,11 @@ function ClientesContent() {
                       <SelectValue placeholder="Seleccionar responsable" />
                     </SelectTrigger>
                     <SelectContent>
-                      {crmUsers
-                        .filter((u) => u.rol === "comercial" || u.rol === "administrador")
-                        .map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            {user.nombre} {user.apellido}
-                          </SelectItem>
-                        ))}
+                      {responsableOptions.map((user) => (
+                        <SelectItem key={user.id} value={user.id}>
+                          {user.nombre}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

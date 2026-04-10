@@ -1,7 +1,8 @@
 "use client"
 
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertCircle,
   Ban,
@@ -48,10 +49,11 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { buildLegacyOrderOverlay } from "@/lib/compras-legacy-data"
+import { useCotizacionesCompra } from "@/lib/hooks/useCompras"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
 import { useProveedores } from "@/lib/hooks/useTerceros"
+import type { CotizacionCompraListItem } from "@/lib/types/compras-operativa"
 import type { Comprobante } from "@/lib/types/comprobantes"
 import type { CreateOrdenCompraDto, OrdenCompra } from "@/lib/types/configuracion"
 import type { Tercero } from "@/lib/types/terceros"
@@ -126,6 +128,27 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
   )
 }
 
+function getOrderOperationalControl(
+  order: Pick<
+    OrdenCompra,
+    "estadoOc" | "habilitada" | "fechaEntregaReq" | "cantidadTotal" | "cantidadRecibida"
+  >,
+  relatedInvoice?: Comprobante | null
+) {
+  if (order.estadoOc === "CANCELADA") return "Control cerrado por cancelación"
+  if (order.estadoOc === "RECIBIDA") return "Control cerrado con recepción completa"
+  if (!order.habilitada) return "Pendiente de recepción pero no habilitada"
+  if (relatedInvoice && (relatedInvoice.saldo ?? 0) <= 0)
+    return "Control económico cerrado en el comprobante base"
+
+  const deliveryOffset = getDaysOffset(order.fechaEntregaReq)
+  if (deliveryOffset !== null && deliveryOffset < 0) {
+    return `Seguimiento activo con entrega vencida hace ${Math.abs(deliveryOffset)} días`
+  }
+
+  return "Seguimiento operativo activo"
+}
+
 function getAvailableOrderBaseComprobantes(
   comprobantes: Comprobante[],
   linkedComprobanteIds: Set<number>,
@@ -165,10 +188,34 @@ function createPurchaseOrderFormState(
   }
 }
 
+type OrderCreationContext = {
+  quoteId: number
+  providerId: number
+  providerName: string
+  requisitionReference: string | null
+  total: number
+  dueDate: string | null
+  status: string
+}
+
+function buildOrderCreationContextFromQuote(quote: CotizacionCompraListItem): OrderCreationContext {
+  return {
+    quoteId: quote.id,
+    providerId: quote.proveedorId,
+    providerName: quote.proveedor || quote.proveedorRazonSocial,
+    requisitionReference: quote.requisicionReferencia,
+    total: quote.total,
+    dueDate: quote.fechaVencimiento,
+    status: (quote.estadoLegacy || quote.estado || "").toUpperCase(),
+  }
+}
+
 function PurchaseOrderForm({
   comprobantes,
   ordenes,
   proveedores,
+  initialProviderId,
+  initialContext,
   onClose,
   onSaved,
   crear,
@@ -176,6 +223,8 @@ function PurchaseOrderForm({
   comprobantes: Comprobante[]
   ordenes: OrdenCompra[]
   proveedores: Array<{ id: number; razonSocial: string }>
+  initialProviderId?: number
+  initialContext?: OrderCreationContext | null
   onClose: () => void
   onSaved: () => void
   crear: (dto: CreateOrdenCompraDto) => Promise<boolean>
@@ -187,8 +236,11 @@ function PurchaseOrderForm({
   )
 
   const defaultProveedorId = useMemo(
-    () => getDefaultOrderProviderId(comprobantes, linkedComprobanteIds, proveedores),
-    [comprobantes, linkedComprobanteIds, proveedores]
+    () =>
+      initialProviderId && proveedores.some((proveedor) => proveedor.id === initialProviderId)
+        ? initialProviderId
+        : getDefaultOrderProviderId(comprobantes, linkedComprobanteIds, proveedores),
+    [comprobantes, initialProviderId, linkedComprobanteIds, proveedores]
   )
 
   const initialComprobanteId = useMemo(
@@ -224,14 +276,48 @@ function PurchaseOrderForm({
       null,
     [availableComprobantes, effectiveComprobanteId]
   )
-
-  const legacyPreview = buildLegacyOrderOverlay(
-    {
-      id: effectiveComprobanteId || effectiveProveedorId || 0,
-      condicionesEntrega: form.condicionesEntrega,
-      fechaEntregaReq: form.fechaEntregaReq,
-    },
-    proveedores.find((provider) => provider.id === effectiveProveedorId)?.razonSocial ?? null
+  const selectedProvider = useMemo(
+    () => proveedores.find((provider) => provider.id === effectiveProveedorId) ?? null,
+    [effectiveProveedorId, proveedores]
+  )
+  const operationalPreviewFields = useMemo(
+    () => [
+      { label: "Proveedor", value: selectedProvider?.razonSocial ?? "Sin proveedor seleccionado" },
+      { label: "Domicilio", value: formatProviderAddress(selectedProvider) },
+      {
+        label: "Comprobante base",
+        value: selectedComprobante
+          ? (selectedComprobante.nroComprobante ?? `#${selectedComprobante.id}`)
+          : "Sin comprobante seleccionado",
+      },
+      {
+        label: "Tipo documental",
+        value: selectedComprobante?.tipoComprobanteDescripcion ?? "Sin tipo visible",
+      },
+      { label: "Entrega requerida", value: formatDate(form.fechaEntregaReq) },
+      {
+        label: "Condiciones de entrega",
+        value: form.condicionesEntrega ?? "Sin condiciones informadas",
+      },
+      {
+        label: "Saldo del comprobante",
+        value: selectedComprobante ? formatMoney(selectedComprobante.saldo ?? 0) : "No disponible",
+      },
+      {
+        label: "Control operativo",
+        value: getOrderOperationalControl(
+          {
+            estadoOc: "PENDIENTE",
+            habilitada: true,
+            fechaEntregaReq: form.fechaEntregaReq,
+            cantidadTotal: selectedComprobante?.total ?? 0,
+            cantidadRecibida: 0,
+          },
+          selectedComprobante
+        ),
+      },
+    ],
+    [form.condicionesEntrega, form.fechaEntregaReq, selectedComprobante, selectedProvider]
   )
 
   const handleSave = async () => {
@@ -261,6 +347,40 @@ function PurchaseOrderForm({
 
   return (
     <div className="space-y-4">
+      {initialContext && (
+        <Card className="border-dashed bg-muted/20">
+          <CardHeader>
+            <CardTitle className="text-base">Origen comercial seleccionado</CardTitle>
+            <CardDescription>
+              Esta orden parte de una cotización aprobada y sólo completa el vínculo documental que
+              hoy permite el backend.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-4">
+            <div>
+              <p className="text-xs text-muted-foreground">Cotización</p>
+              <p className="mt-1 text-sm font-medium">COT-{initialContext.quoteId}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Proveedor</p>
+              <p className="mt-1 text-sm font-medium">{initialContext.providerName}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Requisición</p>
+              <p className="mt-1 text-sm font-medium">
+                {initialContext.requisitionReference ?? "Sin requisición visible"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Monto / vencimiento</p>
+              <p className="mt-1 text-sm font-medium">
+                {formatMoney(initialContext.total)} · {formatDate(initialContext.dueDate)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="grid h-auto w-full grid-cols-3">
           <TabsTrigger value="principal" className="py-2 text-xs">
@@ -269,8 +389,8 @@ function PurchaseOrderForm({
           <TabsTrigger value="vinculo" className="py-2 text-xs">
             Vínculo
           </TabsTrigger>
-          <TabsTrigger value="legado" className="py-2 text-xs">
-            Legado
+          <TabsTrigger value="operativa" className="py-2 text-xs">
+            Operativa
           </TabsTrigger>
         </TabsList>
 
@@ -415,30 +535,20 @@ function PurchaseOrderForm({
           </Card>
         </TabsContent>
 
-        <TabsContent value="legado" className="mt-4 space-y-4">
+        <TabsContent value="operativa" className="mt-4 space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Preview del circuito legado</CardTitle>
+              <CardTitle className="text-base">Preview operativo actual</CardTitle>
               <CardDescription>
-                Datos operativos visibles aunque el DTO actual siga siendo mínimo.
+                Lectura real de la orden antes de alta, sin simular metadatos heredados.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <DetailFieldGrid
-                fields={[
-                  { label: "Depósito destino", value: legacyPreview.depositoDestino },
-                  { label: "Sector solicitante", value: legacyPreview.sectorSolicitante },
-                  { label: "Condición de compra", value: legacyPreview.condicionCompra },
-                  { label: "Plazo de pago", value: legacyPreview.plazoPago },
-                  { label: "Moneda", value: legacyPreview.moneda },
-                  { label: "Comprador", value: legacyPreview.comprador },
-                  { label: "Autorización", value: legacyPreview.autorizacion },
-                  { label: "Circuito de recepción", value: legacyPreview.circuitoRecepcion },
-                  { label: "Remito esperado", value: legacyPreview.remitoEsperado },
-                ]}
-              />
+              <DetailFieldGrid fields={operationalPreviewFields} />
               <div className="rounded-lg border p-4 text-sm text-muted-foreground">
-                {legacyPreview.observacionInterna}
+                Esta alta usa el contrato real actual de órdenes: vínculo con comprobante base,
+                proveedor y condiciones de entrega. El detalle por renglón sigue dependiendo de una
+                ampliación futura del backend.
               </div>
             </CardContent>
           </Card>
@@ -475,8 +585,6 @@ function PurchaseOrderDetail({
   provider?: Tercero | null
   relatedInvoice: Comprobante | null
 }) {
-  const legacyFields = buildLegacyOrderOverlay(order, providerName)
-
   const mainFields = [
     { label: "Orden", value: `OC-${order.id}` },
     { label: "Proveedor", value: providerName },
@@ -506,6 +614,47 @@ function PurchaseOrderDetail({
       label: "Condiciones operativas",
       value: order.condicionesEntrega ?? "Sin condiciones de entrega informadas",
     },
+    {
+      label: "Control ampliado",
+      value: getOrderOperationalControl(order, relatedInvoice),
+    },
+  ]
+
+  const extendedOperationalFields = [
+    {
+      label: "Cantidad total prevista",
+      value: String(order.cantidadTotal),
+    },
+    {
+      label: "Cantidad recibida",
+      value: String(order.cantidadRecibida),
+    },
+    {
+      label: "Saldo pendiente",
+      value: String(order.saldoPendiente),
+    },
+    {
+      label: "Última recepción",
+      value: formatDate(order.fechaUltimaRecepcion),
+    },
+    {
+      label: "Comprobante base",
+      value: relatedInvoice
+        ? (relatedInvoice.nroComprobante ?? `#${relatedInvoice.id}`)
+        : `#${order.comprobanteId}`,
+    },
+    {
+      label: "Fecha comprobante",
+      value: relatedInvoice ? formatDate(relatedInvoice.fecha) : "No visible",
+    },
+    {
+      label: "Estado comprobante",
+      value: relatedInvoice?.estado ?? "No visible",
+    },
+    {
+      label: "Saldo comprobante",
+      value: relatedInvoice ? formatMoney(relatedInvoice.saldo ?? 0) : "No visible",
+    },
   ]
 
   const providerFields = [
@@ -527,7 +676,7 @@ function PurchaseOrderDetail({
       <TabsList className="grid w-full grid-cols-3">
         <TabsTrigger value="principal">Principal</TabsTrigger>
         <TabsTrigger value="operacion">Operación</TabsTrigger>
-        <TabsTrigger value="legado">Legado</TabsTrigger>
+        <TabsTrigger value="operativa">Operativa</TabsTrigger>
       </TabsList>
 
       <TabsContent value="principal" className="space-y-4">
@@ -634,29 +783,19 @@ function PurchaseOrderDetail({
         </div>
       </TabsContent>
 
-      <TabsContent value="legado" className="space-y-4">
+      <TabsContent value="operativa" className="space-y-4">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Landmark className="h-4 w-4" /> Circuito heredado ampliado
+              <Landmark className="h-4 w-4" /> Operativa ampliada
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <DetailFieldGrid
-              fields={[
-                { label: "Depósito destino", value: legacyFields.depositoDestino },
-                { label: "Sector solicitante", value: legacyFields.sectorSolicitante },
-                { label: "Condición de compra", value: legacyFields.condicionCompra },
-                { label: "Plazo de pago", value: legacyFields.plazoPago },
-                { label: "Moneda", value: legacyFields.moneda },
-                { label: "Comprador", value: legacyFields.comprador },
-                { label: "Autorización", value: legacyFields.autorizacion },
-                { label: "Circuito recepción", value: legacyFields.circuitoRecepcion },
-                { label: "Remito esperado", value: legacyFields.remitoEsperado },
-              ]}
-            />
+            <DetailFieldGrid fields={extendedOperationalFields} />
             <div className="rounded-lg border p-4 text-sm text-muted-foreground">
-              {legacyFields.observacionInterna}
+              Esta lectura se apoya en la orden real y en el comprobante base vinculado. La parte
+              que sigue pendiente no es visual sino contractual: renglones detallados, aprobaciones
+              y negociación avanzada por backend.
             </div>
           </CardContent>
         </Card>
@@ -668,19 +807,26 @@ function PurchaseOrderDetail({
 export default function OrdenesCompraPage() {
   const searchParams = useSearchParams()
   const { ordenes, loading, error, getById, crear, recibir, cancelar, refetch } = useOrdenesCompra()
-  const { comprobantes } = useComprobantes({ esCompra: true })
-  const { terceros: proveedores } = useProveedores()
+  const { cotizaciones, loading: loadingQuotes } = useCotizacionesCompra()
+  const { comprobantes, loading: loadingComprobantes } = useComprobantes({ esCompra: true })
+  const { terceros: proveedores, loading: loadingProviders } = useProveedores()
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("todos")
   const [enabledFilter, setEnabledFilter] = useState("todos")
   const [manualDeliveryFilter, setManualDeliveryFilter] = useState<string | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [createContext, setCreateContext] = useState<OrderCreationContext | null>(null)
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null)
   const [detailOrder, setDetailOrder] = useState<OrdenCompra | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const routeIntentHandledRef = useRef(false)
   const routeDeliveryFilter = searchParams.get("filtro") === "retrasadas" ? "retrasadas" : "todos"
+  const routeQuoteId = Number(searchParams.get("cotizacionId") ?? "")
+  const routeProviderId = Number(searchParams.get("proveedorId") ?? "")
+  const shouldAutoOpenCreate = searchParams.get("crear") === "1"
   const deliveryFilter = manualDeliveryFilter ?? routeDeliveryFilter
+  const isLoadingOverview = loading || loadingQuotes || loadingComprobantes || loadingProviders
 
   const linkedComprobanteIds = useMemo(
     () => new Set(ordenes.map((order) => order.comprobanteId)),
@@ -694,6 +840,31 @@ export default function OrdenesCompraPage() {
     () => new Map(proveedores.map((provider) => [provider.id, provider.razonSocial])),
     [proveedores]
   )
+  const approvedQuotes = useMemo(
+    () =>
+      cotizaciones
+        .filter((quote) => {
+          const status = (quote.estadoLegacy || quote.estado || "").toUpperCase()
+          return status === "APROBADA" || status === "ACEPTADA"
+        })
+        .sort((left, right) => right.id - left.id),
+    [cotizaciones]
+  )
+  const quotesReadyForOrder = useMemo(
+    () =>
+      approvedQuotes
+        .map((quote) => ({
+          quote,
+          availableCount: getAvailableOrderBaseComprobantes(
+            comprobantes,
+            linkedComprobanteIds,
+            quote.proveedorId
+          ).length,
+        }))
+        .filter((entry) => entry.availableCount > 0)
+        .slice(0, 4),
+    [approvedQuotes, comprobantes, linkedComprobanteIds]
+  )
   const selectedOrder = useMemo(
     () => ordenes.find((order) => order.id === selectedOrderId) ?? null,
     [ordenes, selectedOrderId]
@@ -705,6 +876,31 @@ export default function OrdenesCompraPage() {
 
   const getRelatedInvoice = (comprobanteId: number) =>
     comprobantes.find((comprobante) => comprobante.id === comprobanteId) ?? null
+
+  useEffect(() => {
+    if (routeIntentHandledRef.current || !shouldAutoOpenCreate || loadingQuotes) {
+      return
+    }
+
+    const matchedQuote = Number.isFinite(routeQuoteId)
+      ? (approvedQuotes.find((quote) => quote.id === routeQuoteId) ?? null)
+      : null
+    const fallbackProviderId =
+      Number.isFinite(routeProviderId) && routeProviderId > 0 ? routeProviderId : null
+    const providerId = matchedQuote?.proveedorId ?? fallbackProviderId
+
+    routeIntentHandledRef.current = true
+    if (!providerId) {
+      return
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      setCreateContext(matchedQuote ? buildOrderCreationContextFromQuote(matchedQuote) : null)
+      setIsCreateOpen(true)
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [approvedQuotes, loadingQuotes, routeProviderId, routeQuoteId, shouldAutoOpenCreate])
 
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
@@ -792,6 +988,11 @@ export default function OrdenesCompraPage() {
     const detail = await getById(order.id)
     setDetailOrder(detail ?? order)
     setLoadingDetail(false)
+  }
+
+  const openCreateFromQuote = (quote: CotizacionCompraListItem) => {
+    setCreateContext(buildOrderCreationContextFromQuote(quote))
+    setIsCreateOpen(true)
   }
 
   const refreshSelection = async (orderId: number) => {
@@ -903,7 +1104,50 @@ export default function OrdenesCompraPage() {
         </Card>
       </div>
 
-      {availableBaseComprobantes.length === 0 && (
+      <Card className="border-dashed">
+        <CardHeader>
+          <CardTitle className="text-base">Cotizaciones aprobadas listas para orden</CardTitle>
+          <CardDescription>
+            El backend todavía no transforma cotizaciones en órdenes por sí solo, pero desde acá ya
+            se puede arrancar la alta con proveedor y contexto comercial preseleccionados.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {quotesReadyForOrder.length > 0 ? (
+            quotesReadyForOrder.map(({ quote, availableCount }) => (
+              <div
+                key={quote.id}
+                className="flex flex-col gap-3 rounded-lg border p-4 lg:flex-row lg:items-center lg:justify-between"
+              >
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium">COT-{quote.id}</p>
+                    <Badge variant="default">Aprobada</Badge>
+                    <Badge variant="outline">{availableCount} comprobantes base libres</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {quote.proveedor} · {quote.requisicionReferencia ?? "Sin requisición visible"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Total {formatMoney(quote.total)} · Vence {formatDate(quote.fechaVencimiento)}
+                  </p>
+                </div>
+                <Button onClick={() => openCreateFromQuote(quote)}>
+                  <Plus className="mr-2 h-4 w-4" /> Crear orden desde cotización
+                </Button>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {loadingQuotes
+                ? "Cargando cotizaciones aprobadas..."
+                : "No hay cotizaciones aprobadas con comprobantes base disponibles para iniciar nuevas órdenes."}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {!loadingComprobantes && availableBaseComprobantes.length === 0 && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
@@ -918,31 +1162,39 @@ export default function OrdenesCompraPage() {
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Total órdenes</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.total}</p>
+            <p className="mt-2 text-2xl font-bold">{isLoadingOverview ? "..." : kpis.total}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Pendientes</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.pendientes}</p>
+            <p className="mt-2 text-2xl font-bold text-amber-600">
+              {isLoadingOverview ? "..." : kpis.pendientes}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Recibidas</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-600">{kpis.recibidas}</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-600">
+              {isLoadingOverview ? "..." : kpis.recibidas}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Canceladas</p>
-            <p className="mt-2 text-2xl font-bold text-red-600">{kpis.canceladas}</p>
+            <p className="mt-2 text-2xl font-bold text-red-600">
+              {isLoadingOverview ? "..." : kpis.canceladas}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Habilitadas</p>
-            <p className="mt-2 text-2xl font-bold text-primary">{kpis.habilitadas}</p>
+            <p className="mt-2 text-2xl font-bold text-primary">
+              {isLoadingOverview ? "..." : kpis.habilitadas}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -1145,8 +1397,9 @@ export default function OrdenesCompraPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {kpis.total} órdenes registradas sobre la API actual; {kpis.habilitadas} siguen
-            habilitadas para recepción dentro del circuito disponible hoy.
+            {isLoadingOverview
+              ? "Cargando órdenes, proveedores y comprobantes vinculados..."
+              : `${kpis.total} órdenes registradas sobre la API actual; ${kpis.habilitadas} siguen habilitadas para recepción dentro del circuito disponible hoy.`}
           </CardContent>
         </Card>
         <Card>
@@ -1156,8 +1409,9 @@ export default function OrdenesCompraPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {kpis.pendientes} pendientes y {kpis.recibidas} recibidas dejan visible el estado real
-            del flujo de recepción, con {kpis.conEntregaReq} órdenes que ya exponen fecha requerida.
+            {isLoadingOverview
+              ? "Calculando flujo operativo de recepción..."
+              : `${kpis.pendientes} pendientes y ${kpis.recibidas} recibidas dejan visible el estado real del flujo de recepción, con ${kpis.conEntregaReq} órdenes que ya exponen fecha requerida.`}
           </CardContent>
         </Card>
         <Card>
@@ -1167,13 +1421,22 @@ export default function OrdenesCompraPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {kpis.canceladas} canceladas siguen visibles como control documental; edición por
-            renglones, aprobación formal y negociación avanzada quedan reservadas.
+            {isLoadingOverview
+              ? "Cargando estado documental de las órdenes..."
+              : `${kpis.canceladas} canceladas siguen visibles como control documental; edición por renglones, aprobación formal y negociación avanzada quedan reservadas.`}
           </CardContent>
         </Card>
       </div>
 
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+      <Dialog
+        open={isCreateOpen}
+        onOpenChange={(open) => {
+          setIsCreateOpen(open)
+          if (!open) {
+            setCreateContext(null)
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nueva orden de compra</DialogTitle>
@@ -1184,14 +1447,20 @@ export default function OrdenesCompraPage() {
           </DialogHeader>
 
           <PurchaseOrderForm
-            key={`purchase-order-${isCreateOpen ? "open" : "closed"}-${availableBaseComprobantes[0]?.id ?? 0}-${proveedores[0]?.id ?? 0}`}
+            key={`purchase-order-${isCreateOpen ? "open" : "closed"}-${createContext?.quoteId ?? "manual"}-${createContext?.providerId ?? proveedores[0]?.id ?? 0}-${availableBaseComprobantes[0]?.id ?? 0}`}
             comprobantes={comprobantes}
             ordenes={ordenes}
             proveedores={proveedores}
+            initialProviderId={createContext?.providerId}
+            initialContext={createContext}
             crear={crear}
-            onClose={() => setIsCreateOpen(false)}
+            onClose={() => {
+              setIsCreateOpen(false)
+              setCreateContext(null)
+            }}
             onSaved={async () => {
               setIsCreateOpen(false)
+              setCreateContext(null)
               await refetch()
             }}
           />
@@ -1247,6 +1516,15 @@ export default function OrdenesCompraPage() {
             >
               Cerrar
             </Button>
+            {selectedOrder && (
+              <Button variant="outline" className="bg-transparent" asChild>
+                <Link
+                  href={`/compras/recepciones?ordenId=${selectedOrder.id}&proveedorId=${selectedOrder.proveedorId}`}
+                >
+                  <Truck className="mr-2 h-4 w-4" /> Ir a recepciones
+                </Link>
+              </Button>
+            )}
             {selectedOrder?.estadoOc === "PENDIENTE" && selectedOrder.habilitada && (
               <Button onClick={() => handleReceive(selectedOrder)}>
                 <CheckCircle2 className="mr-2 h-4 w-4" />

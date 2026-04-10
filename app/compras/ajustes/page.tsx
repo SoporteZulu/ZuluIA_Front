@@ -32,8 +32,9 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { legacyPurchaseAdjustments, type LegacyPurchaseAdjustment } from "@/lib/compras-legacy-data"
+import { useComprasAjustes } from "@/lib/hooks/useCompras"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
+import type { CompraAjusteResumen } from "@/lib/types/compras-operativa"
 
 type AdjustmentStage = "borrador" | "en_revision" | "listo_para_emitir" | "cerrado"
 type LocalAdjustmentTracker = {
@@ -46,7 +47,7 @@ type LocalAdjustmentTracker = {
 
 const ADJUSTMENT_TRACKER_STORAGE_KEY = "zuluia_compras_adjustment_trackers"
 const STATUS_CONFIG: Record<
-  LegacyPurchaseAdjustment["estado"],
+  string,
   { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
 > = {
   BORRADOR: { label: "Borrador", variant: "secondary" },
@@ -62,31 +63,13 @@ const STAGE_CONFIG: Record<
   listo_para_emitir: { label: "Listo para emitir", variant: "default" },
   cerrado: { label: "Cerrado", variant: "default" },
 }
-const DEFAULT_TRACKERS: LocalAdjustmentTracker[] = legacyPurchaseAdjustments.map((item) => ({
-  adjustmentId: item.id,
-  stage:
-    item.estado === "APLICADO"
-      ? "cerrado"
-      : item.estado === "EMITIDO"
-        ? "listo_para_emitir"
-        : "en_revision",
-  owner: item.responsable,
-  nextStep:
-    item.estado === "APLICADO"
-      ? "Mantener trazabilidad del ajuste aplicado."
-      : item.estado === "EMITIDO"
-        ? "Coordinar aplicación con la nota o factura relacionada."
-        : "Revisar soporte documental antes de emitir.",
-  updatedAt: item.fecha,
-}))
-
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
 }
 function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"
 }
-function matchesTerm(item: LegacyPurchaseAdjustment, term: string) {
+function matchesTerm(item: CompraAjusteResumen, term: string) {
   if (term === "") return true
   return [
     item.proveedor,
@@ -100,7 +83,7 @@ function matchesTerm(item: LegacyPurchaseAdjustment, term: string) {
     .toLowerCase()
     .includes(term)
 }
-function getAdjustmentHealth(item: LegacyPurchaseAdjustment, tracker: LocalAdjustmentTracker) {
+function getAdjustmentHealth(item: CompraAjusteResumen, tracker: LocalAdjustmentTracker) {
   if (tracker.stage === "cerrado") return "Ajuste cerrado y aplicado"
   if (item.requiereNotaCredito) return "Depende de compensación con nota de crédito"
   if (tracker.stage === "listo_para_emitir") return "Listo para emitir o aplicar"
@@ -120,18 +103,35 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
 }
 
 export default function AjustesCompraPage() {
+  const { ajustes: liveAdjustments, loading, error } = useComprasAjustes()
   const {
     rows: trackers,
     setRows: setTrackers,
     reset: resetTrackers,
-  } = useLegacyLocalCollection<LocalAdjustmentTracker>(
-    ADJUSTMENT_TRACKER_STORAGE_KEY,
-    DEFAULT_TRACKERS
-  )
+  } = useLegacyLocalCollection<LocalAdjustmentTracker>(ADJUSTMENT_TRACKER_STORAGE_KEY, [])
   const [search, setSearch] = useState("")
-  const [typeFilter, setTypeFilter] = useState<"todos" | LegacyPurchaseAdjustment["tipo"]>("todos")
-  const [selectedId, setSelectedId] = useState<number | null>(
-    legacyPurchaseAdjustments[0]?.id ?? null
+  const [typeFilter, setTypeFilter] = useState<"todos" | CompraAjusteResumen["tipo"]>("todos")
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const defaultTrackers = useMemo(
+    () =>
+      liveAdjustments.map((item) => ({
+        adjustmentId: item.id,
+        stage:
+          item.estado === "APLICADO"
+            ? "cerrado"
+            : item.estado === "EMITIDO"
+              ? "listo_para_emitir"
+              : "en_revision",
+        owner: item.responsable,
+        nextStep:
+          item.estado === "APLICADO"
+            ? "Mantener trazabilidad del ajuste aplicado."
+            : item.estado === "EMITIDO"
+              ? "Coordinar aplicación con la nota o factura relacionada."
+              : "Revisar soporte documental antes de emitir.",
+        updatedAt: item.fecha,
+      })),
+    [liveAdjustments]
   )
   const trackerMap = useMemo(
     () => new Map(trackers.map((tracker) => [tracker.adjustmentId, tracker])),
@@ -139,12 +139,12 @@ export default function AjustesCompraPage() {
   )
   const adjustments = useMemo(
     () =>
-      legacyPurchaseAdjustments.map((item) => ({
+      liveAdjustments.map((item) => ({
         ...item,
         tracker:
-          trackerMap.get(item.id) ?? DEFAULT_TRACKERS.find((row) => row.adjustmentId === item.id)!,
+          trackerMap.get(item.id) ?? defaultTrackers.find((row) => row.adjustmentId === item.id)!,
       })),
-    [trackerMap]
+    [defaultTrackers, liveAdjustments, trackerMap]
   )
   const filtered = useMemo(() => {
     const term = search.toLowerCase().trim()
@@ -168,7 +168,7 @@ export default function AjustesCompraPage() {
       const nextRow = {
         ...(index >= 0
           ? current[index]
-          : DEFAULT_TRACKERS.find((row) => row.adjustmentId === adjustmentId)!),
+          : defaultTrackers.find((row) => row.adjustmentId === adjustmentId)!),
         ...patch,
         updatedAt: new Date().toISOString(),
       }
@@ -199,33 +199,43 @@ export default function AjustesCompraPage() {
       <Alert>
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
-          El backend actual no expone ajustes de compra ni su aplicación formal. Esta vista cubre la
-          lectura legacy y el seguimiento local hasta el cierre económico real.
+          Esta vista ya consume ajustes reales agregados desde backend. El seguimiento local queda
+          como capa operativa para revisar regularizaciones y su continuidad documental.
         </AlertDescription>
       </Alert>
+      {error && (
+        <Alert>
+          <ShieldAlert className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Borrador</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.draft}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : kpis.draft}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Aplicados</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-600">{kpis.applied}</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-600">
+              {loading ? "..." : kpis.applied}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Vinculados a NC</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.creditLinked}</p>
+            <p className="mt-2 text-2xl font-bold text-amber-600">
+              {loading ? "..." : kpis.creditLinked}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Monto visible</p>
-            <p className="mt-2 text-2xl font-bold">{formatMoney(kpis.total)}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : formatMoney(kpis.total)}</p>
           </CardContent>
         </Card>
       </div>
@@ -244,7 +254,7 @@ export default function AjustesCompraPage() {
             <Select
               value={typeFilter}
               onValueChange={(value) =>
-                setTypeFilter(value as "todos" | LegacyPurchaseAdjustment["tipo"])
+                setTypeFilter(value as "todos" | CompraAjusteResumen["tipo"])
               }
             >
               <SelectTrigger className="w-full">
@@ -305,7 +315,9 @@ export default function AjustesCompraPage() {
               {filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    No hay ajustes que coincidan con los filtros actuales.
+                    {loading
+                      ? "Cargando ajustes reales..."
+                      : "No hay ajustes que coincidan con los filtros actuales."}
                   </TableCell>
                 </TableRow>
               )}
@@ -437,7 +449,7 @@ export default function AjustesCompraPage() {
                   <ShieldAlert className="h-4 w-4" />
                   <AlertDescription>
                     Este seguimiento se guarda solo en el navegador actual y cubre el cierre
-                    comercial/económico mientras no exista backend formal para ajustes.
+                    comercial/económico sin modificar la lectura real que ya expone backend.
                   </AlertDescription>
                 </Alert>
                 <div className="grid gap-4 md:grid-cols-2">

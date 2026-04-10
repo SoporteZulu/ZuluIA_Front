@@ -39,7 +39,7 @@ export function useStockMovimientos(itemId?: number, depositoId?: number) {
       })
 
       const result = await apiGet<PagedResult<MovimientoStock>>(
-        `/api/stock/movimientos?${params.toString()}`
+        `/api/movimientos-stock?${params.toString()}`
       )
       const items = (Array.isArray(result) ? result : (result.items ?? [])).map(normMovimiento)
       setMovimientos(items)

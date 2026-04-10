@@ -1,8 +1,18 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
+import {
+  AlertCircle,
+  ClipboardList,
+  PackagePlus,
+  Receipt,
+  RefreshCcw,
+  Search,
+  Wrench,
+} from "lucide-react"
+
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -27,131 +37,24 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useDepositos } from "@/lib/hooks/useDepositos"
-import { useFormulasProduccion } from "@/lib/hooks/useFormulasProduccion"
-import { useItems } from "@/lib/hooks/useItems"
-import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useOrdenesTrabajo } from "@/lib/hooks/useOrdenesTrabajo"
+import { useProduccion } from "@/lib/hooks/useProduccion"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
-import type { FormulaProduccion } from "@/lib/types/formulas-produccion"
-import type { OrdenTrabajo } from "@/lib/types/ordenes-trabajo"
-import {
-  AlertCircle,
-  ArrowDownLeft,
-  ArrowUpRight,
-  ClipboardList,
-  GitBranch,
-  RefreshCcw,
-  Search,
-} from "lucide-react"
-
-type ConsumptionStage = "pendiente" | "en_consumo" | "consumido" | "observado" | "cerrado"
-type ClosureStage = "pendiente" | "pendiente_ingreso" | "ajuste_abierto" | "cerrado"
-
-type LocalConsumptionTracker = {
-  orderId: number
-  stage: ConsumptionStage
-  owner: string
-  lotReference: string
-  actualConsumedQty: string
-  scrapQty: string
-  note: string
-  nextStep: string
-  updatedAt: string
-}
-
-type LocalClosureTracker = {
-  orderId: number
-  stage: ClosureStage
-  owner: string
-  actualProducedQty: string
-  materialExitQty: string
-  adjustmentReason: string
-  note: string
-  nextStep: string
-  updatedAt: string
-}
-
-type ProductionRow = {
-  order: OrdenTrabajo
-  formula: FormulaProduccion | null
-  productLabel: string
-  expectedConsumption: number
-  expectedOutput: number
-  totalComponents: number
-  consumptionTracker: LocalConsumptionTracker
-  closureTracker: LocalClosureTracker
-}
-
-const CONSUMPTION_STORAGE_KEY = "wms-production-consumption-trackers"
-const CLOSURE_STORAGE_KEY = "wms-production-closure-trackers"
-
-const CONSUMPTION_STAGE_CONFIG: Record<
-  ConsumptionStage,
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  pendiente: { label: "Pendiente", variant: "outline" },
-  en_consumo: { label: "En consumo", variant: "secondary" },
-  consumido: { label: "Consumido", variant: "default" },
-  observado: { label: "Observado", variant: "destructive" },
-  cerrado: { label: "Cerrado", variant: "default" },
-}
-
-const CLOSURE_STAGE_CONFIG: Record<
-  ClosureStage,
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  pendiente: { label: "Pendiente", variant: "outline" },
-  pendiente_ingreso: { label: "Pendiente ingreso", variant: "secondary" },
-  ajuste_abierto: { label: "Ajuste abierto", variant: "destructive" },
-  cerrado: { label: "Cerrado", variant: "default" },
-}
+import type { FinalizarOrdenTrabajoDto } from "@/lib/types/ordenes-trabajo"
+import { toast } from "@/hooks/use-toast"
 
 function formatDate(value?: string) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"
 }
 
-function formatQty(value: number) {
+function formatQty(value?: number | null) {
   return Number(value ?? 0).toLocaleString("es-AR", { maximumFractionDigits: 2 })
 }
 
-function parseNumeric(value: string) {
-  const normalized = value.replace(",", ".")
-  const parsed = Number.parseFloat(normalized)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function buildDefaultConsumptionTracker(order: OrdenTrabajo): LocalConsumptionTracker {
-  return {
-    orderId: order.id,
-    stage: order.estado === "COMPLETADO" ? "consumido" : "pendiente",
-    owner: "",
-    lotReference: "",
-    actualConsumedQty: "",
-    scrapQty: "",
-    note: "",
-    nextStep:
-      order.estado === "COMPLETADO"
-        ? "Confirmar consumo real y documentar merma o diferencias del lote."
-        : "Preparar retiro de componentes para la orden seleccionada.",
-    updatedAt: new Date().toISOString(),
-  }
-}
-
-function buildDefaultClosureTracker(order: OrdenTrabajo): LocalClosureTracker {
-  return {
-    orderId: order.id,
-    stage: order.estado === "COMPLETADO" ? "pendiente_ingreso" : "pendiente",
-    owner: "",
-    actualProducedQty: "",
-    materialExitQty: "",
-    adjustmentReason: "",
-    note: "",
-    nextStep:
-      order.estado === "COMPLETADO"
-        ? "Registrar ingreso del producto terminado y definir ajustes de merma si aplica."
-        : "Esperar avance de producción antes de cerrar ingresos y egresos asociados.",
-    updatedAt: new Date().toISOString(),
-  }
+function getPlanningStatus(origen?: number, destino?: number) {
+  if (origen && destino) return "Circuito completo"
+  if (origen || destino) return "Circuito parcial"
+  return "Sin depósitos definidos"
 }
 
 function SummaryCard({
@@ -176,49 +79,6 @@ function SummaryCard({
   )
 }
 
-function getPlanningStatus(order: OrdenTrabajo) {
-  if (order.depositoOrigenId && order.depositoDestinoId) return "Circuito completo"
-  if (order.depositoOrigenId || order.depositoDestinoId) return "Circuito parcial"
-  return "Sin depósitos definidos"
-}
-
-function getConsumptionHealth(row: ProductionRow) {
-  const actual = parseNumeric(row.consumptionTracker.actualConsumedQty)
-  const scrap = parseNumeric(row.consumptionTracker.scrapQty) ?? 0
-
-  if (row.consumptionTracker.stage === "observado") {
-    return "Consumo observado por diferencias, merma o faltante de componentes"
-  }
-
-  if (actual !== null && actual + scrap < row.expectedConsumption) {
-    return "Consumo cargado por debajo de lo esperado para la fórmula"
-  }
-
-  if (row.consumptionTracker.stage === "cerrado") {
-    return "Consumo documentado y listo para cierre de orden"
-  }
-
-  return "Consumo local pendiente de confirmación contra producción real"
-}
-
-function getClosureHealth(row: ProductionRow) {
-  const actual = parseNumeric(row.closureTracker.actualProducedQty)
-
-  if (row.closureTracker.stage === "ajuste_abierto") {
-    return "Existe diferencia entre producción esperada y cierre real"
-  }
-
-  if (row.closureTracker.stage === "cerrado") {
-    return "Ingreso y ajustes documentados localmente"
-  }
-
-  if (actual !== null && actual !== row.expectedOutput) {
-    return "La cantidad real no coincide con la orden programada"
-  }
-
-  return "Cierre productivo pendiente de registrar en frontend"
-}
-
 export default function ProduccionPage() {
   const searchParams = useSearchParams()
   const defaultSucursalId = useDefaultSucursalId() ?? 1
@@ -228,143 +88,165 @@ export default function ProduccionPage() {
   )
   const [search, setSearch] = useState("")
   const [estado, setEstado] = useState("")
-  const [consumptionStageFilter, setConsumptionStageFilter] = useState<"all" | ConsumptionStage>(
-    "all"
-  )
-  const [closureStageFilter, setClosureStageFilter] = useState<"all" | ClosureStage>("all")
+  const [detail, setDetail] =
+    useState<Awaited<ReturnType<ReturnType<typeof useProduccion>["getDetalleOrden"]>>>(null)
+  const [detailBusy, setDetailBusy] = useState(false)
+  const [finalizeDraft, setFinalizeDraft] = useState<{
+    fechaFinReal: string
+    cantidadProducida: string
+    consumos: Record<number, string>
+  }>({
+    fechaFinReal: new Date().toISOString().slice(0, 10),
+    cantidadProducida: "",
+    consumos: {},
+  })
+  const [ajusteDraft, setAjusteDraft] = useState({ cantidad: "", observacion: "" })
+  const [empaqueDraft, setEmpaqueDraft] = useState({
+    fecha: new Date().toISOString().slice(0, 10),
+    depositoId: "",
+    cantidad: "",
+    lote: "",
+    observacion: "",
+  })
 
   const { ordenes, loading, error, refetch } = useOrdenesTrabajo({
     sucursalId: defaultSucursalId,
     estado: estado || undefined,
   })
-  const { formulas } = useFormulasProduccion(true)
-  const { items } = useItems()
   const { depositos } = useDepositos(defaultSucursalId)
   const {
-    rows: consumptionTrackers,
-    setRows: setConsumptionTrackers,
-    reset: resetConsumptionTrackers,
-  } = useLegacyLocalCollection<LocalConsumptionTracker>(CONSUMPTION_STORAGE_KEY, [])
-  const {
-    rows: closureTrackers,
-    setRows: setClosureTrackers,
-    reset: resetClosureTrackers,
-  } = useLegacyLocalCollection<LocalClosureTracker>(CLOSURE_STORAGE_KEY, [])
-
-  const formulaMap = useMemo(
-    () => new Map(formulas.map((formula) => [formula.id, formula])),
-    [formulas]
-  )
-  const itemMap = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
-  const depositoMap = useMemo(
-    () => new Map(depositos.map((deposito) => [deposito.id, deposito.descripcion])),
-    [depositos]
-  )
-  const consumptionMap = useMemo(
-    () => new Map(consumptionTrackers.map((tracker) => [tracker.orderId, tracker])),
-    [consumptionTrackers]
-  )
-  const closureMap = useMemo(
-    () => new Map(closureTrackers.map((tracker) => [tracker.orderId, tracker])),
-    [closureTrackers]
-  )
-
-  const rows = useMemo<ProductionRow[]>(() => {
-    return ordenes.map((order) => {
-      const formula = formulaMap.get(order.formulaId) ?? null
-      const factor =
-        formula && formula.cantidadProducida > 0 ? order.cantidad / formula.cantidadProducida : 1
-      const expectedConsumption = (formula?.componentes ?? []).reduce(
-        (acc, component) => acc + component.cantidad * factor,
-        0
-      )
-      const productLabel = formula
-        ? (itemMap.get(formula.itemProductoId)?.descripcion ??
-          `Producto #${formula.itemProductoId}`)
-        : `Fórmula #${order.formulaId}`
-
-      return {
-        order,
-        formula,
-        productLabel,
-        expectedConsumption,
-        expectedOutput: order.cantidad,
-        totalComponents: formula?.componentes?.length ?? 0,
-        consumptionTracker: consumptionMap.get(order.id) ?? buildDefaultConsumptionTracker(order),
-        closureTracker: closureMap.get(order.id) ?? buildDefaultClosureTracker(order),
-      }
-    })
-  }, [closureMap, consumptionMap, formulaMap, itemMap, ordenes])
+    getDetalleOrden,
+    finalizarOrden,
+    registrarAjuste,
+    crearOrdenEmpaque,
+    saving,
+    error: productionError,
+  } = useProduccion()
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
-
-    return rows.filter((row) => {
-      if (
-        consumptionStageFilter !== "all" &&
-        row.consumptionTracker.stage !== consumptionStageFilter
-      ) {
-        return false
-      }
-
-      if (closureStageFilter !== "all" && row.closureTracker.stage !== closureStageFilter) {
-        return false
-      }
-
-      if (!term) {
-        return true
-      }
-
-      const text = [
-        String(row.order.id),
-        row.formula?.descripcion ?? "",
-        row.productLabel,
-        row.order.estado,
-        row.order.observacion ?? "",
-        row.consumptionTracker.owner,
-        row.consumptionTracker.nextStep,
-        row.closureTracker.owner,
-        row.closureTracker.nextStep,
-        depositoMap.get(row.order.depositoOrigenId ?? 0) ?? "",
-        depositoMap.get(row.order.depositoDestinoId ?? 0) ?? "",
-      ]
+    return ordenes.filter((row) => {
+      if (!term) return true
+      return [String(row.id), String(row.formulaId), row.estado, row.observacion ?? ""]
         .join(" ")
         .toLowerCase()
-
-      return text.includes(term)
+        .includes(term)
     })
-  }, [closureStageFilter, consumptionStageFilter, depositoMap, rows, search])
+  }, [ordenes, search])
 
-  const selected = filtered.find((row) => row.order.id === selectedId) ?? filtered[0] ?? null
-  const pendingConsumptions = filtered.filter(
-    (row) => !["consumido", "cerrado"].includes(row.consumptionTracker.stage)
-  ).length
-  const pendingClosures = filtered.filter((row) => row.closureTracker.stage !== "cerrado").length
-  const openAdjustments = filtered.filter(
-    (row) => row.closureTracker.stage === "ajuste_abierto"
-  ).length
-  const totalExpectedConsumption = filtered.reduce((acc, row) => acc + row.expectedConsumption, 0)
+  const selected = filtered.find((row) => row.id === selectedId) ?? filtered[0] ?? null
 
-  const updateConsumptionTracker = (orderId: number, patch: Partial<LocalConsumptionTracker>) => {
-    setConsumptionTrackers((prev) => {
-      const current =
-        prev.find((tracker) => tracker.orderId === orderId) ??
-        buildDefaultConsumptionTracker(ordenes.find((order) => order.id === orderId)!)
-      const next = { ...current, ...patch, updatedAt: new Date().toISOString() }
-      const others = prev.filter((tracker) => tracker.orderId !== orderId)
-      return [...others, next]
+  useEffect(() => {
+    if (!selected) return
+
+    let active = true
+    const load = async () => {
+      setDetailBusy(true)
+      const next = await getDetalleOrden(selected.id)
+      if (active) {
+        setDetail(next)
+        setFinalizeDraft({
+          fechaFinReal: new Date().toISOString().slice(0, 10),
+          cantidadProducida: next?.cantidadProducida ? String(next.cantidadProducida) : "",
+          consumos: Object.fromEntries(
+            (next?.consumos ?? []).map((consumo) => [
+              consumo.itemId,
+              String(consumo.cantidadConsumida || consumo.cantidadPlanificada),
+            ])
+          ),
+        })
+      }
+      setDetailBusy(false)
+    }
+
+    void load()
+    return () => {
+      active = false
+    }
+  }, [getDetalleOrden, selected])
+
+  const pendientes = filtered.filter((row) => row.estado === "PENDIENTE").length
+  const enProceso = filtered.filter((row) => row.estado === "EN_PROCESO").length
+  const completadas = filtered.filter((row) => row.estado === "COMPLETADO").length
+  const consumoRegistrado =
+    detail?.consumos.reduce((sum, row) => sum + row.cantidadConsumida, 0) ?? 0
+  const empaqueRegistrado = detail?.empaques.reduce((sum, row) => sum + row.cantidad, 0) ?? 0
+
+  const handleFinalizar = async () => {
+    if (!selected || !detail) return
+    const dto: FinalizarOrdenTrabajoDto = {
+      fechaFinReal: finalizeDraft.fechaFinReal,
+      cantidadProducida: finalizeDraft.cantidadProducida
+        ? Number(finalizeDraft.cantidadProducida)
+        : undefined,
+      consumos: detail.consumos.map((consumo) => ({
+        itemId: consumo.itemId,
+        cantidadConsumida: Number(
+          finalizeDraft.consumos[consumo.itemId] ?? consumo.cantidadConsumida ?? 0
+        ),
+        observacion: consumo.observacion ?? undefined,
+      })),
+    }
+
+    const ok = await finalizarOrden(selected.id, dto)
+    if (!ok) return
+    toast({
+      title: "Orden finalizada",
+      description: `La OT #${selected.id} quedó cerrada en producción.`,
+    })
+    await refetch()
+    const next = await getDetalleOrden(selected.id)
+    setDetail(next)
+  }
+
+  const handleAjuste = async () => {
+    if (
+      !selected ||
+      !detail?.depositoOrigenId ||
+      !detail?.depositoDestinoId ||
+      !ajusteDraft.cantidad
+    )
+      return
+    const ok = await registrarAjuste({
+      formulaId: selected.formulaId,
+      depositoOrigenId: detail.depositoOrigenId,
+      depositoDestinoId: detail.depositoDestinoId,
+      cantidad: Number(ajusteDraft.cantidad),
+      observacion: ajusteDraft.observacion || undefined,
+    })
+    if (!ok) return
+    setAjusteDraft({ cantidad: "", observacion: "" })
+    toast({
+      title: "Ajuste registrado",
+      description: `Se registró el ajuste para la OT #${selected.id}.`,
     })
   }
 
-  const updateClosureTracker = (orderId: number, patch: Partial<LocalClosureTracker>) => {
-    setClosureTrackers((prev) => {
-      const current =
-        prev.find((tracker) => tracker.orderId === orderId) ??
-        buildDefaultClosureTracker(ordenes.find((order) => order.id === orderId)!)
-      const next = { ...current, ...patch, updatedAt: new Date().toISOString() }
-      const others = prev.filter((tracker) => tracker.orderId !== orderId)
-      return [...others, next]
+  const handleEmpaque = async () => {
+    if (!selected || !detail || !empaqueDraft.depositoId || !empaqueDraft.cantidad) return
+    const ok = await crearOrdenEmpaque({
+      ordenTrabajoId: selected.id,
+      itemId: detail.formulaId,
+      depositoId: Number(empaqueDraft.depositoId),
+      fecha: empaqueDraft.fecha,
+      cantidad: Number(empaqueDraft.cantidad),
+      lote: empaqueDraft.lote || undefined,
+      observacion: empaqueDraft.observacion || undefined,
     })
+    if (!ok) return
+    setEmpaqueDraft({
+      fecha: new Date().toISOString().slice(0, 10),
+      depositoId: "",
+      cantidad: "",
+      lote: "",
+      observacion: "",
+    })
+    toast({
+      title: "Empaque registrado",
+      description: `Se agregó una orden de empaque para la OT #${selected.id}.`,
+    })
+    const next = await getDetalleOrden(selected.id)
+    setDetail(next)
   }
 
   return (
@@ -373,8 +255,8 @@ export default function ProduccionPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Producción</h1>
           <p className="mt-1 text-muted-foreground">
-            Consola operativa para consumos, ingresos y ajustes de producción sobre órdenes reales,
-            con seguimiento local donde el backend todavía no publica el circuito completo.
+            Consola operativa real para consumos, cierre, ajustes y empaques sobre órdenes
+            productivas.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -382,25 +264,12 @@ export default function ProduccionPage() {
             variant="outline"
             className="bg-transparent"
             onClick={() => void refetch()}
-            disabled={loading}
+            disabled={loading || saving}
           >
             <RefreshCcw className="mr-2 h-4 w-4" /> Actualizar
           </Button>
-          <Button
-            variant="outline"
-            className="bg-transparent"
-            onClick={() => {
-              resetConsumptionTrackers()
-              resetClosureTrackers()
-            }}
-          >
-            Restablecer seguimiento local
-          </Button>
           <Button asChild variant="outline" className="bg-transparent">
             <Link href="/almacenes/ordenes-trabajo">Órdenes de trabajo</Link>
-          </Button>
-          <Button asChild>
-            <Link href="/almacenes/formulas-produccion">Fórmulas</Link>
           </Button>
         </div>
       </div>
@@ -408,17 +277,15 @@ export default function ProduccionPage() {
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          El legado tenía formularios separados para consumo de orden, ingreso de producción, egreso
-          de materia prima y ajustes de fórmula. El backend actual no expone esas mutaciones; esta
-          pantalla cubre el circuito operativo en frontend con órdenes y fórmulas reales, sin
-          inventar contratos nuevos.
+          El circuito ahora consume detalle y mutaciones reales del backend. Queda visible lo que
+          todavía no tenga datos cargados, sin apoyarse en overlay local.
         </AlertDescription>
       </Alert>
 
-      {error ? (
+      {error || productionError ? (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{productionError || error}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -429,42 +296,46 @@ export default function ProduccionPage() {
           description="Órdenes productivas dentro del filtro actual."
         />
         <SummaryCard
-          title="Consumos pendientes"
-          value={String(pendingConsumptions)}
-          description="Órdenes que todavía no cerraron el consumo de componentes."
+          title="Pendientes"
+          value={String(pendientes)}
+          description="Órdenes sin iniciar en el workflow real."
         />
         <SummaryCard
-          title="Cierres pendientes"
-          value={String(pendingClosures)}
-          description="Ingresos o egresos de producción aún abiertos localmente."
+          title="En proceso"
+          value={String(enProceso)}
+          description="Órdenes activas con circuito productivo abierto."
         />
         <SummaryCard
-          title="Consumo esperado"
-          value={formatQty(totalExpectedConsumption)}
-          description="Suma proyectada de materia prima según fórmula y cantidad ordenada."
+          title="Completadas"
+          value={String(completadas)}
+          description="Órdenes ya finalizadas en backend."
         />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="Ajustes abiertos"
-          value={String(openAdjustments)}
-          description="Órdenes con diferencias de producción o merma pendientes."
+          title="Consumo registrado"
+          value={formatQty(consumoRegistrado)}
+          description="Suma de consumos ya persistidos para la orden destacada."
         />
         <SummaryCard
-          title="Fórmulas activas"
-          value={String(formulas.length)}
-          description="Base real de fórmulas usada para estimar consumos."
-        />
-        <SummaryCard
-          title="Items disponibles"
-          value={String(items.length)}
-          description="Catálogo real para producto final y componentes."
+          title="Empaque registrado"
+          value={formatQty(empaqueRegistrado)}
+          description="Cantidad total de empaque visible para la orden destacada."
         />
         <SummaryCard
           title="Depósitos visibles"
           value={String(depositos.length)}
-          description="Origen y destino tomados del backend actual."
+          description="Origen, destino y empaque sobre depósitos reales."
+        />
+        <SummaryCard
+          title="Circuito destacado"
+          value={
+            selected
+              ? getPlanningStatus(selected.depositoOrigenId, selected.depositoDestinoId)
+              : "-"
+          }
+          description="Cobertura logística de la orden seleccionada."
         />
       </div>
 
@@ -472,19 +343,18 @@ export default function ProduccionPage() {
         <CardHeader>
           <CardTitle className="text-base">Filtros operativos</CardTitle>
           <CardDescription>
-            El estado de la orden consulta backend. El resto de filtros ordena el overlay local de
-            producción para consumos, ingresos y ajustes.
+            La selección de estado consulta backend y la búsqueda textual refina la lista cargada.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_200px_220px_220px]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_220px]">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="pl-10"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar por orden, fórmula, producto, depósito o seguimiento..."
+                placeholder="Buscar por orden, fórmula, estado u observación..."
               />
             </div>
             <Select
@@ -502,39 +372,6 @@ export default function ProduccionPage() {
                 <SelectItem value="CANCELADO">Cancelado</SelectItem>
               </SelectContent>
             </Select>
-            <Select
-              value={consumptionStageFilter}
-              onValueChange={(value) =>
-                setConsumptionStageFilter(value as "all" | ConsumptionStage)
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Seguimiento consumo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todo consumo</SelectItem>
-                <SelectItem value="pendiente">Pendiente</SelectItem>
-                <SelectItem value="en_consumo">En consumo</SelectItem>
-                <SelectItem value="consumido">Consumido</SelectItem>
-                <SelectItem value="observado">Observado</SelectItem>
-                <SelectItem value="cerrado">Cerrado</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={closureStageFilter}
-              onValueChange={(value) => setClosureStageFilter(value as "all" | ClosureStage)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Seguimiento cierre" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todo cierre</SelectItem>
-                <SelectItem value="pendiente">Pendiente</SelectItem>
-                <SelectItem value="pendiente_ingreso">Pendiente ingreso</SelectItem>
-                <SelectItem value="ajuste_abierto">Ajuste abierto</SelectItem>
-                <SelectItem value="cerrado">Cerrado</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </CardContent>
       </Card>
@@ -546,8 +383,8 @@ export default function ProduccionPage() {
               <ClipboardList className="h-4 w-4" /> Circuito productivo visible
             </CardTitle>
             <CardDescription>
-              {filtered.length} orden(es) tras filtros. Seleccioná una fila para revisar consumo,
-              ingreso y ajustes asociados.
+              {filtered.length} orden(es) tras filtros. Seleccioná una fila para revisar consumos,
+              cierre y empaques.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
@@ -556,23 +393,22 @@ export default function ProduccionPage() {
                 <TableRow>
                   <TableHead>OT</TableHead>
                   <TableHead>Fórmula</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Estado OT</TableHead>
-                  <TableHead>Consumo</TableHead>
-                  <TableHead>Cierre</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Fin previsto</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                       Cargando órdenes de producción...
                     </TableCell>
                   </TableRow>
                 ) : null}
                 {!loading && filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                       No hay órdenes que coincidan con los filtros actuales.
                     </TableCell>
                   </TableRow>
@@ -580,43 +416,17 @@ export default function ProduccionPage() {
                 {!loading
                   ? filtered.map((row) => (
                       <TableRow
-                        key={row.order.id}
-                        className={selected?.order.id === row.order.id ? "bg-accent/40" : undefined}
-                        onClick={() => setSelectedId(row.order.id)}
+                        key={row.id}
+                        className={selected?.id === row.id ? "bg-accent/40" : undefined}
+                        onClick={() => setSelectedId(row.id)}
                       >
-                        <TableCell className="font-medium">#{row.order.id}</TableCell>
+                        <TableCell className="font-medium">#{row.id}</TableCell>
+                        <TableCell>Fórmula #{row.formulaId}</TableCell>
                         <TableCell>
-                          {row.formula?.descripcion ?? `Fórmula #${row.order.formulaId}`}
+                          <Badge variant="outline">{row.estado}</Badge>
                         </TableCell>
-                        <TableCell>{row.productLabel}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{row.order.estado}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <Badge
-                              variant={
-                                CONSUMPTION_STAGE_CONFIG[row.consumptionTracker.stage].variant
-                              }
-                            >
-                              {CONSUMPTION_STAGE_CONFIG[row.consumptionTracker.stage].label}
-                            </Badge>
-                            <p className="text-xs text-muted-foreground">
-                              {row.totalComponents} comp. · {formatQty(row.expectedConsumption)}{" "}
-                              esperado
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <Badge variant={CLOSURE_STAGE_CONFIG[row.closureTracker.stage].variant}>
-                              {CLOSURE_STAGE_CONFIG[row.closureTracker.stage].label}
-                            </Badge>
-                            <p className="text-xs text-muted-foreground">
-                              {formatQty(row.expectedOutput)} prod. esperado
-                            </p>
-                          </div>
-                        </TableCell>
+                        <TableCell>{formatDate(row.fecha)}</TableCell>
+                        <TableCell>{formatDate(row.fechaFinPrevista)}</TableCell>
                       </TableRow>
                     ))
                   : null}
@@ -628,117 +438,195 @@ export default function ProduccionPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              {selected ? `Producción OT #${selected.order.id}` : "Detalle de producción"}
+              {selected ? `Producción OT #${selected.id}` : "Detalle de producción"}
             </CardTitle>
             <CardDescription>
               {selected
-                ? `${selected.formula?.descripcion ?? `Fórmula #${selected.order.formulaId}`} · ${selected.productLabel}`
-                : "Seleccioná una orden para revisar el circuito local de producción."}
+                ? `Estado ${selected.estado}`
+                : "Seleccioná una orden para revisar el circuito productivo."}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {selected ? (
+            {!selected ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                No hay orden seleccionada para producción.
+              </div>
+            ) : detailBusy ? (
+              <p className="text-sm text-muted-foreground">Cargando detalle de producción...</p>
+            ) : detail ? (
               <Tabs defaultValue="circuito" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-5">
                   <TabsTrigger value="circuito">Circuito</TabsTrigger>
                   <TabsTrigger value="consumos">Consumos</TabsTrigger>
-                  <TabsTrigger value="ingreso">Ingreso</TabsTrigger>
-                  <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
+                  <TabsTrigger value="cierre">Cierre</TabsTrigger>
+                  <TabsTrigger value="empaque">Empaque</TabsTrigger>
+                  <TabsTrigger value="ajustes">Ajustes</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="circuito" className="space-y-4 pt-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Producto final</p>
-                      <p className="mt-2 font-medium">{selected.productLabel}</p>
+                      <p className="text-sm text-muted-foreground">Fórmula</p>
+                      <p className="mt-2 font-medium">{detail.formulaDescripcion}</p>
                     </div>
                     <div className="rounded-lg border p-3">
                       <p className="text-sm text-muted-foreground">Planificación</p>
-                      <p className="mt-2 font-medium">{getPlanningStatus(selected.order)}</p>
+                      <p className="mt-2 font-medium">
+                        {getPlanningStatus(detail.depositoOrigenId, detail.depositoDestinoId)}
+                      </p>
                     </div>
                     <div className="rounded-lg border p-3">
                       <p className="text-sm text-muted-foreground">Depósito origen</p>
-                      <p className="mt-2 font-medium">
-                        {depositoMap.get(selected.order.depositoOrigenId ?? 0) ?? "No definido"}
-                      </p>
+                      <p className="mt-2 font-medium">{detail.depositoOrigenDescripcion}</p>
                     </div>
                     <div className="rounded-lg border p-3">
                       <p className="text-sm text-muted-foreground">Depósito destino</p>
-                      <p className="mt-2 font-medium">
-                        {depositoMap.get(selected.order.depositoDestinoId ?? 0) ?? "No definido"}
-                      </p>
+                      <p className="mt-2 font-medium">{detail.depositoDestinoDescripcion}</p>
                     </div>
                     <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Fecha</p>
-                      <p className="mt-2 font-medium">{formatDate(selected.order.fecha)}</p>
+                      <p className="text-sm text-muted-foreground">Cantidad ordenada</p>
+                      <p className="mt-2 font-medium">{formatQty(detail.cantidad)}</p>
                     </div>
                     <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Fin previsto</p>
-                      <p className="mt-2 font-medium">
-                        {formatDate(selected.order.fechaFinPrevista)}
-                      </p>
+                      <p className="text-sm text-muted-foreground">Cantidad producida</p>
+                      <p className="mt-2 font-medium">{formatQty(detail.cantidadProducida)}</p>
                     </div>
                   </div>
                   <div className="rounded-lg border bg-muted/20 p-4 text-sm">
-                    <p className="font-medium">Gap backend activo</p>
+                    <p className="font-medium">Observación</p>
                     <p className="mt-1 text-muted-foreground">
-                      No existe endpoint para consumir componentes, registrar ingreso terminado ni
-                      abrir ajustes de producción por orden. Este circuito queda documentado aquí
-                      para reemplazo operativo del formulario legacy.
+                      {detail.observacion || "Sin observaciones registradas."}
                     </p>
                   </div>
                 </TabsContent>
 
                 <TabsContent value="consumos" className="space-y-4 pt-4">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Componentes</p>
-                      <p className="mt-2 text-lg font-semibold">{selected.totalComponents}</p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Consumo esperado</p>
-                      <p className="mt-2 text-lg font-semibold">
-                        {formatQty(selected.expectedConsumption)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Salud del circuito</p>
-                      <p className="mt-2 text-sm font-medium">{getConsumptionHealth(selected)}</p>
-                    </div>
-                  </div>
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Item</TableHead>
-                        <TableHead>Cantidad fórmula</TableHead>
-                        <TableHead className="text-right">Esperado OT</TableHead>
+                        <TableHead>Planificado</TableHead>
+                        <TableHead>Consumido</TableHead>
+                        <TableHead>Depósito</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {(selected.formula?.componentes ?? []).map((component) => {
-                        const factor =
-                          selected.formula && selected.formula.cantidadProducida > 0
-                            ? selected.order.cantidad / selected.formula.cantidadProducida
-                            : 1
-
-                        return (
-                          <TableRow key={component.id}>
-                            <TableCell className="font-medium">
-                              {component.itemDescripcion ??
-                                itemMap.get(component.itemId)?.descripcion ??
-                                `Item #${component.itemId}`}
-                            </TableCell>
-                            <TableCell>{formatQty(component.cantidad)}</TableCell>
-                            <TableCell className="text-right">
-                              {formatQty(component.cantidad * factor)}
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                      {(selected.formula?.componentes ?? []).length === 0 ? (
+                      {detail.consumos.map((consumo) => (
+                        <TableRow key={consumo.id}>
+                          <TableCell className="font-medium">{consumo.itemDescripcion}</TableCell>
+                          <TableCell>{formatQty(consumo.cantidadPlanificada)}</TableCell>
+                          <TableCell>{formatQty(consumo.cantidadConsumida)}</TableCell>
+                          <TableCell>
+                            {depositos.find((deposito) => deposito.id === consumo.depositoId)
+                              ?.descripcion ?? `Depósito #${consumo.depositoId}`}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {detail.consumos.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
-                            La fórmula actual no expone componentes en backend.
+                          <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                            Todavía no hay consumos registrados para esta orden.
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </TableBody>
+                  </Table>
+                </TabsContent>
+
+                <TabsContent value="cierre" className="space-y-4 pt-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="fecha-fin-real">Fecha fin real</Label>
+                      <Input
+                        id="fecha-fin-real"
+                        type="date"
+                        value={finalizeDraft.fechaFinReal}
+                        onChange={(event) =>
+                          setFinalizeDraft((prev) => ({
+                            ...prev,
+                            fechaFinReal: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="cantidad-producida">Cantidad producida</Label>
+                      <Input
+                        id="cantidad-producida"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={finalizeDraft.cantidadProducida}
+                        onChange={(event) =>
+                          setFinalizeDraft((prev) => ({
+                            ...prev,
+                            cantidadProducida: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium">Consumos a confirmar en cierre</p>
+                    <div className="grid gap-3">
+                      {detail.consumos.map((consumo) => (
+                        <div
+                          key={consumo.id}
+                          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_140px]"
+                        >
+                          <Label>{consumo.itemDescripcion}</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={finalizeDraft.consumos[consumo.itemId] ?? ""}
+                            onChange={(event) =>
+                              setFinalizeDraft((prev) => ({
+                                ...prev,
+                                consumos: {
+                                  ...prev.consumos,
+                                  [consumo.itemId]: event.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <Button
+                    onClick={() => void handleFinalizar()}
+                    disabled={saving || selected.estado !== "EN_PROCESO"}
+                  >
+                    <Receipt className="mr-2 h-4 w-4" /> Finalizar orden en backend
+                  </Button>
+                </TabsContent>
+
+                <TabsContent value="empaque" className="space-y-4 pt-4">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Cantidad</TableHead>
+                        <TableHead>Lote</TableHead>
+                        <TableHead>Estado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {detail.empaques.map((empaque) => (
+                        <TableRow key={empaque.id}>
+                          <TableCell>{formatDate(empaque.fecha)}</TableCell>
+                          <TableCell>{formatQty(empaque.cantidad)}</TableCell>
+                          <TableCell>{empaque.lote || "-"}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{empaque.estado}</Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {detail.empaques.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                            No hay empaques registrados todavía.
                           </TableCell>
                         </TableRow>
                       ) : null}
@@ -746,249 +634,114 @@ export default function ProduccionPage() {
                   </Table>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="consumo-real">Consumo real total</Label>
+                      <Label htmlFor="emp-fecha">Fecha</Label>
                       <Input
-                        id="consumo-real"
-                        value={selected.consumptionTracker.actualConsumedQty}
+                        id="emp-fecha"
+                        type="date"
+                        value={empaqueDraft.fecha}
                         onChange={(event) =>
-                          updateConsumptionTracker(selected.order.id, {
-                            actualConsumedQty: event.target.value,
-                          })
+                          setEmpaqueDraft((prev) => ({ ...prev, fecha: event.target.value }))
                         }
-                        placeholder="0"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="merma">Merma / scrap</Label>
-                      <Input
-                        id="merma"
-                        value={selected.consumptionTracker.scrapQty}
-                        onChange={(event) =>
-                          updateConsumptionTracker(selected.order.id, {
-                            scrapQty: event.target.value,
-                          })
+                      <Label htmlFor="emp-deposito">Depósito</Label>
+                      <Select
+                        value={empaqueDraft.depositoId}
+                        onValueChange={(value) =>
+                          setEmpaqueDraft((prev) => ({ ...prev, depositoId: value }))
                         }
-                        placeholder="0"
-                      />
+                      >
+                        <SelectTrigger id="emp-deposito" className="w-full">
+                          <SelectValue placeholder="Seleccionar depósito" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {depositos.map((deposito) => (
+                            <SelectItem key={deposito.id} value={String(deposito.id)}>
+                              {deposito.descripcion}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="ingreso" className="space-y-4 pt-4">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Salida materia prima</p>
-                      <p className="mt-2 text-lg font-semibold">
-                        {selected.closureTracker.materialExitQty ||
-                          formatQty(selected.expectedConsumption)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Ingreso esperado</p>
-                      <p className="mt-2 text-lg font-semibold">
-                        {formatQty(selected.expectedOutput)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Salud del cierre</p>
-                      <p className="mt-2 text-sm font-medium">{getClosureHealth(selected)}</p>
-                    </div>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="produccion-real">Producción real ingresada</Label>
+                      <Label htmlFor="emp-cantidad">Cantidad</Label>
                       <Input
-                        id="produccion-real"
-                        value={selected.closureTracker.actualProducedQty}
+                        id="emp-cantidad"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={empaqueDraft.cantidad}
                         onChange={(event) =>
-                          updateClosureTracker(selected.order.id, {
-                            actualProducedQty: event.target.value,
-                          })
+                          setEmpaqueDraft((prev) => ({ ...prev, cantidad: event.target.value }))
                         }
-                        placeholder="0"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="egreso-real">Egreso materia prima registrado</Label>
+                      <Label htmlFor="emp-lote">Lote</Label>
                       <Input
-                        id="egreso-real"
-                        value={selected.closureTracker.materialExitQty}
+                        id="emp-lote"
+                        value={empaqueDraft.lote}
                         onChange={(event) =>
-                          updateClosureTracker(selected.order.id, {
-                            materialExitQty: event.target.value,
-                          })
+                          setEmpaqueDraft((prev) => ({ ...prev, lote: event.target.value }))
                         }
-                        placeholder="0"
                       />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="motivo-ajuste">Motivo de ajuste</Label>
+                    <Label htmlFor="emp-observacion">Observación</Label>
                     <Textarea
-                      id="motivo-ajuste"
-                      rows={4}
-                      value={selected.closureTracker.adjustmentReason}
+                      id="emp-observacion"
+                      rows={3}
+                      value={empaqueDraft.observacion}
                       onChange={(event) =>
-                        updateClosureTracker(selected.order.id, {
-                          adjustmentReason: event.target.value,
-                        })
+                        setEmpaqueDraft((prev) => ({ ...prev, observacion: event.target.value }))
                       }
-                      placeholder="Ej.: merma por arranque, diferencia de rendimiento, sobrante recuperado..."
                     />
                   </div>
+                  <Button onClick={() => void handleEmpaque()} disabled={saving}>
+                    <PackagePlus className="mr-2 h-4 w-4" /> Registrar orden de empaque
+                  </Button>
                 </TabsContent>
 
-                <TabsContent value="seguimiento" className="space-y-4 pt-4">
+                <TabsContent value="ajustes" className="space-y-4 pt-4">
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-base">
-                          <ArrowUpRight className="h-4 w-4" /> Seguimiento de consumo
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="space-y-2">
-                          <Label>Estado</Label>
-                          <Select
-                            value={selected.consumptionTracker.stage}
-                            onValueChange={(value) =>
-                              updateConsumptionTracker(selected.order.id, {
-                                stage: value as ConsumptionStage,
-                              })
-                            }
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Seleccionar estado" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pendiente">Pendiente</SelectItem>
-                              <SelectItem value="en_consumo">En consumo</SelectItem>
-                              <SelectItem value="consumido">Consumido</SelectItem>
-                              <SelectItem value="observado">Observado</SelectItem>
-                              <SelectItem value="cerrado">Cerrado</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Responsable</Label>
-                          <Input
-                            value={selected.consumptionTracker.owner}
-                            onChange={(event) =>
-                              updateConsumptionTracker(selected.order.id, {
-                                owner: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Lote / referencia</Label>
-                          <Input
-                            value={selected.consumptionTracker.lotReference}
-                            onChange={(event) =>
-                              updateConsumptionTracker(selected.order.id, {
-                                lotReference: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Próximo paso</Label>
-                          <Textarea
-                            rows={4}
-                            value={selected.consumptionTracker.nextStep}
-                            onChange={(event) =>
-                              updateConsumptionTracker(selected.order.id, {
-                                nextStep: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Última actualización: {formatDate(selected.consumptionTracker.updatedAt)}
-                        </p>
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-base">
-                          <ArrowDownLeft className="h-4 w-4" /> Seguimiento de ingreso y ajuste
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="space-y-2">
-                          <Label>Estado</Label>
-                          <Select
-                            value={selected.closureTracker.stage}
-                            onValueChange={(value) =>
-                              updateClosureTracker(selected.order.id, {
-                                stage: value as ClosureStage,
-                              })
-                            }
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Seleccionar estado" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pendiente">Pendiente</SelectItem>
-                              <SelectItem value="pendiente_ingreso">Pendiente ingreso</SelectItem>
-                              <SelectItem value="ajuste_abierto">Ajuste abierto</SelectItem>
-                              <SelectItem value="cerrado">Cerrado</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Responsable</Label>
-                          <Input
-                            value={selected.closureTracker.owner}
-                            onChange={(event) =>
-                              updateClosureTracker(selected.order.id, { owner: event.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Nota operativa</Label>
-                          <Textarea
-                            rows={4}
-                            value={selected.closureTracker.note}
-                            onChange={(event) =>
-                              updateClosureTracker(selected.order.id, { note: event.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Próximo paso</Label>
-                          <Textarea
-                            rows={4}
-                            value={selected.closureTracker.nextStep}
-                            onChange={(event) =>
-                              updateClosureTracker(selected.order.id, {
-                                nextStep: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Última actualización: {formatDate(selected.closureTracker.updatedAt)}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
-                  <div className="rounded-lg border bg-muted/20 p-4 text-sm">
-                    <div className="flex items-center gap-2 font-medium">
-                      <GitBranch className="h-4 w-4" /> Puente con circuitos existentes
+                    <div className="space-y-2">
+                      <Label htmlFor="ajuste-cantidad">Cantidad</Label>
+                      <Input
+                        id="ajuste-cantidad"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={ajusteDraft.cantidad}
+                        onChange={(event) =>
+                          setAjusteDraft((prev) => ({ ...prev, cantidad: event.target.value }))
+                        }
+                      />
                     </div>
-                    <p className="mt-2 text-muted-foreground">
-                      La orden vive en backend, pero consumo de componentes, ingreso terminado y
-                      ajustes por rendimiento siguen documentándose acá hasta que existan endpoints
-                      específicos de producción.
-                    </p>
+                    <div className="space-y-2">
+                      <Label htmlFor="ajuste-observacion">Observación</Label>
+                      <Textarea
+                        id="ajuste-observacion"
+                        rows={3}
+                        value={ajusteDraft.observacion}
+                        onChange={(event) =>
+                          setAjusteDraft((prev) => ({ ...prev, observacion: event.target.value }))
+                        }
+                      />
+                    </div>
                   </div>
+                  <Button
+                    onClick={() => void handleAjuste()}
+                    disabled={saving || !detail.depositoOrigenId || !detail.depositoDestinoId}
+                  >
+                    <Wrench className="mr-2 h-4 w-4" /> Registrar ajuste de producción
+                  </Button>
                 </TabsContent>
               </Tabs>
             ) : (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                No hay orden seleccionada para producción.
+                No se pudo cargar el detalle de producción.
               </div>
             )}
           </CardContent>

@@ -12,9 +12,13 @@ import type {
   Moneda,
 } from "@/lib/types/items"
 
-export function useItems() {
+interface UseItemsOptions {
+  enabled?: boolean
+}
+
+export function useItems(options: UseItemsOptions = {}) {
   const [items, setItems] = useState<Item[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(options.enabled ?? true)
   const [error, setError] = useState<string | null>(null)
   const [totalCount, setTotalCount] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
@@ -22,6 +26,14 @@ export function useItems() {
   const [search, setSearch] = useState("")
 
   const fetchItems = useCallback(async () => {
+    if (options.enabled === false) {
+      setLoading(false)
+      setItems([])
+      setTotalCount(0)
+      setTotalPages(1)
+      return
+    }
+
     setLoading(true)
     setError(null)
     try {
@@ -47,7 +59,7 @@ export function useItems() {
     } finally {
       setLoading(false)
     }
-  }, [page, search])
+  }, [options.enabled, page, search])
 
   useEffect(() => {
     fetchItems()

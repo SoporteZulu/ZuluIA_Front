@@ -43,9 +43,10 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { legacyPurchaseRemitos, type LegacyPurchaseRemito } from "@/lib/compras-legacy-data"
+import { useComprasRemitos } from "@/lib/hooks/useCompras"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
+import type { CompraRemitoResumen } from "@/lib/types/compras-operativa"
 
 type RemitoStage = "sin_conciliar" | "en_revision" | "listo_para_recepcion" | "cerrado"
 
@@ -78,24 +79,6 @@ const STAGE_CONFIG: Record<
   cerrado: { label: "Cerrado", variant: "default" },
 }
 
-const DEFAULT_TRACKERS: LocalRemitoTracker[] = legacyPurchaseRemitos.map((remito) => ({
-  remitoId: remito.id,
-  stage:
-    remito.estado === "RECIBIDO"
-      ? "cerrado"
-      : remito.recepcionReferencia
-        ? "en_revision"
-        : "sin_conciliar",
-  owner: remito.responsableRecepcion,
-  nextStep:
-    remito.estado === "RECIBIDO"
-      ? "Mantener trazabilidad cerrada con recepción y factura."
-      : remito.recepcionReferencia
-        ? "Resolver diferencias y confirmar cierre en recepciones."
-        : "Validar contra orden antes de ingresar la recepción real.",
-  updatedAt: remito.fecha,
-}))
-
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
 }
@@ -104,7 +87,7 @@ function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"
 }
 
-function matchesTerm(remito: LegacyPurchaseRemito, term: string) {
+function matchesTerm(remito: CompraRemitoResumen, term: string) {
   if (term === "") return true
   const haystack = [
     remito.proveedor,
@@ -143,17 +126,40 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
 }
 
 export default function RemitosCompraPage() {
+  const { remitos: liveRemitos, loading, error } = useComprasRemitos()
   const { ordenes, loading: loadingOrders, error: ordersError } = useOrdenesCompra()
   const {
     rows: trackers,
     setRows: setTrackers,
     reset: resetTrackers,
-  } = useLegacyLocalCollection<LocalRemitoTracker>(REMITO_TRACKER_STORAGE_KEY, DEFAULT_TRACKERS)
+  } = useLegacyLocalCollection<LocalRemitoTracker>(REMITO_TRACKER_STORAGE_KEY, [])
 
   const [search, setSearch] = useState("")
-  const [typeFilter, setTypeFilter] = useState<"todos" | LegacyPurchaseRemito["tipo"]>("todos")
+  const [typeFilter, setTypeFilter] = useState<"todos" | CompraRemitoResumen["tipo"]>("todos")
   const [stageFilter, setStageFilter] = useState<"todos" | RemitoStage>("todos")
-  const [selectedId, setSelectedId] = useState<number | null>(legacyPurchaseRemitos[0]?.id ?? null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+
+  const defaultTrackers = useMemo(
+    () =>
+      liveRemitos.map((remito) => ({
+        remitoId: remito.id,
+        stage:
+          remito.estado === "RECIBIDO"
+            ? "cerrado"
+            : remito.recepcionReferencia
+              ? "en_revision"
+              : "sin_conciliar",
+        owner: remito.responsableRecepcion,
+        nextStep:
+          remito.estado === "RECIBIDO"
+            ? "Mantener trazabilidad cerrada con recepción y factura."
+            : remito.recepcionReferencia
+              ? "Resolver diferencias y confirmar cierre en recepciones."
+              : "Validar contra orden antes de ingresar la recepción real.",
+        updatedAt: remito.fecha,
+      })),
+    [liveRemitos]
+  )
 
   const trackerMap = useMemo(
     () => new Map(trackers.map((tracker) => [tracker.remitoId, tracker])),
@@ -162,13 +168,13 @@ export default function RemitosCompraPage() {
 
   const remitos = useMemo(
     () =>
-      legacyPurchaseRemitos.map((remito) => ({
+      liveRemitos.map((remito) => ({
         ...remito,
         tracker:
-          trackerMap.get(remito.id) ?? DEFAULT_TRACKERS.find((row) => row.remitoId === remito.id)!,
+          trackerMap.get(remito.id) ?? defaultTrackers.find((row) => row.remitoId === remito.id)!,
         discrepancyCount: remito.items.filter((item) => item.diferencia !== 0).length,
       })),
-    [trackerMap]
+    [defaultTrackers, liveRemitos, trackerMap]
   )
 
   const filtered = useMemo(() => {
@@ -216,7 +222,7 @@ export default function RemitosCompraPage() {
       const nextRow = {
         ...(index >= 0
           ? current[index]
-          : DEFAULT_TRACKERS.find((row) => row.remitoId === remitoId)!),
+          : defaultTrackers.find((row) => row.remitoId === remitoId)!),
         ...patch,
         updatedAt: new Date().toISOString(),
       }
@@ -253,16 +259,16 @@ export default function RemitosCompraPage() {
       <Alert>
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
-          El backend actual de recepciones no modela remitos ni diferencias por renglón. Esta vista
-          cubre la trazabilidad logística previa y el seguimiento local hasta continuar en
+          Esta vista ya consume remitos reales del backend de compras. El seguimiento local se
+          mantiene sólo para conciliación operativa y priorización interna antes de continuar en
           recepciones.
         </AlertDescription>
       </Alert>
 
-      {ordersError && (
+      {(error || ordersError) && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{ordersError}</AlertDescription>
+          <AlertDescription>{error || ordersError}</AlertDescription>
         </Alert>
       )}
 
@@ -270,25 +276,29 @@ export default function RemitosCompraPage() {
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Pendientes</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.pending}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : kpis.pending}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Con diferencias</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.withDiff}</p>
+            <p className="mt-2 text-2xl font-bold text-amber-600">
+              {loading ? "..." : kpis.withDiff}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Valorizados</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.valued}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : kpis.valued}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Total visible</p>
-            <p className="mt-2 text-2xl font-bold">{formatMoney(kpis.totalVisible)}</p>
+            <p className="mt-2 text-2xl font-bold">
+              {loading ? "..." : formatMoney(kpis.totalVisible)}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -344,7 +354,7 @@ export default function RemitosCompraPage() {
             <Select
               value={typeFilter}
               onValueChange={(value) =>
-                setTypeFilter(value as "todos" | LegacyPurchaseRemito["tipo"])
+                setTypeFilter(value as "todos" | CompraRemitoResumen["tipo"])
               }
             >
               <SelectTrigger className="w-full">
@@ -428,7 +438,9 @@ export default function RemitosCompraPage() {
                 {filtered.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                      No hay remitos que coincidan con los filtros actuales.
+                      {loading
+                        ? "Cargando remitos reales..."
+                        : "No hay remitos que coincidan con los filtros actuales."}
                     </TableCell>
                   </TableRow>
                 )}

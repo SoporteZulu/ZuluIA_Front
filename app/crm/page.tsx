@@ -51,6 +51,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { CrmPageHero, CrmStatCard, crmPanelClassName } from "@/components/crm/crm-page-kit"
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-AR", {
@@ -319,25 +320,71 @@ export default function CRMDashboard() {
     .sort((a, b) => Number(b.montoEstimado ?? 0) - Number(a.montoEstimado ?? 0))
     .slice(0, 5)
 
+  const alertasPrioritarias = useMemo(() => {
+    const items: Array<{
+      title: string
+      detail: string
+      tone: "rose" | "amber" | "blue" | "emerald"
+    }> = []
+
+    if (stats.seguimientoVencido > 0) {
+      items.push({
+        title: "Seguimiento vencido",
+        detail: `${stats.seguimientoVencido} clientes siguen sin gestion reciente dentro del radar visible.`,
+        tone: "amber",
+      })
+    }
+
+    if (stats.tareasVencidas > 0) {
+      items.push({
+        title: "Tareas fuera de fecha",
+        detail: `${stats.tareasVencidas} tareas comerciales siguen abiertas fuera del compromiso original.`,
+        tone: "rose",
+      })
+    }
+
+    if (stats.cierresComprometidos > 0) {
+      items.push({
+        title: "Cierres comprometidos",
+        detail: `${stats.cierresComprometidos} oportunidades vencen en los proximos 7 dias.`,
+        tone: "blue",
+      })
+    }
+
+    if (items.length === 0) {
+      items.push({
+        title: "Sin desvíos críticos",
+        detail: "El pipeline visible no muestra alertas comerciales urgentes en esta lectura.",
+        tone: "emerald",
+      })
+    }
+
+    return items.slice(0, 4)
+  }, [stats.cierresComprometidos, stats.seguimientoVencido, stats.tareasVencidas])
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-balance">ZULU CRM</h1>
-          <p className="text-muted-foreground">Vista general de tu pipeline comercial</p>
-        </div>
-        <div className="flex gap-2">
-          {loading && (
-            <RefreshCw className="h-4 w-4 animate-spin self-center text-muted-foreground" />
-          )}
-          <Button asChild>
-            <Link href="/crm/clientes?action=new">Nuevo Cliente</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/crm/oportunidades?action=new">Nueva Oportunidad</Link>
-          </Button>
-        </div>
-      </div>
+      <CrmPageHero
+        eyebrow="CRM overview"
+        title="ZULU CRM"
+        description="Vista general del pipeline comercial con foco en cartera, seguimiento y cierres comprometidos."
+        actions={
+          <>
+            {loading ? (
+              <div className="flex items-center rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-500">
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                Actualizando
+              </div>
+            ) : null}
+            <Button asChild>
+              <Link href="/crm/clientes?action=new">Nuevo Cliente</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/crm/oportunidades?action=new">Nueva Oportunidad</Link>
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <Alert variant="destructive">
@@ -347,97 +394,92 @@ export default function CRMDashboard() {
       )}
 
       {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Clientes</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalClientes}</div>
-            <p className="text-xs text-muted-foreground">{stats.activos} activos</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Oportunidades Activas</CardTitle>
-            <Target className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.oppsActivas}</div>
-            <p className="text-xs text-muted-foreground">
-              {oportunidades.filter((o) => o.etapa === "negociacion").length} en negociación
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pipeline Total</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.montoTotal)}</div>
-            <p className="text-xs text-muted-foreground">En oportunidades activas</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ganado</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.montoGanado)}</div>
-            <p className="text-xs text-muted-foreground">
-              {oportunidades.filter((o) => o.etapa === "cerrado_ganado").length} negocios cerrados
-            </p>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <CrmStatCard
+          label="Total Clientes"
+          value={stats.totalClientes}
+          hint={`${stats.activos} activos dentro de la cartera visible.`}
+          icon={Users}
+          tone="blue"
+        />
+        <CrmStatCard
+          label="Oportunidades Activas"
+          value={stats.oppsActivas}
+          hint={`${oportunidades.filter((o) => o.etapa === "negociacion").length} en negociación.`}
+          icon={Target}
+          tone="violet"
+        />
+        <CrmStatCard
+          label="Pipeline Total"
+          value={formatCurrency(stats.montoTotal)}
+          hint="Monto abierto consolidado en oportunidades activas."
+          icon={DollarSign}
+          tone="emerald"
+        />
+        <CrmStatCard
+          label="Ganado"
+          value={formatCurrency(stats.montoGanado)}
+          hint={`${oportunidades.filter((o) => o.etapa === "cerrado_ganado").length} negocios cerrados.`}
+          icon={TrendingUp}
+          tone="emerald"
+        />
+        <CrmStatCard
+          label="Seguimiento vencido"
+          value={stats.seguimientoVencido}
+          hint="Clientes sin gestión reciente o con desvío comercial."
+          icon={AlertTriangle}
+          tone="amber"
+        />
+        <CrmStatCard
+          label="Cierres comprometidos"
+          value={stats.cierresComprometidos}
+          hint="Oportunidades con fecha de cierre en los próximos 7 días."
+          icon={Calendar}
+          tone="rose"
+        />
+        <CrmStatCard
+          label="Interacciones registradas"
+          value={interacciones.length}
+          hint="Base visible de actividad comercial en CRM."
+          icon={Phone}
+          tone="slate"
+        />
+        <CrmStatCard
+          label="Responsables activos"
+          value={usuarios.filter((usuario) => usuario.estado === "activo").length}
+          hint="Equipo comercial disponible para cartera y pipeline."
+          icon={CheckCircle2}
+          tone="blue"
+        />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Seguimiento vencido</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.seguimientoVencido}</div>
-            <p className="text-xs text-muted-foreground">
-              Clientes sin gestion reciente o en riesgo
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Cierres comprometidos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.cierresComprometidos}</div>
-            <p className="text-xs text-muted-foreground">
-              Oportunidades con cierre en los proximos 7 dias
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Interacciones registradas</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{interacciones.length}</div>
-            <p className="text-xs text-muted-foreground">Base visible de actividad comercial</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Responsables activos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {usuarios.filter((usuario) => usuario.estado === "activo").length}
-            </div>
-            <p className="text-xs text-muted-foreground">Equipo comercial disponible en CRM</p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="border-amber-200 bg-amber-50/50 shadow-sm shadow-amber-100/60">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold">Alertas prioritarias</CardTitle>
+          <CardDescription>Resumen rápido para enfocar el seguimiento comercial.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-2">
+            {alertasPrioritarias.map((alerta) => (
+              <div
+                key={alerta.title}
+                className={
+                  alerta.tone === "rose"
+                    ? "rounded-xl border border-rose-200 bg-rose-50 p-4"
+                    : alerta.tone === "amber"
+                      ? "rounded-xl border border-amber-200 bg-amber-50 p-4"
+                      : alerta.tone === "blue"
+                        ? "rounded-xl border border-sky-200 bg-sky-50 p-4"
+                        : "rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+                }
+              >
+                <p className="text-sm font-semibold text-slate-900">{alerta.title}</p>
+                <p className="mt-1 text-sm text-slate-600">{alerta.detail}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Charts Row */}
       <div className="grid gap-4 md:grid-cols-2">
@@ -785,36 +827,60 @@ export default function CRMDashboard() {
       </div>
 
       {/* Quick Actions */}
-      <Card>
+      <Card className={crmPanelClassName}>
         <CardHeader>
           <CardTitle>Acciones Rápidas</CardTitle>
+          <CardDescription>
+            Accesos operativos inmediatos para alta, seguimiento y análisis.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" asChild>
-              <Link href="/crm/clientes">
-                <Users className="mr-2 h-4 w-4" />
-                Ver Clientes
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                href: "/crm/clientes",
+                title: "Ver Clientes",
+                description: "Abrí la cartera visible y trabajá sobre cuentas activas.",
+                icon: Users,
+                color: "border-sky-200 bg-sky-50 hover:bg-sky-100",
+              },
+              {
+                href: "/crm/interacciones?action=new",
+                title: "Registrar Llamada",
+                description: "Dejá trazabilidad comercial desde la mesa operativa.",
+                icon: Phone,
+                color: "border-violet-200 bg-violet-50 hover:bg-violet-100",
+              },
+              {
+                href: "/crm/tareas?action=new",
+                title: "Crear Tarea",
+                description: "Programá seguimiento, cierre o gestión operativa.",
+                icon: Calendar,
+                color: "border-amber-200 bg-amber-50 hover:bg-amber-100",
+              },
+              {
+                href: "/crm/reportes",
+                title: "Ver Reportes",
+                description: "Revisá pipeline, actividad y cobertura comercial.",
+                icon: TrendingUp,
+                color: "border-emerald-200 bg-emerald-50 hover:bg-emerald-100",
+              },
+            ].map((entry) => (
+              <Link key={entry.href} href={entry.href}>
+                <div className={`rounded-xl border p-4 transition-colors ${entry.color}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-lg bg-white/80 p-2 shadow-sm">
+                      <entry.icon className="h-5 w-5 text-slate-700" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold">{entry.title}</p>
+                      <p className="text-sm text-muted-foreground">{entry.description}</p>
+                    </div>
+                    <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
+                  </div>
+                </div>
               </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/crm/interacciones?action=new">
-                <Phone className="mr-2 h-4 w-4" />
-                Registrar Llamada
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/crm/tareas?action=new">
-                <Calendar className="mr-2 h-4 w-4" />
-                Crear Tarea
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/crm/reportes">
-                <TrendingUp className="mr-2 h-4 w-4" />
-                Ver Reportes
-              </Link>
-            </Button>
+            ))}
           </div>
         </CardContent>
       </Card>

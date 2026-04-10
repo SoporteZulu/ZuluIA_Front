@@ -32,8 +32,9 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { legacyPurchaseCreditNotes, type LegacyPurchaseCreditNote } from "@/lib/compras-legacy-data"
+import { useComprasNotasCredito } from "@/lib/hooks/useCompras"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
+import type { CompraNotaCreditoResumen } from "@/lib/types/compras-operativa"
 
 type CreditNoteStage = "borrador" | "en_emision" | "lista_para_aplicar" | "cerrada"
 type LocalCreditNoteTracker = {
@@ -46,7 +47,7 @@ type LocalCreditNoteTracker = {
 
 const CREDIT_NOTE_TRACKER_STORAGE_KEY = "zuluia_compras_credit_note_trackers"
 const STATUS_CONFIG: Record<
-  LegacyPurchaseCreditNote["estado"],
+  string,
   { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
 > = {
   BORRADOR: { label: "Borrador", variant: "secondary" },
@@ -62,31 +63,13 @@ const STAGE_CONFIG: Record<
   lista_para_aplicar: { label: "Lista para aplicar", variant: "default" },
   cerrada: { label: "Cerrada", variant: "default" },
 }
-const DEFAULT_TRACKERS: LocalCreditNoteTracker[] = legacyPurchaseCreditNotes.map((item) => ({
-  noteId: item.id,
-  stage:
-    item.estado === "APLICADA"
-      ? "cerrada"
-      : item.estado === "EMITIDA"
-        ? "lista_para_aplicar"
-        : "en_emision",
-  owner: item.responsable,
-  nextStep:
-    item.estado === "APLICADA"
-      ? "Mantener trazabilidad del impacto económico aplicado."
-      : item.estado === "EMITIDA"
-        ? "Aplicar sobre cuenta corriente o comprobante base."
-        : "Emitir formalmente la nota y validar documentación soporte.",
-  updatedAt: item.fecha,
-}))
-
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
 }
 function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"
 }
-function matchesTerm(item: LegacyPurchaseCreditNote, term: string) {
+function matchesTerm(item: CompraNotaCreditoResumen, term: string) {
   if (term === "") return true
   return [
     item.proveedor,
@@ -101,7 +84,7 @@ function matchesTerm(item: LegacyPurchaseCreditNote, term: string) {
     .toLowerCase()
     .includes(term)
 }
-function getNoteHealth(item: LegacyPurchaseCreditNote, tracker: LocalCreditNoteTracker) {
+function getNoteHealth(item: CompraNotaCreditoResumen, tracker: LocalCreditNoteTracker) {
   if (tracker.stage === "cerrada") return "Nota de crédito aplicada y conciliada"
   if (tracker.stage === "lista_para_aplicar") return "Lista para impacto económico"
   return "Pendiente de emisión o aplicación"
@@ -120,18 +103,35 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
 }
 
 export default function NotasCreditoCompraPage() {
+  const { notas: liveNotes, loading, error } = useComprasNotasCredito()
   const {
     rows: trackers,
     setRows: setTrackers,
     reset: resetTrackers,
-  } = useLegacyLocalCollection<LocalCreditNoteTracker>(
-    CREDIT_NOTE_TRACKER_STORAGE_KEY,
-    DEFAULT_TRACKERS
-  )
+  } = useLegacyLocalCollection<LocalCreditNoteTracker>(CREDIT_NOTE_TRACKER_STORAGE_KEY, [])
   const [search, setSearch] = useState("")
   const [stageFilter, setStageFilter] = useState<"todas" | CreditNoteStage>("todas")
-  const [selectedId, setSelectedId] = useState<number | null>(
-    legacyPurchaseCreditNotes[0]?.id ?? null
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const defaultTrackers = useMemo(
+    () =>
+      liveNotes.map((item) => ({
+        noteId: item.id,
+        stage:
+          item.estado === "APLICADA"
+            ? "cerrada"
+            : item.estado === "EMITIDA"
+              ? "lista_para_aplicar"
+              : "en_emision",
+        owner: item.responsable,
+        nextStep:
+          item.estado === "APLICADA"
+            ? "Mantener trazabilidad del impacto económico aplicado."
+            : item.estado === "EMITIDA"
+              ? "Aplicar sobre cuenta corriente o comprobante base."
+              : "Emitir formalmente la nota y validar documentación soporte.",
+        updatedAt: item.fecha,
+      })),
+    [liveNotes]
   )
   const trackerMap = useMemo(
     () => new Map(trackers.map((tracker) => [tracker.noteId, tracker])),
@@ -139,11 +139,11 @@ export default function NotasCreditoCompraPage() {
   )
   const notes = useMemo(
     () =>
-      legacyPurchaseCreditNotes.map((item) => ({
+      liveNotes.map((item) => ({
         ...item,
-        tracker: trackerMap.get(item.id) ?? DEFAULT_TRACKERS.find((row) => row.noteId === item.id)!,
+        tracker: trackerMap.get(item.id) ?? defaultTrackers.find((row) => row.noteId === item.id)!,
       })),
-    [trackerMap]
+    [defaultTrackers, liveNotes, trackerMap]
   )
   const filtered = useMemo(() => {
     const term = search.toLowerCase().trim()
@@ -166,7 +166,7 @@ export default function NotasCreditoCompraPage() {
     setTrackers((current) => {
       const index = current.findIndex((row) => row.noteId === noteId)
       const nextRow = {
-        ...(index >= 0 ? current[index] : DEFAULT_TRACKERS.find((row) => row.noteId === noteId)!),
+        ...(index >= 0 ? current[index] : defaultTrackers.find((row) => row.noteId === noteId)!),
         ...patch,
         updatedAt: new Date().toISOString(),
       }
@@ -197,33 +197,43 @@ export default function NotasCreditoCompraPage() {
       <Alert>
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
-          El backend actual no expone notas de crédito de compra ni su aplicación. Esta vista cubre
-          la trazabilidad documental y el seguimiento local hasta el cierre económico real.
+          Esta vista ya consume notas de crédito reales del backend de compras. El seguimiento local
+          se mantiene sólo para coordinar emisión, aplicación y cierre operativo.
         </AlertDescription>
       </Alert>
+      {error && (
+        <Alert>
+          <ShieldAlert className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Borrador</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.draft}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : kpis.draft}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Emitidas</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.issued}</p>
+            <p className="mt-2 text-2xl font-bold text-amber-600">
+              {loading ? "..." : kpis.issued}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Aplicadas</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-600">{kpis.applied}</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-600">
+              {loading ? "..." : kpis.applied}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Monto visible</p>
-            <p className="mt-2 text-2xl font-bold">{formatMoney(kpis.total)}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : formatMoney(kpis.total)}</p>
           </CardContent>
         </Card>
       </div>
@@ -296,7 +306,9 @@ export default function NotasCreditoCompraPage() {
               {filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    No hay notas de crédito que coincidan con los filtros actuales.
+                    {loading
+                      ? "Cargando notas de crédito reales..."
+                      : "No hay notas de crédito que coincidan con los filtros actuales."}
                   </TableCell>
                 </TableRow>
               )}
@@ -434,7 +446,7 @@ export default function NotasCreditoCompraPage() {
                   <ShieldAlert className="h-4 w-4" />
                   <AlertDescription>
                     Este seguimiento se guarda solo en el navegador actual y cubre emisión,
-                    aplicación y cierre de la nota hasta que exista backend formal.
+                    aplicación y cierre operativo sin alterar el circuito transaccional real.
                   </AlertDescription>
                 </Alert>
                 <div className="grid gap-4 md:grid-cols-2">

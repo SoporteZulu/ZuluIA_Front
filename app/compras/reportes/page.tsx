@@ -15,40 +15,55 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  legacyPurchaseAdjustments,
-  legacyPurchaseAllocations,
-  legacyPurchaseCreditNotes,
-  legacyPurchaseQuotations,
-  legacyPurchaseRemitos,
-  legacyPurchaseReturns,
-} from "@/lib/compras-legacy-data"
+  useComprasAjustes,
+  useComprasDevoluciones,
+  useComprasNotasCredito,
+  useComprasRemitos,
+  useCotizacionesCompra,
+} from "@/lib/hooks/useCompras"
+import { legacyPurchaseAllocations } from "@/lib/compras-legacy-data"
 
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
 }
 
 export default function ReportesComprasPage() {
-  const totalCotizado = legacyPurchaseQuotations.reduce((acc, item) => acc + item.total, 0)
-  const totalDevuelto = legacyPurchaseReturns.reduce((acc, item) => acc + item.total, 0)
-  const totalAjustes = legacyPurchaseAdjustments.reduce((acc, item) => acc + item.total, 0)
+  const {
+    cotizaciones,
+    loading: loadingCotizaciones,
+    refetch: refetchCotizaciones,
+  } = useCotizacionesCompra()
+  const { remitos, loading: loadingRemitos, refetch: refetchRemitos } = useComprasRemitos()
+  const {
+    devoluciones,
+    loading: loadingDevoluciones,
+    refetch: refetchDevoluciones,
+  } = useComprasDevoluciones()
+  const { notas, loading: loadingNotas, refetch: refetchNotas } = useComprasNotasCredito()
+  const { ajustes, loading: loadingAjustes, refetch: refetchAjustes } = useComprasAjustes()
+
+  const totalCotizado = cotizaciones.reduce((acc, item) => acc + item.total, 0)
+  const totalDevuelto = devoluciones.reduce((acc, item) => acc + item.total, 0)
+  const totalAjustes = ajustes.reduce((acc, item) => acc + item.total, 0)
   const totalImputado = legacyPurchaseAllocations.reduce((acc, item) => acc + item.importe, 0)
-  const totalNC = legacyPurchaseCreditNotes.reduce((acc, item) => acc + item.total, 0)
-  const pendingQuotes = legacyPurchaseQuotations.filter((item) => item.estado !== "APROBADA").length
-  const pendingReturns = legacyPurchaseReturns.filter((item) => item.estado === "ABIERTA").length
-  const remitosWithDiff = legacyPurchaseRemitos.filter((item) =>
+  const totalNC = notas.reduce((acc, item) => acc + item.total, 0)
+  const pendingQuotes = cotizaciones.filter((item) => item.estado !== "APROBADA").length
+  const approvedQuotes = cotizaciones.filter((item) => item.estado === "APROBADA").length
+  const pendingReturns = devoluciones.filter((item) => item.estado === "ABIERTA").length
+  const remitosWithDiff = remitos.filter((item) =>
     item.items.some((row) => row.diferencia !== 0)
   ).length
   const allocationsObserved = legacyPurchaseAllocations.filter(
     (item) => item.estado === "OBSERVADA"
   ).length
-  const creditNotesPending = legacyPurchaseCreditNotes.filter(
-    (item) => item.estado !== "APLICADA"
-  ).length
+  const creditNotesPending = notas.filter((item) => item.estado !== "APLICADA").length
+  const loadingResumen =
+    loadingCotizaciones || loadingRemitos || loadingDevoluciones || loadingNotas || loadingAjustes
 
   const executiveCards = [
     {
       title: "Frente comercial",
-      description: `${pendingQuotes} cotizaciones todavía no cerradas y ${legacyPurchaseQuotations.filter((item) => item.readyForOrder).length} listas para pasar a orden`,
+      description: `${pendingQuotes} cotizaciones todavía no cerradas y ${approvedQuotes} ya aprobadas comercialmente`,
       value: formatMoney(totalCotizado),
       href: "/compras/cotizaciones",
       icon: FileStack,
@@ -79,7 +94,17 @@ export default function ReportesComprasPage() {
             cierre contable todavía no cubiertos por backend.
           </p>
         </div>
-        <Button variant="outline" className="bg-transparent">
+        <Button
+          variant="outline"
+          className="bg-transparent"
+          onClick={() => {
+            void refetchCotizaciones()
+            void refetchRemitos()
+            void refetchDevoluciones()
+            void refetchNotas()
+            void refetchAjustes()
+          }}
+        >
           <RefreshCw className="mr-2 h-4 w-4" /> Refrescar reporte
         </Button>
       </div>
@@ -87,9 +112,9 @@ export default function ReportesComprasPage() {
       <Alert>
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
-          Este tablero usa la cobertura legacy/local que se fue ampliando módulo por módulo. Sirve
-          para visualizar el circuito completo de Compras sin fingir persistencia backend donde hoy
-          no existe.
+          Este tablero mezcla cobertura real y legacy. Cotizaciones, remitos, devoluciones, notas de
+          crédito y ajustes ya reflejan datos backend; imputaciones todavía siguen sobre la capa
+          legacy hasta que exista soporte contable formal.
         </AlertDescription>
       </Alert>
 
@@ -99,7 +124,9 @@ export default function ReportesComprasPage() {
             <CardTitle className="text-sm">Cotizaciones</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatMoney(totalCotizado)}</div>
+            <div className="text-2xl font-bold">
+              {loadingResumen ? "..." : formatMoney(totalCotizado)}
+            </div>
             <p className="text-xs text-muted-foreground mt-1">{pendingQuotes} pendientes</p>
           </CardContent>
         </Card>
@@ -108,7 +135,9 @@ export default function ReportesComprasPage() {
             <CardTitle className="text-sm">Devoluciones</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatMoney(totalDevuelto)}</div>
+            <div className="text-2xl font-bold">
+              {loadingResumen ? "..." : formatMoney(totalDevuelto)}
+            </div>
             <p className="text-xs text-muted-foreground mt-1">{pendingReturns} abiertas</p>
           </CardContent>
         </Card>
@@ -117,10 +146,11 @@ export default function ReportesComprasPage() {
             <CardTitle className="text-sm">Ajustes</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatMoney(totalAjustes)}</div>
+            <div className="text-2xl font-bold">
+              {loadingResumen ? "..." : formatMoney(totalAjustes)}
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {legacyPurchaseAdjustments.filter((item) => item.estado !== "APLICADO").length} sin
-              cerrar
+              {ajustes.filter((item) => item.estado !== "APLICADO").length} sin cerrar
             </p>
           </CardContent>
         </Card>
@@ -138,7 +168,9 @@ export default function ReportesComprasPage() {
             <CardTitle className="text-sm">Notas crédito</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatMoney(totalNC)}</div>
+            <div className="text-2xl font-bold">
+              {loadingResumen ? "..." : formatMoney(totalNC)}
+            </div>
             <p className="text-xs text-muted-foreground mt-1">{creditNotesPending} pendientes</p>
           </CardContent>
         </Card>
@@ -173,10 +205,8 @@ export default function ReportesComprasPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {legacyPurchaseQuotations.length} cotizaciones,{" "}
-            {legacyPurchaseQuotations.filter((item) => item.estado === "APROBADA").length} aprobadas
-            y {legacyPurchaseQuotations.filter((item) => item.readyForOrder).length} listas para
-            orden.
+            {cotizaciones.length} cotizaciones reales, {approvedQuotes} aprobadas y {pendingQuotes}{" "}
+            pendientes de definición comercial.
           </CardContent>
         </Card>
         <Card>
@@ -186,7 +216,7 @@ export default function ReportesComprasPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {legacyPurchaseRemitos.length} remitos visibles, con {remitosWithDiff} casos que todavía
+            {remitos.length} remitos reales visibles, con {remitosWithDiff} casos que todavía
             muestran diferencias por renglón.
           </CardContent>
         </Card>
@@ -197,8 +227,8 @@ export default function ReportesComprasPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {legacyPurchaseReturns.length} devoluciones y {legacyPurchaseCreditNotes.length} notas
-            de crédito visibles para seguir impacto físico y económico.
+            {devoluciones.length} devoluciones y {notas.length} notas de crédito reales visibles
+            para seguir impacto físico y económico.
           </CardContent>
         </Card>
         <Card>
@@ -208,8 +238,8 @@ export default function ReportesComprasPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {legacyPurchaseAllocations.length} imputaciones y {legacyPurchaseAdjustments.length}{" "}
-            ajustes ya cubren el análisis legado, pero su persistencia sigue pendiente del backend.
+            {legacyPurchaseAllocations.length} imputaciones siguen en capa legacy y {ajustes.length}{" "}
+            ajustes ya salen de backend para lectura operativa.
           </CardContent>
         </Card>
       </div>

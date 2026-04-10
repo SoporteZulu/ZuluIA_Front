@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { apiGet, apiPost } from "@/lib/api"
-import type { CreateOrdenCompraDto, OrdenCompra } from "@/lib/types/configuracion"
+import type {
+  CreateOrdenCompraDto,
+  OrdenCompra,
+  RecibirOrdenCompraDto,
+} from "@/lib/types/configuracion"
 
 interface UseOrdenesCompraOptions {
   proveedorId?: number
@@ -15,6 +19,17 @@ export function useOrdenesCompra(options: UseOrdenesCompraOptions = {}) {
   const [error, setError] = useState<string | null>(null)
   const [estado, setEstado] = useState("")
 
+  const normalizeOrden = useCallback(
+    (orden: OrdenCompra): OrdenCompra => ({
+      ...orden,
+      cantidadTotal: Number(orden.cantidadTotal ?? 0),
+      cantidadRecibida: Number(orden.cantidadRecibida ?? 0),
+      saldoPendiente: Number(orden.saldoPendiente ?? 0),
+      recepcionParcial: Boolean(orden.recepcionParcial),
+    }),
+    []
+  )
+
   const fetchOrdenes = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -26,13 +41,13 @@ export function useOrdenesCompra(options: UseOrdenesCompraOptions = {}) {
 
       const qs = params.toString()
       const result = await apiGet<OrdenCompra[]>(`/api/ordenes-compra${qs ? `?${qs}` : ""}`)
-      setOrdenes(Array.isArray(result) ? result : [])
+      setOrdenes(Array.isArray(result) ? result.map(normalizeOrden) : [])
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar órdenes de compra")
     } finally {
       setLoading(false)
     }
-  }, [estado, options.proveedorId, options.habilitada])
+  }, [estado, normalizeOrden, options.proveedorId, options.habilitada])
 
   useEffect(() => {
     fetchOrdenes()
@@ -40,16 +55,17 @@ export function useOrdenesCompra(options: UseOrdenesCompraOptions = {}) {
 
   const getById = async (id: number): Promise<OrdenCompra | null> => {
     try {
-      return await apiGet<OrdenCompra>(`/api/ordenes-compra/${id}`)
+      const result = await apiGet<OrdenCompra>(`/api/ordenes-compra/${id}`)
+      return normalizeOrden(result)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar orden de compra")
       return null
     }
   }
 
-  const recibir = async (id: number): Promise<boolean> => {
+  const recibir = async (id: number, dto?: RecibirOrdenCompraDto): Promise<boolean> => {
     try {
-      await apiPost<void>(`/api/ordenes-compra/${id}/recibir`, {})
+      await apiPost<void>(`/api/ordenes-compra/${id}/recibir`, dto ?? {})
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al recibir orden de compra")

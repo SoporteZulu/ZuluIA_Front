@@ -51,13 +51,17 @@ import {
   Plus,
   Search,
   Target,
-  Trash2,
   TrendingUp,
   Users,
   X,
 } from "lucide-react"
 import Link from "next/link"
-import { useCrmCampanas, useCrmSegmentos, useCrmUsuarios } from "@/lib/hooks/useCrm"
+import {
+  useCrmCampanas,
+  useCrmCatalogos,
+  useCrmSegmentos,
+  useCrmUsuarios,
+} from "@/lib/hooks/useCrm"
 import type { CRMCampaign } from "@/lib/types"
 
 const tipoCampanaLabels: Record<CRMCampaign["tipoCampana"], string> = {
@@ -85,6 +89,8 @@ const stageLabels: Record<CampaignStage, string> = {
 }
 
 function getCampaignStage(campaign: CRMCampaign, referenceDate: Date): CampaignStage {
+  if (campaign.activa === false) return "finalizada"
+
   const start = new Date(campaign.fechaInicio)
   start.setHours(0, 0, 0, 0)
 
@@ -130,7 +136,8 @@ function getCloseRate(opportunities: number, wonDeals: number) {
 }
 
 function CampaignsContent() {
-  const { campanas, loading, error, createCampana, updateCampana, deleteCampana } = useCrmCampanas()
+  const { campanas, loading, error, createCampana, updateCampana, closeCampana } = useCrmCampanas()
+  const { data: catalogos } = useCrmCatalogos()
   const { segmentos } = useCrmSegmentos()
   const { usuarios } = useCrmUsuarios()
 
@@ -144,7 +151,7 @@ function CampaignsContent() {
   const [filterStage, setFilterStage] = useState<string>("todos")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingCampaign, setEditingCampaign] = useState<CRMCampaign | null>(null)
-  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [closeId, setCloseId] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
     nombre: "",
@@ -167,6 +174,46 @@ function CampaignsContent() {
     () => new Map(segmentos.map((segment) => [segment.id, segment])),
     [segmentos]
   )
+
+  const tipoCampanaOptions = useMemo(
+    () =>
+      catalogos.tiposCampana.length > 0
+        ? catalogos.tiposCampana
+        : Object.entries(tipoCampanaLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.tiposCampana]
+  )
+
+  const objetivoOptions = useMemo(
+    () =>
+      catalogos.objetivosCampana.length > 0
+        ? catalogos.objetivosCampana
+        : Object.entries(objetivoLabels).map(([id, nombre]) => ({ id, nombre })),
+    [catalogos.objetivosCampana]
+  )
+
+  const segmentoOptions = useMemo(
+    () =>
+      catalogos.segmentos.length > 0
+        ? catalogos.segmentos.map((segment) => ({ id: segment.id, nombre: segment.nombre }))
+        : segmentos.map((segment) => ({ id: segment.id, nombre: segment.nombre })),
+    [catalogos.segmentos, segmentos]
+  )
+
+  const responsableOptions = useMemo(() => {
+    if (catalogos.usuarios.length > 0) {
+      return catalogos.usuarios.filter((user) =>
+        ["marketing", "administrador", "comercial"].includes(user.rol)
+      )
+    }
+
+    return usuarios
+      .filter((user) => ["marketing", "administrador", "comercial"].includes(user.rol))
+      .map((user) => ({
+        id: user.id,
+        nombre: `${user.nombre} ${user.apellido}`,
+        rol: user.rol,
+      }))
+  }, [catalogos.usuarios, usuarios])
 
   const campaignRows = useMemo(() => {
     return campanas.map((campaign) => {
@@ -365,10 +412,10 @@ function CampaignsContent() {
     resetForm()
   }
 
-  const handleDelete = async () => {
-    if (deleteId) {
-      await deleteCampana(deleteId)
-      setDeleteId(null)
+  const handleClose = async () => {
+    if (closeId) {
+      await closeCampana(closeId)
+      setCloseId(null)
     }
   }
 
@@ -437,9 +484,9 @@ function CampaignsContent() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(tipoCampanaLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
+                        {tipoCampanaOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.nombre}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -457,9 +504,9 @@ function CampaignsContent() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(objetivoLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
+                        {objetivoOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.nombre}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -530,7 +577,7 @@ function CampaignsContent() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">Sin segmento</SelectItem>
-                        {segmentos.map((segment) => (
+                        {segmentoOptions.map((segment) => (
                           <SelectItem key={segment.id} value={segment.id}>
                             {segment.nombre}
                           </SelectItem>
@@ -551,9 +598,9 @@ function CampaignsContent() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">Sin responsable</SelectItem>
-                        {usuarios.map((user) => (
+                        {responsableOptions.map((user) => (
                           <SelectItem key={user.id} value={user.id}>
-                            {user.nombre} {user.apellido}
+                            {user.nombre}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -883,9 +930,9 @@ function CampaignsContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todos">Todos los tipos</SelectItem>
-                  {Object.entries(tipoCampanaLabels).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
+                  {tipoCampanaOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.nombre}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -960,13 +1007,15 @@ function CampaignsContent() {
                       <Button variant="ghost" size="icon" onClick={() => handleEdit(row.campaign)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setDeleteId(row.campaign.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {row.stage !== "finalizada" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setCloseId(row.campaign.id)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -983,21 +1032,22 @@ function CampaignsContent() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+      <AlertDialog open={!!closeId} onOpenChange={() => setCloseId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Eliminar campaña</AlertDialogTitle>
+            <AlertDialogTitle>Cerrar campaña</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. Se eliminará permanentemente la campaña visible.
+              La campaña dejará de figurar como activa y pasará a historial con su información
+              actual.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={handleClose}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Eliminar
+              Cerrar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

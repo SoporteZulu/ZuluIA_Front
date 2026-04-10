@@ -26,26 +26,29 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { AlertTriangle, Boxes, CheckCircle, Clock, AlertCircle, Eye, Plus } from "lucide-react"
+import {
+  AlertTriangle,
+  ArrowRight,
+  Boxes,
+  CheckCircle,
+  Clock,
+  AlertCircle,
+  Eye,
+  Plus,
+  Warehouse,
+} from "lucide-react"
 import { useDepositos } from "@/lib/hooks/useDepositos"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useStockActions, useStockResumen } from "@/lib/hooks/useStock"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 import { useTerceros } from "@/lib/hooks/useTerceros"
-
-function getReceptionStatusLabel(estado: string) {
-  switch ((estado ?? "").toUpperCase()) {
-    case "RECIBIDA":
-      return "Recepcion cerrada"
-    case "PENDIENTE":
-      return "Pendiente de recepcion"
-    case "PARCIAL":
-      return "Recepcion parcial"
-    default:
-      return estado || "Sin estado"
-  }
-}
+import {
+  getOrdenCompraRecepcionLabel,
+  getOrdenCompraRecepcionProgress,
+  isOrdenCompraRecepcionAbierta,
+  isOrdenCompraRecepcionParcial,
+} from "@/lib/utils"
 
 function getSalidaStatusLabel(estado: string) {
   switch ((estado ?? "").toUpperCase()) {
@@ -88,7 +91,8 @@ export default function AlmacenesPage() {
     totalDepositos: resumen?.totalDepositos ?? depositos.length,
   }
 
-  const recepcionesAbiertas = ordenes.filter((o) => o.estadoOc !== "RECIBIDA")
+  const recepcionesAbiertas = ordenes.filter(isOrdenCompraRecepcionAbierta)
+  const recepcionesParciales = recepcionesAbiertas.filter(isOrdenCompraRecepcionParcial).length
   const salidasActivas = comprobantes.filter((c) => c.estado === "BORRADOR")
   const alertasCriticas = bajoMinimo.filter((item) => item.stockActual <= 0).length
   const alertasReposicion = bajoMinimo.filter((item) => item.stockActual > 0).length
@@ -138,9 +142,108 @@ export default function AlmacenesPage() {
 
   return (
     <div className="space-y-8">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+        <Card className="border-sky-200 bg-linear-to-br from-sky-50 via-background to-cyan-50">
+          <CardHeader className="space-y-4">
+            <Badge variant="outline" className="w-fit border-sky-200 bg-white/80 text-sky-900">
+              Centro operativo
+            </Badge>
+            <div className="space-y-2">
+              <CardTitle className="text-3xl tracking-tight text-slate-950">
+                Almacenes WMS
+              </CardTitle>
+              <CardDescription className="max-w-3xl text-base leading-7 text-slate-600">
+                Vista central de stock, recepciones y salidas con lectura operativa orientada a
+                desvíos visibles y circuitos activos del backend actual.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary" className="bg-white/80 text-slate-900">
+                {kpis.totalDepositos} depósitos visibles
+              </Badge>
+              <Badge variant="secondary" className="bg-white/80 text-slate-900">
+                {recepcionesAbiertas.length} recepciones activas
+              </Badge>
+              <Badge variant="secondary" className="bg-white/80 text-slate-900">
+                {kpis.itemsBajoMinimo} alertas en foco
+              </Badge>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-sky-200 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-wide text-sky-900/70">Cobertura</p>
+                <p className="mt-2 text-sm font-semibold text-sky-950">
+                  {depositosConCobertura ? "Stock visible en circuito" : "Cobertura insuficiente"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-sky-200 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-wide text-sky-900/70">
+                  Recepciones parciales
+                </p>
+                <p className="mt-2 text-sm font-semibold text-sky-950">
+                  {recepcionesParciales} con saldo pendiente real
+                </p>
+              </div>
+              <div className="rounded-xl border border-sky-200 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-wide text-sky-900/70">Salida visible</p>
+                <p className="mt-2 text-sm font-semibold text-sky-950">
+                  {salidasActivas.length > 0
+                    ? "Documentos borrador en curso"
+                    : "Sin salidas en foco"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 bg-linear-to-br from-slate-50 via-background to-stone-50">
+          <CardHeader>
+            <CardDescription>Pulso del módulo</CardDescription>
+            <CardTitle className="text-xl">Jerarquía rápida de operación</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-xl border bg-white/85 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Stock bajo vigilancia</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {alertasCriticas} críticas y {alertasReposicion} con reposición pendiente.
+                  </p>
+                </div>
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              </div>
+            </div>
+            <div className="rounded-xl border bg-white/85 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Recepción y despacho</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {recepcionesAbiertas.length} ingresos abiertos y {salidasActivas.length} salidas
+                    visibles.
+                  </p>
+                </div>
+                <Warehouse className="h-5 w-5 text-sky-700" />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline">
+                <Link href="/almacenes/reportes">
+                  Abrir reportes
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild>
+                <Link href="/almacenes/inventario">Ir a inventario</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* KPIs Principales */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card>
+        <Card className="border-slate-200 bg-linear-to-br from-white via-white to-slate-50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Items con Stock</CardTitle>
             <Boxes className="h-4 w-4 text-muted-foreground" />
@@ -153,7 +256,7 @@ export default function AlmacenesPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-slate-200 bg-linear-to-br from-white via-white to-rose-50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Sin Stock</CardTitle>
             <AlertCircle className="h-4 w-4 text-muted-foreground" />
@@ -164,7 +267,7 @@ export default function AlmacenesPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-slate-200 bg-linear-to-br from-white via-white to-sky-50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Ordenes Activas</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
@@ -173,15 +276,15 @@ export default function AlmacenesPage() {
             <div className="text-2xl font-bold">
               {recepcionesAbiertas.length + salidasActivas.length}
             </div>
-            <div className="text-xs text-muted-foreground mt-2 space-y-1">
-              <p>
-                Rec: {recepcionesAbiertas.length} | Sal: {salidasActivas.length}
-              </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <Badge variant="outline">Rec {recepcionesAbiertas.length}</Badge>
+              <Badge variant="outline">Parciales {recepcionesParciales}</Badge>
+              <Badge variant="outline">Sal {salidasActivas.length}</Badge>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-slate-200 bg-linear-to-br from-white via-white to-orange-50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Alertas de Stock</CardTitle>
             <AlertTriangle className="h-4 w-4 text-destructive" />
@@ -378,8 +481,8 @@ export default function AlmacenesPage() {
               <CardTitle>Recepciones Abiertas</CardTitle>
               <CardDescription>Órdenes en proceso</CardDescription>
             </div>
-            <Button size="icon" variant="outline">
-              <Plus className="h-4 w-4" />
+            <Button asChild size="sm" variant="outline">
+              <Link href="/almacenes/recepciones">Abrir circuito</Link>
             </Button>
           </CardHeader>
           <CardContent>
@@ -392,23 +495,37 @@ export default function AlmacenesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {recepcionesAbiertas.slice(0, 3).map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-medium">{order.id}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{getReceptionStatusLabel(order.estadoOc)}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-xs text-muted-foreground">
-                        {order.fechaEntregaReq ?? "-"}
-                      </span>
+                {recepcionesAbiertas.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
+                      No hay recepciones operativas abiertas.
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  recepcionesAbiertas.slice(0, 3).map((order) => {
+                    const progress = getOrdenCompraRecepcionProgress(order)
+
+                    return (
+                      <TableRow key={order.id}>
+                        <TableCell className="font-medium">{order.id}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{getOrdenCompraRecepcionLabel(order)}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground">
+                            {progress.cantidadTotal > 0
+                              ? `${progress.cantidadRecibida}/${progress.cantidadTotal} u · saldo ${progress.saldoPendiente}`
+                              : (order.fechaEntregaReq ?? "-")}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
               </TableBody>
             </Table>
-            <Button variant="link" className="w-full mt-4">
-              Ver todas las recepciones
+            <Button asChild variant="link" className="mt-4 w-full">
+              <Link href="/almacenes/recepciones">Ver todas las recepciones</Link>
             </Button>
           </CardContent>
         </Card>
@@ -421,9 +538,11 @@ export default function AlmacenesPage() {
             <CardTitle>Órdenes de Salida Activas</CardTitle>
             <CardDescription>Preparación y despacho</CardDescription>
           </div>
-          <Button size="sm">
-            <Plus className="h-4 w-4 mr-2" />
-            Nueva Orden
+          <Button asChild size="sm">
+            <Link href="/almacenes/picking">
+              <Plus className="h-4 w-4 mr-2" />
+              Abrir picking
+            </Link>
           </Button>
         </CardHeader>
         <CardContent>
@@ -436,33 +555,43 @@ export default function AlmacenesPage() {
                 <TableHead>Prioridad</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead>Progreso</TableHead>
-                <TableHead></TableHead>
+                <TableHead className="text-right">Circuito</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {salidasActivas.slice(0, 3).map((order) => (
-                <TableRow key={order.id}>
-                  <TableCell className="font-medium">{order.nroComprobante ?? "-"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {getClienteNombre(order.terceroId)}
-                  </TableCell>
-                  <TableCell>{getClienteDestino(order.terceroId)}</TableCell>
-                  <TableCell>-</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{getSalidaStatusLabel(order.estado)}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-xs text-muted-foreground">
-                      ${order.total.toLocaleString("es-AR")}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <Button size="icon" variant="ghost">
-                      <Eye className="h-4 w-4" />
-                    </Button>
+              {salidasActivas.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
+                    No hay salidas activas visibles en el lote actual.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                salidasActivas.slice(0, 3).map((order) => (
+                  <TableRow key={order.id}>
+                    <TableCell className="font-medium">{order.nroComprobante ?? "-"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {getClienteNombre(order.terceroId)}
+                    </TableCell>
+                    <TableCell>{getClienteDestino(order.terceroId)}</TableCell>
+                    <TableCell>-</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{getSalidaStatusLabel(order.estado)}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-muted-foreground">
+                        ${order.total.toLocaleString("es-AR")}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href="/almacenes/picking">
+                          <Eye className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
@@ -522,10 +651,13 @@ export default function AlmacenesPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>Las recepciones abiertas se leen desde ordenes aun no marcadas como recibidas.</p>
             <p>
-              La fecha requerida ya sirve como referencia visible de prioridad operativa sin
-              inventar nuevas reglas.
+              Las recepciones abiertas ahora excluyen ordenes canceladas y distinguen ingresos
+              parciales con saldo pendiente real.
+            </p>
+            <p>
+              El progreso visible sale de cantidades recibidas y saldo pendiente, sin volver a una
+              lectura simplificada del circuito.
             </p>
           </CardContent>
         </Card>

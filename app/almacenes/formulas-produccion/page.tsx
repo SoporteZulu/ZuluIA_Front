@@ -78,7 +78,8 @@ function getComponentCoverage(formula: FormulaProduccion) {
 
 export default function FormulasProduccionPage() {
   const [soloActivas, setSoloActivas] = useState(false)
-  const { formulas, loading, error, getById, crear, refetch } = useFormulasProduccion(soloActivas)
+  const { formulas, loading, error, getById, crear, activar, desactivar, refetch } =
+    useFormulasProduccion(soloActivas)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
@@ -86,6 +87,7 @@ export default function FormulasProduccionPage() {
   const [detail, setDetail] = useState<FormulaProduccion | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [busyStateId, setBusyStateId] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [draft, setDraft] = useState({
     codigo: "",
@@ -119,12 +121,14 @@ export default function FormulasProduccionPage() {
     formulas.length > 0 ? (totalComponentes / formulas.length).toFixed(1) : "0.0"
   const conCodigo = formulas.filter((formula) => Boolean(formula.codigo)).length
   const extendidas = formulas.filter((formula) => (formula.componentes?.length ?? 0) >= 3).length
-  const selectedCircuit = selected ? getFormulaStatus(selected) : "-"
 
   const selected = useMemo(
     () => filtered.find((formula) => formula.id === selectedId) ?? null,
     [filtered, selectedId]
   )
+
+  const selectedCircuit = selected ? getFormulaStatus(selected) : "-"
+  const featuredFormula = selected ?? filtered[0] ?? null
 
   const handleOpenDetail = async (id: number) => {
     setDetailOpen(true)
@@ -166,9 +170,14 @@ export default function FormulasProduccionPage() {
   const handleCreate = async () => {
     setActionError(null)
 
-    if (!draft.descripcion.trim() || !draft.itemProductoId || !draft.cantidadProducida) {
+    if (
+      !draft.codigo.trim() ||
+      !draft.descripcion.trim() ||
+      !draft.itemProductoId ||
+      !draft.cantidadProducida
+    ) {
       setActionError(
-        "Completá descripción, producto y cantidad producida para registrar la fórmula."
+        "Completá código, descripción, producto y cantidad producida para registrar la fórmula."
       )
       return
     }
@@ -186,8 +195,8 @@ export default function FormulasProduccionPage() {
     }
 
     setSaving(true)
-    const ok = await crear({
-      codigo: draft.codigo || undefined,
+    const createdId = await crear({
+      codigo: draft.codigo,
       descripcion: draft.descripcion.trim(),
       itemProductoId: Number(draft.itemProductoId),
       cantidadProducida: Number(draft.cantidadProducida),
@@ -196,13 +205,31 @@ export default function FormulasProduccionPage() {
     })
     setSaving(false)
 
-    if (!ok) {
+    if (!createdId) {
       setActionError("No se pudo crear la fórmula de producción.")
       return
     }
 
     setCreateOpen(false)
     resetCreate()
+    setSelectedId(createdId)
+  }
+
+  const handleToggleEstado = async (formula: FormulaProduccion) => {
+    setBusyStateId(formula.id)
+    setActionError(null)
+
+    const ok = formula.activa ? await desactivar(formula.id) : await activar(formula.id)
+
+    if (!ok) {
+      setActionError(
+        formula.activa
+          ? "No se pudo desactivar la fórmula seleccionada."
+          : "No se pudo activar la fórmula seleccionada."
+      )
+    }
+
+    setBusyStateId(null)
   }
 
   return (
@@ -282,6 +309,102 @@ export default function FormulasProduccionPage() {
         />
       </div>
 
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+        <Card className="border-emerald-200 bg-linear-to-br from-emerald-50 via-background to-lime-50">
+          <CardHeader>
+            <CardDescription>Radar técnico</CardDescription>
+            <CardTitle className="text-xl">
+              {featuredFormula
+                ? `${featuredFormula.codigo ?? "Sin código"} · ${featuredFormula.descripcion}`
+                : "Sin fórmulas visibles en la consulta"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {featuredFormula ? (
+              <>
+                <p className="max-w-3xl text-sm text-muted-foreground">
+                  La receta destacada resume el nivel de terminación técnica visible en el módulo:
+                  código, estado activo y cobertura de componentes en una sola lectura.
+                </p>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-xl border border-emerald-200 bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-wide text-emerald-900/70">Circuito</p>
+                    <p className="mt-2 text-sm font-semibold text-emerald-950">
+                      {getFormulaStatus(featuredFormula)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200 bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-wide text-emerald-900/70">
+                      Componentes
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-emerald-950">
+                      {featuredFormula.componentes?.length ?? 0} visibles
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200 bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-wide text-emerald-900/70">Estado</p>
+                    <p className="mt-2 text-sm font-semibold text-emerald-950">
+                      {featuredFormula.activa ? "Activa" : "Inactiva"}
+                    </p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="rounded-xl border border-dashed border-emerald-200 bg-white/70 p-5 text-sm text-muted-foreground">
+                Ajustá los filtros o creá una fórmula para volver a poblar el radar técnico.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 bg-linear-to-br from-slate-50 via-background to-stone-50">
+          <CardHeader>
+            <CardDescription>Fórmula enfocada</CardDescription>
+            <CardTitle className="text-xl">
+              {selected
+                ? `${selected.codigo ?? "Sin código"} · ${selected.descripcion}`
+                : "Selecciona una fórmula para ver su lectura lateral"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {selected ? (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant={selected.activa ? "default" : "secondary"}>
+                    {selected.activa ? "Activa" : "Inactiva"}
+                  </Badge>
+                  <Badge variant="outline">{getFormulaStatus(selected)}</Badge>
+                  <Badge variant="outline">{getComponentCoverage(selected)}</Badge>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Producto</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-950">
+                      #{selected.itemProductoId}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Cantidad base</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-950">
+                      {selected.cantidadProducida}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  La selección lateral queda alineada con la tabla principal y con el detalle
+                  expandido del diálogo técnico.
+                </p>
+              </>
+            ) : (
+              <div className="rounded-xl border border-dashed bg-white/70 p-5 text-sm text-muted-foreground">
+                La tabla de recetas resalta la selección activa para sostener la lectura visual del
+                circuito productivo.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Filtros y visibilidad</CardTitle>
@@ -290,15 +413,22 @@ export default function FormulasProduccionPage() {
             fórmulas activas.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por código, descripción o producto ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8"
-            />
+        <CardContent className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+          <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por código, descripción o producto ID..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">{filtered.length} visibles</Badge>
+              <Badge variant="outline">{extendidas} extendidas</Badge>
+              <Badge variant="outline">{conCodigo} con código</Badge>
+            </div>
           </div>
           <div className="flex items-center gap-3 rounded-lg border p-3">
             <Switch id="solo-activas" checked={soloActivas} onCheckedChange={setSoloActivas} />
@@ -370,6 +500,22 @@ export default function FormulasProduccionPage() {
                         <Badge variant={formula.activa ? "default" : "secondary"}>
                           {formula.activa ? "Activa" : "Inactiva"}
                         </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-2 h-7 px-2 text-xs"
+                          disabled={busyStateId === formula.id}
+                          onClick={async (event) => {
+                            event.stopPropagation()
+                            await handleToggleEstado(formula)
+                          }}
+                        >
+                          {busyStateId === formula.id
+                            ? "Actualizando..."
+                            : formula.activa
+                              ? "Desactivar"
+                              : "Activar"}
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -392,6 +538,42 @@ export default function FormulasProduccionPage() {
           <CardContent className="space-y-4">
             {selected ? (
               <>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-emerald-900">Lectura activa</p>
+                      <p className="mt-1 text-lg font-semibold text-emerald-950">
+                        {selected.codigo ?? "Sin código"} · producto #{selected.itemProductoId}
+                      </p>
+                      {selected.itemProductoDescripcion ? (
+                        <p className="mt-1 text-sm text-emerald-900/80">
+                          {selected.itemProductoDescripcion}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant={selected.activa ? "default" : "secondary"}>
+                        {selected.activa ? "Activa" : "Inactiva"}
+                      </Badge>
+                      <Badge variant="outline">{getComponentCoverage(selected)}</Badge>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => void handleToggleEstado(selected)}
+                    disabled={busyStateId === selected.id}
+                  >
+                    {busyStateId === selected.id
+                      ? "Actualizando estado..."
+                      : selected.activa
+                        ? "Desactivar fórmula"
+                        : "Activar fórmula"}
+                  </Button>
+                </div>
+
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-lg border p-3">
                     <p className="text-sm text-muted-foreground">Cantidad producida</p>
@@ -412,6 +594,12 @@ export default function FormulasProduccionPage() {
                   <div className="rounded-lg border p-3">
                     <p className="text-sm text-muted-foreground">Cobertura de insumos</p>
                     <p className="mt-2 font-medium">{getComponentCoverage(selected)}</p>
+                  </div>
+                  <div className="rounded-lg border p-3 sm:col-span-2">
+                    <p className="text-sm text-muted-foreground">Observación</p>
+                    <p className="mt-2 font-medium">
+                      {selected.observacion?.trim() || "Sin observación operativa registrada."}
+                    </p>
                   </div>
                 </div>
 
@@ -484,6 +672,11 @@ export default function FormulasProduccionPage() {
                   <div className="rounded-lg bg-muted/40 p-3">
                     <span className="mb-1 block text-xs text-muted-foreground">Producto</span>
                     <p className="text-sm font-medium">#{detail.itemProductoId}</p>
+                    {detail.itemProductoDescripcion ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {detail.itemProductoDescripcion}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="rounded-lg bg-muted/40 p-3">
                     <span className="mb-1 block text-xs text-muted-foreground">

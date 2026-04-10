@@ -1,20 +1,22 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
   ClipboardList,
   Eye,
-  FileStack,
-  Landmark,
+  Plus,
   RefreshCw,
   Search,
   ShieldAlert,
   ShoppingCart,
+  Trash2,
+  XCircle,
 } from "lucide-react"
+
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,6 +25,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -44,13 +47,16 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  legacyPurchaseQuotations,
-  legacyPurchaseRequisitions,
-  type LegacyPurchaseRequisition,
-} from "@/lib/compras-legacy-data"
+import { useEmpleados } from "@/lib/hooks/useEmpleados"
+import { useCotizacionesCompra, useRequisicionesCompra } from "@/lib/hooks/useCompras"
+import { useItems } from "@/lib/hooks/useItems"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
+import { useSucursales } from "@/lib/hooks/useSucursales"
+import type {
+  RequisicionCompraDetalle,
+  RequisicionCompraListItem,
+} from "@/lib/types/compras-operativa"
 
 type RequisitionStage = "sin_revisar" | "en_preparacion" | "lista_para_cotizar" | "derivada"
 
@@ -62,16 +68,24 @@ type LocalRequisitionTracker = {
   updatedAt: string
 }
 
+type DraftRequisitionItem = {
+  itemId: string
+  descripcion: string
+  cantidad: string
+  unidadMedida: string
+  observacion: string
+}
+
 const REQUISITION_TRACKER_STORAGE_KEY = "zuluia_compras_requisition_trackers"
 
-const STATUS_CONFIG: Record<
-  LegacyPurchaseRequisition["estado"],
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  ABIERTA: { label: "Abierta", variant: "secondary" },
-  EN_PROCESO: { label: "En proceso", variant: "default" },
-  COTIZADA: { label: "Cotizada", variant: "default" },
-  CANCELADA: { label: "Cancelada", variant: "destructive" },
+function createDraftItem(): DraftRequisitionItem {
+  return {
+    itemId: "manual",
+    descripcion: "",
+    cantidad: "1",
+    unidadMedida: "u.",
+    observacion: "",
+  }
 }
 
 const STAGE_CONFIG: Record<
@@ -84,73 +98,85 @@ const STAGE_CONFIG: Record<
   derivada: { label: "Derivada", variant: "default" },
 }
 
-const DEFAULT_TRACKERS: LocalRequisitionTracker[] = legacyPurchaseRequisitions.map(
-  (requisition) => ({
-    requisitionId: requisition.id,
-    stage: requisition.cotizacionReferencia
-      ? requisition.ordenCompraReferencia
-        ? "derivada"
-        : "lista_para_cotizar"
-      : requisition.estado === "ABIERTA"
-        ? "sin_revisar"
-        : "en_preparacion",
-    buyer: requisition.compradorAsignado,
-    nextStep: requisition.ordenCompraReferencia
-      ? "Mantener trazabilidad del origen; la orden ya está emitida."
-      : requisition.cotizacionReferencia
-        ? "Completar comparativa comercial y decidir si pasa a orden."
-        : "Preparar lote y enviar a cotización manual.",
-    updatedAt: requisition.fecha,
-  })
-)
-
 function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"
 }
 
-function formatMoney(value: number, currency = "ARS") {
-  return value.toLocaleString("es-AR", { style: "currency", currency })
-}
-
-function getDaysUntil(value: string) {
+function getDaysFromCreated(value: string) {
   const target = new Date(value)
   const today = new Date()
   target.setHours(0, 0, 0, 0)
   today.setHours(0, 0, 0, 0)
-  return Math.floor((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  return Math.floor((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24))
 }
 
-function matchesTerm(requisition: LegacyPurchaseRequisition, term: string) {
+function getStatusMeta(status: string) {
+  const value = status.toUpperCase()
+  switch (value) {
+    case "BORRADOR":
+      return { label: "Borrador", variant: "outline" as const }
+    case "ENVIADA":
+      return { label: "Enviada", variant: "secondary" as const }
+    case "APROBADA":
+      return { label: "Aprobada", variant: "default" as const }
+    case "RECHAZADA":
+      return { label: "Rechazada", variant: "destructive" as const }
+    case "CANCELADA":
+      return { label: "Cancelada", variant: "destructive" as const }
+    default:
+      return { label: status, variant: "outline" as const }
+  }
+}
+
+function matchesTerm(requisition: RequisicionCompraListItem, term: string) {
   if (term === "") return true
 
-  const haystack = [
+  return [
     requisition.solicitante,
-    requisition.area,
+    requisition.solicitanteNombre,
+    requisition.descripcion,
     requisition.motivo,
-    requisition.origen,
-    requisition.destino,
-    requisition.centroCosto,
-    requisition.proveedorSugerido ?? "",
-    requisition.cotizacionReferencia ?? "",
-    requisition.ordenCompraReferencia ?? "",
+    requisition.estado,
+    requisition.estadoLegacy,
+    requisition.requisicionReferencia,
     String(requisition.id),
-    ...requisition.items.map((item) => `${item.codigo} ${item.descripcion} ${item.destino}`),
   ]
     .join(" ")
     .toLowerCase()
-
-  return haystack.includes(term)
+    .includes(term)
 }
 
-function getRequisitionHealth(
-  requisition: LegacyPurchaseRequisition,
-  tracker: LocalRequisitionTracker
-) {
-  if (tracker.stage === "derivada") return "El requerimiento ya fue derivado al circuito siguiente"
-  if (tracker.stage === "lista_para_cotizar")
-    return "El lote ya está preparado para pasar a cotización"
-  if (requisition.requiereValidacionTecnica) return "Falta validación técnica antes de cotizar"
-  return "Pendiente de consolidación operativa"
+function buildDefaultTracker(requisition: RequisicionCompraListItem): LocalRequisitionTracker {
+  const status = (requisition.estadoLegacy || requisition.estado || "").toUpperCase()
+  return {
+    requisitionId: requisition.id,
+    stage:
+      status === "APROBADA"
+        ? "lista_para_cotizar"
+        : status === "ENVIADA"
+          ? "en_preparacion"
+          : status === "RECHAZADA" || status === "CANCELADA"
+            ? "derivada"
+            : "sin_revisar",
+    buyer: "Compras",
+    nextStep:
+      status === "APROBADA"
+        ? "Tomar la requisición aprobada y abrir la cotización correspondiente."
+        : status === "ENVIADA"
+          ? "Completar la revisión interna y decidir aprobación o rechazo."
+          : status === "RECHAZADA" || status === "CANCELADA"
+            ? "Caso cerrado. Revisar si requiere nueva solicitud origen."
+            : "Validar alcance, prioridad y asignación antes de enviarla.",
+    updatedAt: requisition.createdAt,
+  }
+}
+
+function getRequisitionHealth(status: string, tracker: LocalRequisitionTracker) {
+  if (tracker.stage === "derivada") return "La requisición salió del flujo activo actual"
+  if (tracker.stage === "lista_para_cotizar") return "Lista para abrir o completar cotización"
+  if (status === "BORRADOR") return "Todavía no fue enviada al circuito formal"
+  if (status === "ENVIADA") return "En revisión para aprobación de compras"
+  return "Pendiente de análisis operativo"
 }
 
 function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
@@ -167,68 +193,115 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
 }
 
 export default function RequisicionesCompraPage() {
+  const { sucursales } = useSucursales()
+  const defaultSucursalId = sucursales[0]?.id
+  const { empleados } = useEmpleados()
   const { ordenes, loading: loadingOrders, error: ordersError } = useOrdenesCompra()
+  const { cotizaciones, loading: loadingQuotes, error: quotesError } = useCotizacionesCompra()
+  const {
+    requisiciones,
+    loading,
+    error,
+    getById,
+    crear,
+    enviar,
+    aprobar,
+    rechazar,
+    cancelar,
+    refetch,
+  } = useRequisicionesCompra()
   const {
     rows: trackers,
     setRows: setTrackers,
     reset: resetTrackers,
-  } = useLegacyLocalCollection<LocalRequisitionTracker>(
-    REQUISITION_TRACKER_STORAGE_KEY,
-    DEFAULT_TRACKERS
-  )
+  } = useLegacyLocalCollection<LocalRequisitionTracker>(REQUISITION_TRACKER_STORAGE_KEY, [])
 
   const [search, setSearch] = useState("")
-  const [selectedId, setSelectedId] = useState<number | null>(
-    legacyPurchaseRequisitions[0]?.id ?? null
-  )
-  const [typeFilter, setTypeFilter] = useState<"todas" | "Compra" | "Obra">("todas")
+  const [statusFilter, setStatusFilter] = useState("todas")
   const [stageFilter, setStageFilter] = useState<"todas" | RequisitionStage>("todas")
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selectedDetail, setSelectedDetail] = useState<RequisicionCompraDetalle | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState<
+    "enviar" | "aprobar" | "rechazar" | "cancelar" | null
+  >(null)
+  const { items } = useItems({ enabled: createOpen })
+  const [createForm, setCreateForm] = useState({
+    sucursalId: "",
+    solicitanteId: "",
+    fecha: new Date().toISOString().slice(0, 10),
+    descripcion: "",
+    observacion: "",
+    items: [createDraftItem()],
+  })
+  const createSucursalValue =
+    createForm.sucursalId || (defaultSucursalId ? String(defaultSucursalId) : "")
 
+  const defaultTrackers = useMemo(() => requisiciones.map(buildDefaultTracker), [requisiciones])
   const trackerMap = useMemo(
     () => new Map(trackers.map((tracker) => [tracker.requisitionId, tracker])),
     [trackers]
   )
 
-  const requisitions = useMemo(
+  const requisitionRows = useMemo(
     () =>
-      legacyPurchaseRequisitions.map((requisition) => ({
+      requisiciones.map((requisition) => ({
         ...requisition,
+        displayStatus: (requisition.estadoLegacy || requisition.estado || "").toUpperCase(),
         tracker:
           trackerMap.get(requisition.id) ??
-          DEFAULT_TRACKERS.find((row) => row.requisitionId === requisition.id)!,
-        daysToDue: getDaysUntil(requisition.vencimiento),
-        totalUnits: requisition.items.reduce((acc, item) => acc + item.cantidad, 0),
-        linkedQuotation:
-          legacyPurchaseQuotations.find((quote) => quote.id === requisition.cotizacionId) ?? null,
+          defaultTrackers.find((row) => row.requisitionId === requisition.id)!,
+        ageInDays: getDaysFromCreated(requisition.fecha || requisition.createdAt),
       })),
-    [trackerMap]
+    [defaultTrackers, requisiciones, trackerMap]
   )
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase().trim()
-    return requisitions.filter((requisition) => {
+    return requisitionRows.filter((requisition) => {
       const matchesSearch = matchesTerm(requisition, term)
-      const matchesType = typeFilter === "todas" || requisition.tipo === typeFilter
+      const matchesStatus = statusFilter === "todas" || requisition.displayStatus === statusFilter
       const matchesStage = stageFilter === "todas" || requisition.tracker.stage === stageFilter
-      return matchesSearch && matchesType && matchesStage
+      return matchesSearch && matchesStatus && matchesStage
     })
-  }, [requisitions, search, stageFilter, typeFilter])
+  }, [requisitionRows, search, stageFilter, statusFilter])
 
-  const selected = requisitions.find((req) => req.id === selectedId) ?? filtered[0] ?? null
+  const selectedBase = requisitionRows.find((row) => row.id === selectedId) ?? filtered[0] ?? null
+
+  useEffect(() => {
+    if (!selectedId) {
+      return
+    }
+
+    let cancelled = false
+    getById(selectedId)
+      .then((detail) => {
+        if (!cancelled) setSelectedDetail(detail)
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedDetail(null)
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [getById, selectedId])
 
   const kpis = useMemo(() => {
-    const linked = requisitions.filter((req) => req.cotizacionReferencia).length
-    const technical = requisitions.filter((req) => req.requiereValidacionTecnica).length
-    const ready = requisitions.filter((req) => req.tracker.stage === "lista_para_cotizar").length
-    const pendingBudget = requisitions.reduce((acc, req) => acc + req.presupuestoEstimado, 0)
-    return {
-      total: requisitions.length,
-      linked,
-      technical,
-      ready,
-      pendingBudget,
-    }
-  }, [requisitions])
+    const ready = requisitionRows.filter((row) => row.tracker.stage === "lista_para_cotizar").length
+    const sent = requisitionRows.filter((row) => row.displayStatus === "ENVIADA").length
+    const approved = requisitionRows.filter((row) => row.displayStatus === "APROBADA").length
+    const active = requisitionRows.filter(
+      (row) => row.displayStatus !== "RECHAZADA" && row.displayStatus !== "CANCELADA"
+    ).length
+    return { ready, sent, approved, active }
+  }, [requisitionRows])
 
   const queue = useMemo(() => {
     const stageOrder: Record<RequisitionStage, number> = {
@@ -237,38 +310,179 @@ export default function RequisicionesCompraPage() {
       sin_revisar: 2,
       derivada: 3,
     }
-    const priorityOrder = { Alta: 0, Media: 1, Baja: 2 }
+
     return [...filtered]
       .sort((left, right) => {
         if (stageOrder[left.tracker.stage] !== stageOrder[right.tracker.stage]) {
           return stageOrder[left.tracker.stage] - stageOrder[right.tracker.stage]
         }
-        if (priorityOrder[left.prioridad] !== priorityOrder[right.prioridad]) {
-          return priorityOrder[left.prioridad] - priorityOrder[right.prioridad]
-        }
-        return left.daysToDue - right.daysToDue
+        return right.ageInDays - left.ageInDays
       })
       .slice(0, 5)
   }, [filtered])
 
-  const updateTracker = (requisitionId: number, patch: Partial<LocalRequisitionTracker>) => {
-    setTrackers((current) => {
-      const index = current.findIndex((row) => row.requisitionId === requisitionId)
-      const nextRow = {
-        ...(index >= 0
-          ? current[index]
-          : DEFAULT_TRACKERS.find((row) => row.requisitionId === requisitionId)!),
-        ...patch,
-        updatedAt: new Date().toISOString(),
+  const employeeOptions = useMemo(
+    () =>
+      empleados.filter(
+        (empleado) =>
+          !createForm.sucursalId || empleado.sucursalId === Number(createForm.sucursalId)
+      ),
+    [createForm.sucursalId, empleados]
+  )
+
+  const itemOptions = useMemo(() => items.filter((item) => item.activo), [items])
+
+  const updateTracker = useCallback(
+    (requisitionId: number, patch: Partial<LocalRequisitionTracker>) => {
+      setTrackers((current) => {
+        const index = current.findIndex((row) => row.requisitionId === requisitionId)
+        const nextRow = {
+          ...(index >= 0
+            ? current[index]
+            : defaultTrackers.find((row) => row.requisitionId === requisitionId)!),
+          ...patch,
+          updatedAt: new Date().toISOString(),
+        }
+
+        if (index >= 0) {
+          return current.map((row, rowIndex) => (rowIndex === index ? nextRow : row))
+        }
+
+        return [...current, nextRow]
+      })
+    },
+    [defaultTrackers, setTrackers]
+  )
+
+  const openDetail = useCallback((id: number) => {
+    setSelectedDetail(null)
+    setDetailLoading(true)
+    setSelectedId(id)
+  }, [])
+
+  const refreshSelection = useCallback(
+    async (id: number) => {
+      await refetch()
+      if (selectedId === id) {
+        const detail = await getById(id).catch(() => null)
+        setSelectedDetail(detail)
+      }
+    },
+    [getById, refetch, selectedId]
+  )
+
+  const runAction = useCallback(
+    async (mode: "enviar" | "aprobar" | "rechazar" | "cancelar", id: number) => {
+      setActionLoading(mode)
+      let ok = false
+      if (mode === "enviar") ok = await enviar(id)
+      if (mode === "aprobar") ok = await aprobar(id)
+      if (mode === "rechazar") ok = await rechazar(id, null)
+      if (mode === "cancelar") ok = await cancelar(id)
+      setActionLoading(null)
+
+      if (ok) {
+        await refreshSelection(id)
+      }
+    },
+    [aprobar, cancelar, enviar, rechazar, refreshSelection]
+  )
+
+  const updateCreateItem = useCallback((index: number, patch: Partial<DraftRequisitionItem>) => {
+    setCreateForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item
+      ),
+    }))
+  }, [])
+
+  const handleSelectCatalogItem = useCallback(
+    (index: number, value: string) => {
+      if (value === "manual") {
+        updateCreateItem(index, { itemId: value, descripcion: "", unidadMedida: "u." })
+        return
       }
 
-      if (index >= 0) {
-        return current.map((row, rowIndex) => (rowIndex === index ? nextRow : row))
-      }
+      const selectedItem = itemOptions.find((item) => item.id === Number(value))
+      updateCreateItem(index, {
+        itemId: value,
+        descripcion: selectedItem?.descripcion ?? "",
+        unidadMedida: selectedItem?.unidadMedidaDescripcion ?? "u.",
+      })
+    },
+    [itemOptions, updateCreateItem]
+  )
 
-      return [...current, nextRow]
+  const addCreateItem = useCallback(() => {
+    setCreateForm((current) => ({ ...current, items: [...current.items, createDraftItem()] }))
+  }, [])
+
+  const removeCreateItem = useCallback((index: number) => {
+    setCreateForm((current) => ({
+      ...current,
+      items:
+        current.items.length === 1 ? current.items : current.items.filter((_, i) => i !== index),
+    }))
+  }, [])
+
+  const resetCreateForm = useCallback(() => {
+    setCreateError(null)
+    setCreateForm({
+      sucursalId: defaultSucursalId ? String(defaultSucursalId) : "",
+      solicitanteId: "",
+      fecha: new Date().toISOString().slice(0, 10),
+      descripcion: "",
+      observacion: "",
+      items: [createDraftItem()],
     })
-  }
+  }, [defaultSucursalId])
+
+  const submitCreate = useCallback(async () => {
+    setCreateError(null)
+
+    const validItems = createForm.items
+      .map((item) => ({
+        itemId: item.itemId === "manual" || item.itemId === "" ? null : Number(item.itemId),
+        descripcion: item.descripcion.trim(),
+        cantidad: Number(item.cantidad),
+        unidadMedida: item.unidadMedida.trim() || "u.",
+        observacion: item.observacion.trim() || null,
+      }))
+      .filter(
+        (item) => item.descripcion !== "" && Number.isFinite(item.cantidad) && item.cantidad > 0
+      )
+
+    if (!createForm.sucursalId || !createForm.solicitanteId || !createForm.descripcion.trim()) {
+      setCreateError("Complete sucursal, solicitante y descripción general.")
+      return
+    }
+
+    if (validItems.length === 0) {
+      setCreateError("Agregue al menos un ítem válido con cantidad mayor a cero.")
+      return
+    }
+
+    setCreateLoading(true)
+    const ok = await crear({
+      sucursalId: Number(createSucursalValue),
+      solicitanteId: Number(createForm.solicitanteId),
+      fecha: createForm.fecha,
+      descripcion: createForm.descripcion.trim(),
+      observacion: createForm.observacion.trim() || null,
+      items: validItems,
+    })
+    setCreateLoading(false)
+
+    if (ok) {
+      await refetch()
+      setCreateOpen(false)
+      resetCreateForm()
+      setStatusFilter("BORRADOR")
+    } else {
+      setCreateError("No se pudo crear la requisición. Revise los datos e intente nuevamente.")
+    }
+  }, [crear, createForm, createSucursalValue, refetch, resetCreateForm])
 
   return (
     <div className="space-y-6 pb-6">
@@ -276,20 +490,22 @@ export default function RequisicionesCompraPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Requisiciones de compra</h1>
           <p className="text-muted-foreground">
-            Consola del origen manual legacy antes de cotización y emisión de orden.
+            Consola real del origen del circuito: solicitud, revisión, aprobación y pase a
+            cotización.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="bg-transparent" onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" /> Nueva requisición
+          </Button>
           <Button variant="outline" className="bg-transparent" asChild>
             <Link href="/compras/solicitudes">
-              <ClipboardList className="mr-2 h-4 w-4" />
-              Ver solicitudes
+              <ClipboardList className="mr-2 h-4 w-4" /> Ver solicitudes
             </Link>
           </Button>
           <Button asChild>
             <Link href="/compras/cotizaciones">
-              <ArrowRight className="mr-2 h-4 w-4" />
-              Ir a cotizaciones
+              <ArrowRight className="mr-2 h-4 w-4" /> Ir a cotizaciones
             </Link>
           </Button>
         </div>
@@ -298,43 +514,43 @@ export default function RequisicionesCompraPage() {
       <Alert>
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
-          El backend actual no expone un alta formal de requisiciones de compra. Esta vista cubre el
-          origen manual legacy, los renglones, la preparación para cotizar y el seguimiento local
-          hasta derivar el caso a [cotizaciones](app/compras/cotizaciones/page.tsx) u
-          [ordenes](app/compras/ordenes/page.tsx).
+          Esta vista usa requisiciones reales del backend. El tablero local sólo agrega
+          priorización, responsable y próximos pasos del equipo de compras.
         </AlertDescription>
       </Alert>
 
-      {ordersError && (
+      {(error || ordersError || quotesError) && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{ordersError}</AlertDescription>
+          <AlertDescription>{error || ordersError || quotesError}</AlertDescription>
         </Alert>
       )}
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Requisiciones visibles</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.total}</p>
+            <p className="text-xs text-muted-foreground">Activas</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : kpis.active}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Con cotización asociada</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.linked}</p>
+            <p className="text-xs text-muted-foreground">Enviadas</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : kpis.sent}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Validación técnica</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.technical}</p>
+            <p className="text-xs text-muted-foreground">Aprobadas</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-600">
+              {loading ? "..." : kpis.approved}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Presupuesto visible</p>
-            <p className="mt-2 text-2xl font-bold">{formatMoney(kpis.pendingBudget)}</p>
+            <p className="text-xs text-muted-foreground">Listas para cotizar</p>
+            <p className="mt-2 text-2xl font-bold text-sky-600">{loading ? "..." : kpis.ready}</p>
           </CardContent>
         </Card>
       </div>
@@ -342,42 +558,40 @@ export default function RequisicionesCompraPage() {
       <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
         <Card className="border-dashed">
           <CardHeader>
-            <CardTitle className="text-base">Entrada del circuito</CardTitle>
+            <CardTitle className="text-base">Continuidad del circuito</CardTitle>
             <CardDescription>
-              Las requisiciones conviven con la reposición automática pero responden a pedidos por
-              área, obra o ingeniería.
+              Las requisiciones aprobadas deben continuar en cotizaciones. El tablero permite
+              ordenar el trabajo sin duplicar datos del backend.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             <Button asChild>
-              <Link href="/compras/solicitudes">
-                <ArrowRight className="mr-2 h-4 w-4" />
-                Ver radar de reposición
+              <Link href="/compras/cotizaciones">
+                <ArrowRight className="mr-2 h-4 w-4" /> Abrir cotizaciones
               </Link>
             </Button>
-            <Button variant="outline" className="bg-transparent" asChild>
-              <Link href="/compras/cotizaciones">Ir a cotizaciones</Link>
+            <Button variant="outline" className="bg-transparent" onClick={() => resetTrackers()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Restablecer seguimiento local
             </Button>
           </CardContent>
         </Card>
 
         <Card className="border-dashed">
           <CardHeader>
-            <CardTitle className="text-base">Seguimiento local</CardTitle>
-            <CardDescription>
-              Persistencia en navegador para cubrir análisis y derivación mientras no exista API.
-            </CardDescription>
+            <CardTitle className="text-base">Cobertura real</CardTitle>
+            <CardDescription>Indicadores del resto del circuito de compras.</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            <Button variant="outline" className="bg-transparent" onClick={() => resetTrackers()}>
-              <RefreshCw className="mr-2 h-4 w-4" /> Restablecer tablero local
-            </Button>
-            <Button asChild>
-              <Link href="/compras/ordenes">
-                <ShoppingCart className="mr-2 h-4 w-4" />
-                Ir a ordenes
-              </Link>
-            </Button>
+          <CardContent className="space-y-3 text-sm">
+            <div className="rounded-lg bg-muted/40 p-3">
+              <p className="text-xs text-muted-foreground">Cotizaciones visibles</p>
+              <p className="mt-1 text-2xl font-bold">
+                {loadingQuotes ? "..." : cotizaciones.length}
+              </p>
+            </div>
+            <div className="rounded-lg bg-muted/40 p-3">
+              <p className="text-xs text-muted-foreground">Órdenes visibles</p>
+              <p className="mt-1 text-2xl font-bold">{loadingOrders ? "..." : ordenes.length}</p>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -391,20 +605,20 @@ export default function RequisicionesCompraPage() {
                 className="pl-10"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar solicitante, área, motivo, item, cotización o orden..."
+                placeholder="Buscar solicitante, descripción, motivo o referencia..."
               />
             </div>
-            <Select
-              value={typeFilter}
-              onValueChange={(value) => setTypeFilter(value as "todas" | "Compra" | "Obra")}
-            >
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Tipo" />
+                <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todas">Todos los tipos</SelectItem>
-                <SelectItem value="Compra">Compra</SelectItem>
-                <SelectItem value="Obra">Obra</SelectItem>
+                <SelectItem value="todas">Todos los estados</SelectItem>
+                <SelectItem value="BORRADOR">Borrador</SelectItem>
+                <SelectItem value="ENVIADA">Enviada</SelectItem>
+                <SelectItem value="APROBADA">Aprobada</SelectItem>
+                <SelectItem value="RECHAZADA">Rechazada</SelectItem>
+                <SelectItem value="CANCELADA">Cancelada</SelectItem>
               </SelectContent>
             </Select>
             <Select
@@ -431,7 +645,7 @@ export default function RequisicionesCompraPage() {
           <CardHeader>
             <CardTitle className="text-base">Lote de requisiciones</CardTitle>
             <CardDescription>
-              Origen del pedido, responsable, derivación y preparación para cotización.
+              Listado real de requisiciones con estado formal y seguimiento interno.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
@@ -439,61 +653,58 @@ export default function RequisicionesCompraPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>ID</TableHead>
-                  <TableHead>Origen</TableHead>
                   <TableHead>Solicitante</TableHead>
-                  <TableHead>Vence</TableHead>
+                  <TableHead>Descripción</TableHead>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Items</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead>Seguimiento</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((req) => (
-                  <TableRow key={req.id}>
-                    <TableCell className="font-medium">REQ-{req.id}</TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <p>{req.tipo}</p>
-                        <p className="text-xs text-muted-foreground">{req.modalidad}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <p>{req.solicitante}</p>
-                        <p className="text-xs text-muted-foreground">{req.area}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <p>{formatDate(req.vencimiento)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {req.daysToDue < 0
-                            ? `Vencida hace ${Math.abs(req.daysToDue)} dias`
-                            : `Vence en ${req.daysToDue} dias`}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_CONFIG[req.estado].variant}>
-                        {STATUS_CONFIG[req.estado].label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={STAGE_CONFIG[req.tracker.stage].variant}>
-                        {STAGE_CONFIG[req.tracker.stage].label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => setSelectedId(req.id)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filtered.map((requisition) => {
+                  const statusMeta = getStatusMeta(requisition.displayStatus)
+                  return (
+                    <TableRow key={requisition.id}>
+                      <TableCell className="font-medium">REQ-{requisition.id}</TableCell>
+                      <TableCell>{requisition.solicitante}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p>{requisition.descripcion}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {requisition.requisicionReferencia}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>{formatDate(requisition.fecha)}</TableCell>
+                      <TableCell>{requisition.cantidadItems}</TableCell>
+                      <TableCell>
+                        <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={STAGE_CONFIG[requisition.tracker.stage].variant}>
+                          {STAGE_CONFIG[requisition.tracker.stage].label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openDetail(requisition.id)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                      No hay requisiciones que coincidan con los filtros actuales.
+                    <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                      {loading
+                        ? "Cargando requisiciones reales..."
+                        : "No hay requisiciones que coincidan con los filtros actuales."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -502,81 +713,65 @@ export default function RequisicionesCompraPage() {
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Cola operativa</CardTitle>
-              <CardDescription>
-                Casos que conviene revisar primero por vencimiento o derivación pendiente.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {queue.map((req) => (
-                <button
-                  key={req.id}
-                  type="button"
-                  onClick={() => setSelectedId(req.id)}
-                  className="w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted/40"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium">REQ-{req.id}</p>
-                      <p className="text-sm text-muted-foreground">{req.motivo}</p>
-                    </div>
-                    <Badge variant={STAGE_CONFIG[req.tracker.stage].variant}>
-                      {STAGE_CONFIG[req.tracker.stage].label}
-                    </Badge>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Cola operativa</CardTitle>
+            <CardDescription>
+              Se priorizan las que ya están listas para pasar a cotización.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {queue.map((requisition) => (
+              <button
+                key={requisition.id}
+                type="button"
+                onClick={() => openDetail(requisition.id)}
+                className="w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted/40"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium">REQ-{requisition.id}</p>
+                    <p className="text-sm text-muted-foreground">{requisition.solicitante}</p>
                   </div>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {getRequisitionHealth(req, req.tracker)}
-                  </p>
-                </button>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Salida real disponible</CardTitle>
-              <CardDescription>
-                Puentes existentes con el resto del circuito de compras.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="rounded-lg bg-muted/40 p-3">
-                <p className="text-xs text-muted-foreground">Listas para cotizar</p>
-                <p className="mt-1 text-2xl font-bold text-emerald-600">{kpis.ready}</p>
-              </div>
-              <div className="rounded-lg bg-muted/40 p-3">
-                <p className="text-xs text-muted-foreground">Órdenes visibles en backend</p>
-                <p className="mt-1 text-2xl font-bold">{loadingOrders ? "..." : ordenes.length}</p>
-              </div>
-              <p className="text-muted-foreground">
-                Esta pantalla no emite requisiciones en backend; prepara el caso, deja trazabilidad
-                y deriva a Cotizaciones u Órdenes según el estado real del circuito.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+                  <Badge variant={STAGE_CONFIG[requisition.tracker.stage].variant}>
+                    {STAGE_CONFIG[requisition.tracker.stage].label}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {getRequisitionHealth(requisition.displayStatus, requisition.tracker)}
+                </p>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
       </div>
 
-      <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelectedId(null)}>
+      <Dialog
+        open={selectedBase !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedId(null)
+            setSelectedDetail(null)
+          }
+        }}
+      >
         <DialogContent className="max-w-5xl">
           <DialogHeader>
-            <DialogTitle>{selected ? `Requisición REQ-${selected.id}` : "Requisición"}</DialogTitle>
+            <DialogTitle>
+              {selectedBase ? `Requisición REQ-${selectedBase.id}` : "Requisición"}
+            </DialogTitle>
             <DialogDescription>
-              {selected
-                ? `${selected.solicitante} · ${selected.area} · ${selected.destino}`
+              {selectedBase
+                ? `${selectedBase.solicitante} · ${selectedBase.requisicionReferencia}`
                 : "Detalle de requisición"}
             </DialogDescription>
           </DialogHeader>
 
-          {selected && (
+          {selectedBase && (
             <Tabs defaultValue="circuito">
-              <TabsList className="grid h-auto w-full grid-cols-4">
+              <TabsList className="grid h-auto w-full grid-cols-3">
                 <TabsTrigger value="circuito">Circuito</TabsTrigger>
                 <TabsTrigger value="items">Items</TabsTrigger>
-                <TabsTrigger value="vinculos">Vínculos</TabsTrigger>
                 <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
               </TabsList>
 
@@ -584,26 +779,24 @@ export default function RequisicionesCompraPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <FileStack className="h-4 w-4" /> Cabecera operativa
-                      </CardTitle>
+                      <CardTitle className="text-base">Cabecera operativa</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <DetailFieldGrid
                         fields={[
-                          { label: "Tipo", value: `${selected.tipo} · ${selected.modalidad}` },
-                          { label: "Solicitante", value: selected.solicitante },
-                          { label: "Área", value: selected.area },
-                          { label: "Prioridad", value: selected.prioridad },
-                          { label: "Estado", value: STATUS_CONFIG[selected.estado].label },
+                          { label: "Solicitante", value: selectedBase.solicitante },
+                          { label: "Referencia", value: selectedBase.requisicionReferencia },
+                          { label: "Fecha", value: formatDate(selectedBase.fecha) },
                           {
-                            label: "Comprador asignado",
-                            value: selected.tracker.buyer || selected.compradorAsignado,
+                            label: "Estado",
+                            value: getStatusMeta(selectedBase.displayStatus).label,
                           },
-                          { label: "Centro de costo", value: selected.centroCosto },
+                          { label: "Motivo", value: selectedBase.motivo },
+                          { label: "Descripción", value: selectedBase.descripcion },
+                          { label: "Items", value: String(selectedBase.cantidadItems) },
                           {
-                            label: "Presupuesto",
-                            value: formatMoney(selected.presupuestoEstimado, selected.moneda),
+                            label: "Seguimiento local",
+                            value: STAGE_CONFIG[selectedBase.tracker.stage].label,
                           },
                         ]}
                       />
@@ -612,60 +805,63 @@ export default function RequisicionesCompraPage() {
 
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <Landmark className="h-4 w-4" /> Origen y control
-                      </CardTitle>
+                      <CardTitle className="text-base">Acciones reales</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                      <DetailFieldGrid
-                        fields={[
-                          { label: "Origen", value: selected.origen },
-                          { label: "Destino", value: selected.destino },
-                          { label: "Fecha", value: formatDate(selected.fecha) },
-                          { label: "Vencimiento", value: formatDate(selected.vencimiento) },
-                          { label: "Aprobador", value: selected.aprobador },
-                          {
-                            label: "Validación técnica",
-                            value: selected.requiereValidacionTecnica
-                              ? "Requerida"
-                              : "No requerida",
-                          },
-                          {
-                            label: "Proveedor sugerido",
-                            value: selected.proveedorSugerido ?? "Sin sugerencia visible",
-                          },
-                          {
-                            label: "Salud del circuito",
-                            value: getRequisitionHealth(selected, selected.tracker),
-                          },
-                        ]}
-                      />
+                    <CardContent className="space-y-3 text-sm">
+                      <div className="rounded-lg bg-muted/40 p-3">
+                        <p className="text-xs text-muted-foreground">Observación</p>
+                        <p className="mt-1 font-medium">
+                          {detailLoading
+                            ? "Cargando detalle..."
+                            : selectedDetail?.observacion || "Sin observaciones registradas."}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          onClick={() => void runAction("enviar", selectedBase.id)}
+                          disabled={
+                            actionLoading !== null || selectedBase.displayStatus !== "BORRADOR"
+                          }
+                        >
+                          <ArrowRight className="mr-2 h-4 w-4" /> Enviar
+                        </Button>
+                        <Button
+                          onClick={() => void runAction("aprobar", selectedBase.id)}
+                          disabled={
+                            actionLoading !== null || selectedBase.displayStatus !== "ENVIADA"
+                          }
+                        >
+                          <CheckCircle2 className="mr-2 h-4 w-4" /> Aprobar
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="bg-transparent"
+                          onClick={() => void runAction("rechazar", selectedBase.id)}
+                          disabled={
+                            actionLoading !== null ||
+                            ["RECHAZADA", "CANCELADA"].includes(selectedBase.displayStatus)
+                          }
+                        >
+                          <XCircle className="mr-2 h-4 w-4" /> Rechazar
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="bg-transparent"
+                          onClick={() => void runAction("cancelar", selectedBase.id)}
+                          disabled={
+                            actionLoading !== null ||
+                            ["CANCELADA", "RECHAZADA"].includes(selectedBase.displayStatus)
+                          }
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 </div>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Motivo y observaciones clave</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3 text-sm">
-                    <p className="text-muted-foreground">{selected.motivo}</p>
-                    <p className="text-muted-foreground">{selected.observacion}</p>
-                    <div className="space-y-2">
-                      {selected.detallesClave.map((detail) => (
-                        <div
-                          key={detail}
-                          className="rounded-lg bg-muted/40 p-3 text-muted-foreground"
-                        >
-                          {detail}
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
               </TabsContent>
 
-              <TabsContent value="items" className="space-y-4 pt-2">
+              <TabsContent value="items" className="pt-2">
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Renglones solicitados</CardTitle>
@@ -677,79 +873,53 @@ export default function RequisicionesCompraPage() {
                           <TableHead>Código</TableHead>
                           <TableHead>Descripción</TableHead>
                           <TableHead>Cantidad</TableHead>
-                          <TableHead>Faltante</TableHead>
-                          <TableHead>Destino</TableHead>
+                          <TableHead>Unidad</TableHead>
+                          <TableHead>Observación</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {selected.items.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.codigo}</TableCell>
-                            <TableCell>{item.descripcion}</TableCell>
-                            <TableCell>
-                              {item.cantidad} {item.unidad}
+                        {detailLoading && (
+                          <TableRow>
+                            <TableCell
+                              colSpan={5}
+                              className="py-8 text-center text-muted-foreground"
+                            >
+                              Cargando detalle de requisición...
                             </TableCell>
-                            <TableCell>{item.faltante}</TableCell>
-                            <TableCell>{item.destino}</TableCell>
                           </TableRow>
-                        ))}
+                        )}
+                        {!detailLoading &&
+                          (selectedDetail?.items ?? []).map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell className="font-medium">{item.codigo}</TableCell>
+                              <TableCell>{item.descripcion}</TableCell>
+                              <TableCell>{item.cantidad}</TableCell>
+                              <TableCell>{item.unidadMedida}</TableCell>
+                              <TableCell>{item.observacion || "-"}</TableCell>
+                            </TableRow>
+                          ))}
+                        {!detailLoading && (selectedDetail?.items ?? []).length === 0 && (
+                          <TableRow>
+                            <TableCell
+                              colSpan={5}
+                              className="py-8 text-center text-muted-foreground"
+                            >
+                              No hay renglones visibles para esta requisición.
+                            </TableCell>
+                          </TableRow>
+                        )}
                       </TableBody>
                     </Table>
                   </CardContent>
                 </Card>
               </TabsContent>
 
-              <TabsContent value="vinculos" className="space-y-4 pt-2">
-                <div className="grid gap-4 md:grid-cols-3">
-                  <Card>
-                    <CardContent className="pt-4 pb-4">
-                      <p className="text-xs text-muted-foreground">Cotización vinculada</p>
-                      <p className="mt-2 font-semibold">
-                        {selected.cotizacionReferencia ?? "Todavía sin cotización"}
-                      </p>
-                      <div className="mt-3">
-                        <Button size="sm" asChild>
-                          <Link href="/compras/cotizaciones">Ver cotizaciones</Link>
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4 pb-4">
-                      <p className="text-xs text-muted-foreground">Orden asociada</p>
-                      <p className="mt-2 font-semibold">
-                        {selected.ordenCompraReferencia ?? "Sin orden emitida"}
-                      </p>
-                      <div className="mt-3">
-                        <Button size="sm" variant="outline" className="bg-transparent" asChild>
-                          <Link href="/compras/ordenes">Ver órdenes</Link>
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4 pb-4">
-                      <p className="text-xs text-muted-foreground">Oferta visible</p>
-                      <p className="mt-2 font-semibold">
-                        {selected.linkedQuotation
-                          ? formatMoney(
-                              selected.linkedQuotation.total,
-                              selected.linkedQuotation.moneda
-                            )
-                          : "Sin importe cotizado aún"}
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
-              </TabsContent>
-
               <TabsContent value="seguimiento" className="space-y-4 pt-2">
                 <Alert>
                   <ShieldAlert className="h-4 w-4" />
                   <AlertDescription>
-                    Este seguimiento se guarda solo en el navegador actual para cubrir preparación,
-                    derivación y notas internas mientras no exista backend formal para
-                    requisiciones.
+                    Esta capa queda sólo en el navegador actual para ordenar prioridades del equipo
+                    y no reemplaza el workflow del backend.
                   </AlertDescription>
                 </Alert>
 
@@ -762,9 +932,9 @@ export default function RequisicionesCompraPage() {
                       <div className="space-y-2">
                         <label className="text-sm font-medium">Estado operativo</label>
                         <Select
-                          value={selected.tracker.stage}
+                          value={selectedBase.tracker.stage}
                           onValueChange={(value) =>
-                            updateTracker(selected.id, { stage: value as RequisitionStage })
+                            updateTracker(selectedBase.id, { stage: value as RequisitionStage })
                           }
                         >
                           <SelectTrigger className="w-full">
@@ -780,11 +950,11 @@ export default function RequisicionesCompraPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Comprador responsable</label>
+                        <label className="text-sm font-medium">Responsable</label>
                         <Input
-                          value={selected.tracker.buyer}
+                          value={selectedBase.tracker.buyer}
                           onChange={(event) =>
-                            updateTracker(selected.id, { buyer: event.target.value })
+                            updateTracker(selectedBase.id, { buyer: event.target.value })
                           }
                         />
                       </div>
@@ -793,9 +963,9 @@ export default function RequisicionesCompraPage() {
                         <label className="text-sm font-medium">Próximo paso</label>
                         <Textarea
                           rows={5}
-                          value={selected.tracker.nextStep}
+                          value={selectedBase.tracker.nextStep}
                           onChange={(event) =>
-                            updateTracker(selected.id, { nextStep: event.target.value })
+                            updateTracker(selectedBase.id, { nextStep: event.target.value })
                           }
                         />
                       </div>
@@ -804,43 +974,261 @@ export default function RequisicionesCompraPage() {
 
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-base">Salida recomendada</CardTitle>
+                      <CardTitle className="text-base">Contexto del circuito</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3 text-sm">
                       <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Estado actual</p>
+                        <p className="text-xs text-muted-foreground">Lectura operativa</p>
                         <p className="mt-1 font-medium">
-                          {getRequisitionHealth(selected, selected.tracker)}
+                          {getRequisitionHealth(selectedBase.displayStatus, selectedBase.tracker)}
                         </p>
                       </div>
                       <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Ultima actualización local</p>
-                        <p className="mt-1 font-medium">{formatDate(selected.tracker.updatedAt)}</p>
+                        <p className="text-xs text-muted-foreground">Última actualización local</p>
+                        <p className="mt-1 font-medium">
+                          {formatDate(selectedBase.tracker.updatedAt)}
+                        </p>
                       </div>
                       <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Paso sugerido</p>
-                        <p className="mt-1 font-medium">{selected.tracker.nextStep}</p>
+                        <p className="text-xs text-muted-foreground">Próximo paso sugerido</p>
+                        <p className="mt-1 font-medium">{selectedBase.tracker.nextStep}</p>
                       </div>
-                      <div className="flex flex-wrap gap-2 pt-2">
-                        <Button variant="outline" className="bg-transparent" asChild>
-                          <Link href="/compras/cotizaciones">
-                            <ClipboardList className="mr-2 h-4 w-4" />
-                            Continuar en cotizaciones
-                          </Link>
-                        </Button>
-                        <Button asChild>
-                          <Link href="/compras/ordenes">
-                            <CheckCircle2 className="mr-2 h-4 w-4" />
-                            Ver órdenes
-                          </Link>
-                        </Button>
-                      </div>
+                      <Button className="w-full" asChild>
+                        <Link href="/compras/cotizaciones">
+                          <ArrowRight className="mr-2 h-4 w-4" /> Continuar en cotizaciones
+                        </Link>
+                      </Button>
+                      <Button variant="outline" className="w-full bg-transparent" asChild>
+                        <Link href="/compras/ordenes">
+                          <ShoppingCart className="mr-2 h-4 w-4" /> Ver órdenes
+                        </Link>
+                      </Button>
                     </CardContent>
                   </Card>
                 </div>
               </TabsContent>
             </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open)
+          if (!open) resetCreateForm()
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Nueva requisición de compra</DialogTitle>
+            <DialogDescription>
+              Alta real sobre el backend de compras para iniciar el circuito desde frontend.
+            </DialogDescription>
+          </DialogHeader>
+
+          {createError && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{createError}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Sucursal</label>
+              <Select
+                value={createSucursalValue}
+                onValueChange={(value) =>
+                  setCreateForm((current) => ({ ...current, sucursalId: value, solicitanteId: "" }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar sucursal" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sucursales.map((sucursal) => (
+                    <SelectItem key={sucursal.id} value={String(sucursal.id)}>
+                      {sucursal.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Solicitante</label>
+              <Select
+                value={createForm.solicitanteId}
+                onValueChange={(value) =>
+                  setCreateForm((current) => ({ ...current, solicitanteId: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar solicitante" />
+                </SelectTrigger>
+                <SelectContent>
+                  {employeeOptions.map((empleado) => (
+                    <SelectItem key={empleado.id} value={String(empleado.id)}>
+                      {empleado.razonSocial ?? `Empleado ${empleado.id}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Fecha</label>
+              <Input
+                type="date"
+                value={createForm.fecha}
+                onChange={(event) =>
+                  setCreateForm((current) => ({ ...current, fecha: event.target.value }))
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Descripción general</label>
+              <Input
+                value={createForm.descripcion}
+                onChange={(event) =>
+                  setCreateForm((current) => ({ ...current, descripcion: event.target.value }))
+                }
+                placeholder="Ej. reposición crítica de insumos de mantenimiento"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Observación</label>
+            <Textarea
+              rows={3}
+              value={createForm.observacion}
+              onChange={(event) =>
+                setCreateForm((current) => ({ ...current, observacion: event.target.value }))
+              }
+              placeholder="Contexto operativo, urgencia o alcance interno"
+            />
+          </div>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base">Items solicitados</CardTitle>
+                  <CardDescription>
+                    Puede vincular un ítem existente o cargar una descripción manual.
+                  </CardDescription>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="bg-transparent"
+                  onClick={addCreateItem}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Agregar ítem
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {createForm.items.map((item, index) => (
+                <div
+                  key={`${index}-${item.itemId}`}
+                  className="grid gap-3 rounded-lg border p-4 md:grid-cols-[1.5fr_1.5fr_120px_120px_auto]"
+                >
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Catálogo</label>
+                    <Select
+                      value={item.itemId}
+                      onValueChange={(value) => handleSelectCatalogItem(index, value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Manual o catálogo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="manual">Carga manual</SelectItem>
+                        {itemOptions.map((catalogItem) => (
+                          <SelectItem key={catalogItem.id} value={String(catalogItem.id)}>
+                            {catalogItem.codigo} · {catalogItem.descripcion}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2 md:col-span-1">
+                    <label className="text-sm font-medium">Descripción</label>
+                    <Input
+                      value={item.descripcion}
+                      onChange={(event) =>
+                        updateCreateItem(index, { descripcion: event.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Cantidad</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={item.cantidad}
+                      onChange={(event) =>
+                        updateCreateItem(index, { cantidad: event.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Unidad</label>
+                    <Input
+                      value={item.unidadMedida}
+                      onChange={(event) =>
+                        updateCreateItem(index, { unidadMedida: event.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeCreateItem(index)}
+                      disabled={createForm.items.length === 1}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2 md:col-span-5">
+                    <label className="text-sm font-medium">Observación del ítem</label>
+                    <Input
+                      value={item.observacion}
+                      onChange={(event) =>
+                        updateCreateItem(index, { observacion: event.target.value })
+                      }
+                      placeholder="Opcional"
+                    />
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="bg-transparent"
+              onClick={() => setCreateOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={() => void submitCreate()} disabled={createLoading}>
+              <Plus className="mr-2 h-4 w-4" /> {createLoading ? "Creando..." : "Crear requisición"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

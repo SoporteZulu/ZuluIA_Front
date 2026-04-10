@@ -38,7 +38,7 @@ export interface Category extends BaseEntity {
 export interface StockMovement extends BaseEntity {
   productId: string
   warehouseId: string
-  type: 'entrada' | 'salida' | 'ajuste' | 'transferencia'
+  type: "entrada" | "salida" | "ajuste" | "transferencia"
   quantity: number
   reference?: string
   notes?: string
@@ -59,7 +59,7 @@ export interface Customer extends BaseEntity {
 export interface SalesOrder extends BaseEntity {
   orderNumber: string
   customerId: string
-  status: 'borrador' | 'confirmado' | 'enviado' | 'facturado' | 'cancelado'
+  status: "borrador" | "confirmado" | "enviado" | "facturado" | "cancelado"
   date: Date
   dueDate?: Date
   items: SalesOrderItem[]
@@ -82,7 +82,7 @@ export interface Invoice extends BaseEntity {
   invoiceNumber: string
   customerId: string
   orderId?: string
-  status: 'borrador' | 'emitida' | 'pagada' | 'vencida' | 'anulada'
+  status: "borrador" | "emitida" | "pagada" | "vencida" | "anulada"
   date: Date
   dueDate: Date
   items: InvoiceItem[]
@@ -101,13 +101,11 @@ export interface InvoiceItem {
   total: number
 }
 
-
-
 // Accounting Module
 export interface Account extends BaseEntity {
   code: string
   name: string
-  type: 'activo' | 'pasivo' | 'patrimonio' | 'ingreso' | 'gasto'
+  type: "activo" | "pasivo" | "patrimonio" | "ingreso" | "gasto"
   parentId?: string
   balance: number
   isActive: boolean
@@ -117,7 +115,7 @@ export interface JournalEntry extends BaseEntity {
   entryNumber: string
   date: Date
   description: string
-  status: 'borrador' | 'publicado' | 'anulado'
+  status: "borrador" | "publicado" | "anulado"
   lines: JournalLine[]
 }
 
@@ -131,12 +129,12 @@ export interface JournalLine {
 
 export interface Payment extends BaseEntity {
   paymentNumber: string
-  type: 'cobro' | 'pago'
-  entityType: 'customer' | 'supplier'
+  type: "cobro" | "pago"
+  entityType: "customer" | "supplier"
   entityId: string
   date: Date
   amount: number
-  method: 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta'
+  method: "efectivo" | "transferencia" | "cheque" | "tarjeta"
   reference?: string
   invoiceIds?: string[]
 }
@@ -144,8 +142,8 @@ export interface Payment extends BaseEntity {
 // CRM Module - Clientes
 export interface CRMClient extends BaseEntity {
   nombre: string
-  tipoCliente: 'prospecto' | 'activo' | 'inactivo' | 'perdido'
-  segmento: 'pyme' | 'corporativo' | 'gobierno' | 'startup' | 'otro'
+  tipoCliente: "prospecto" | "activo" | "inactivo" | "perdido"
+  segmento: "pyme" | "corporativo" | "gobierno" | "startup" | "otro"
   industria?: string
   cuit?: string
   pais: string
@@ -155,8 +153,8 @@ export interface CRMClient extends BaseEntity {
   telefonoPrincipal?: string
   emailPrincipal?: string
   sitioWeb?: string
-  origenCliente: 'campana' | 'referido' | 'web' | 'llamada' | 'evento' | 'otro'
-  estadoRelacion: 'nuevo' | 'en_negociacion' | 'en_riesgo' | 'fidelizado'
+  origenCliente: "campana" | "referido" | "web" | "llamada" | "evento" | "otro"
+  estadoRelacion: "nuevo" | "en_negociacion" | "en_riesgo" | "fidelizado"
   responsableId?: string
   fechaAlta: Date
   notasGenerales?: string
@@ -170,8 +168,8 @@ export interface CRMContact extends BaseEntity {
   cargo?: string
   email?: string
   telefono?: string
-  canalPreferido: 'email' | 'telefono' | 'whatsapp' | 'presencial'
-  estadoContacto: 'activo' | 'no_contactar' | 'bounced' | 'inactivo'
+  canalPreferido: "email" | "telefono" | "whatsapp" | "presencial"
+  estadoContacto: "activo" | "no_contactar" | "bounced" | "inactivo"
   notas?: string
 }
 
@@ -180,14 +178,14 @@ export interface CRMOpportunity extends BaseEntity {
   clienteId: string
   contactoPrincipalId?: string
   titulo: string
-  etapa: 'lead' | 'calificado' | 'propuesta' | 'negociacion' | 'cerrado_ganado' | 'cerrado_perdido'
+  etapa: "lead" | "calificado" | "propuesta" | "negociacion" | "cerrado_ganado" | "cerrado_perdido"
   probabilidad: number
   montoEstimado: number
-  moneda: 'USD' | 'ARS' | 'EUR' | 'MXN'
+  moneda: "USD" | "ARS" | "EUR" | "MXN"
   fechaApertura: Date
   fechaEstimadaCierre?: Date
   responsableId?: string
-  origen: 'campana' | 'referido' | 'web' | 'llamada' | 'evento' | 'otro'
+  origen: "campana" | "referido" | "web" | "llamada" | "evento" | "otro"
   motivoPerdida?: string
   notas?: string
 }
@@ -197,11 +195,11 @@ export interface CRMInteraction extends BaseEntity {
   clienteId: string
   contactoId?: string
   oportunidadId?: string
-  tipoInteraccion: 'llamada' | 'email' | 'reunion' | 'visita' | 'ticket' | 'mensaje'
-  canal: 'telefono' | 'email' | 'whatsapp' | 'presencial' | 'videollamada'
+  tipoInteraccion: "llamada" | "email" | "reunion" | "visita" | "ticket" | "mensaje"
+  canal: "telefono" | "email" | "whatsapp" | "presencial" | "videollamada"
   fechaHora: Date
   usuarioResponsableId: string
-  resultado: 'exitosa' | 'sin_respuesta' | 'reprogramada' | 'cancelada'
+  resultado: "exitosa" | "sin_respuesta" | "reprogramada" | "cancelada"
   descripcion?: string
   adjuntos?: string[]
 }
@@ -213,18 +211,19 @@ export interface CRMTask extends BaseEntity {
   asignadoAId: string
   titulo: string
   descripcion?: string
-  tipoTarea: 'llamar' | 'enviar_email' | 'preparar_propuesta' | 'visitar' | 'seguimiento' | 'otro'
+  tipoTarea: "llamar" | "enviar_email" | "preparar_propuesta" | "visitar" | "seguimiento" | "otro"
   fechaVencimiento: Date
-  prioridad: 'alta' | 'media' | 'baja'
-  estado: 'pendiente' | 'en_curso' | 'completada' | 'vencida'
+  prioridad: "alta" | "media" | "baja"
+  estado: "pendiente" | "en_curso" | "completada" | "vencida"
   fechaCompletado?: Date
 }
 
 // CRM Module - Campañas
 export interface CRMCampaign extends BaseEntity {
+  sucursalId?: number
   nombre: string
-  tipoCampana: 'email' | 'evento' | 'llamadas' | 'redes_sociales' | 'publicidad'
-  objetivo: 'generacion_leads' | 'upselling' | 'fidelizacion' | 'recuperacion' | 'branding'
+  tipoCampana: "email" | "evento" | "llamadas" | "redes_sociales" | "publicidad"
+  objetivo: "generacion_leads" | "upselling" | "fidelizacion" | "recuperacion" | "branding"
   segmentoObjetivoId?: string
   fechaInicio: Date
   fechaFin?: Date
@@ -235,6 +234,7 @@ export interface CRMCampaign extends BaseEntity {
   leadsGenerados: number
   oportunidadesGeneradas: number
   negociosGanados: number
+  activa?: boolean
 }
 
 // CRM Module - Segmentos
@@ -242,13 +242,13 @@ export interface CRMSegment extends BaseEntity {
   nombre: string
   descripcion?: string
   criterios: SegmentCriteria[]
-  tipoSegmento: 'estatico' | 'dinamico'
+  tipoSegmento: "estatico" | "dinamico"
   cantidadClientes: number
 }
 
 export interface SegmentCriteria {
   campo: string
-  operador: 'igual' | 'contiene' | 'mayor_que' | 'menor_que' | 'entre'
+  operador: "igual" | "contiene" | "mayor_que" | "menor_que" | "entre"
   valor: string | number
 }
 
@@ -257,18 +257,259 @@ export interface CRMUser extends BaseEntity {
   nombre: string
   apellido: string
   email: string
-  rol: 'administrador' | 'supervisor' | 'comercial' | 'marketing' | 'soporte'
-  estado: 'activo' | 'inactivo'
+  rol: "administrador" | "supervisor" | "comercial" | "marketing" | "soporte"
+  estado: "activo" | "inactivo"
   avatar?: string
+}
+
+export interface CRMComunicado {
+  id: string
+  sucursalId: number
+  terceroId: string
+  campanaId?: string
+  tipoId?: string
+  fecha: Date
+  asunto: string
+  contenido?: string
+  usuarioId?: string
+}
+
+export interface CRMSeguimiento {
+  id: string
+  sucursalId: number
+  terceroId: string
+  motivoId?: string
+  interesId?: string
+  campanaId?: string
+  fecha: Date
+  descripcion: string
+  proximaAccion?: Date
+  usuarioId?: string
+}
+
+export interface CRMRelacionContacto {
+  id: string
+  personaId: string
+  personaContactoId: string
+  tipoRelacionId?: string
 }
 
 // CRM Module - Comentarios
 export interface CRMComment extends BaseEntity {
   usuarioId: string
   referenciaId: string
-  referenciaTipo: 'cliente' | 'oportunidad' | 'tarea' | 'campana'
+  referenciaTipo: "cliente" | "oportunidad" | "tarea" | "campana"
   texto: string
   fechaHora: Date
+}
+
+export interface CrmCatalogOption {
+  id: string
+  nombre: string
+}
+
+export interface CrmCatalogDetailOption {
+  id: string
+  codigo: string
+  descripcion: string
+  activo: boolean
+}
+
+export interface CrmCatalogoClienteOption {
+  id: string
+  nombre: string
+  tipoCliente: CRMClient["tipoCliente"]
+  segmento: CRMClient["segmento"]
+  estadoRelacion: CRMClient["estadoRelacion"]
+}
+
+export interface CrmCatalogoContactoOption {
+  id: string
+  clienteId: string
+  nombre: string
+  cargo?: string
+  estadoContacto: CRMContact["estadoContacto"]
+}
+
+export interface CrmCatalogoUsuarioOption {
+  id: string
+  nombre: string
+  rol: CRMUser["rol"]
+}
+
+export interface CrmCatalogoSegmentoOption {
+  id: string
+  nombre: string
+  tipoSegmento: CRMSegment["tipoSegmento"]
+}
+
+export interface CrmCatalogos {
+  tiposCliente: CrmCatalogOption[]
+  segmentosCliente: CrmCatalogOption[]
+  origenesCliente: CrmCatalogOption[]
+  estadosRelacion: CrmCatalogOption[]
+  canalesContacto: CrmCatalogOption[]
+  estadosContacto: CrmCatalogOption[]
+  etapasOportunidad: CrmCatalogOption[]
+  monedas: CrmCatalogOption[]
+  origenesOportunidad: CrmCatalogOption[]
+  tiposInteraccion: CrmCatalogOption[]
+  canalesInteraccion: CrmCatalogOption[]
+  resultadosInteraccion: CrmCatalogOption[]
+  tiposTarea: CrmCatalogOption[]
+  prioridadesTarea: CrmCatalogOption[]
+  estadosTarea: CrmCatalogOption[]
+  tiposCampana: CrmCatalogOption[]
+  objetivosCampana: CrmCatalogOption[]
+  tiposSegmento: CrmCatalogOption[]
+  rolesUsuario: CrmCatalogOption[]
+  estadosUsuario: CrmCatalogOption[]
+  tiposRelacion: CrmCatalogDetailOption[]
+  clientes: CrmCatalogoClienteOption[]
+  contactos: CrmCatalogoContactoOption[]
+  usuarios: CrmCatalogoUsuarioOption[]
+  segmentos: CrmCatalogoSegmentoOption[]
+}
+
+export interface CrmSegmentoMiembro {
+  id: string
+  nombre: string
+  tipoCliente: CRMClient["tipoCliente"]
+  segmento: CRMClient["segmento"]
+  industria?: string
+  origenCliente: CRMClient["origenCliente"]
+  estadoRelacion: CRMClient["estadoRelacion"]
+  pais: string
+  provincia?: string
+  ciudad?: string
+}
+
+export interface CrmSegmentoPreviewResult {
+  cantidadClientes: number
+  clientes: CrmSegmentoMiembro[]
+}
+
+export interface CrmResumenComercial {
+  clientesActivos: number
+  pipelineAbierto: number
+  cierresVencidos: number
+  seguimientoVencido: number
+}
+
+export interface CrmPipelineEtapa {
+  etapa: string
+  cantidad: number
+  monto: number
+}
+
+export interface CrmProbabilidad {
+  rango: string
+  cantidad: number
+}
+
+export interface CrmRankingVendedor {
+  usuarioId: string
+  nombre: string
+  oportunidadesGanadas: number
+  montoGanado: number
+  oportunidadesActivas: number
+  pipeline: number
+}
+
+export interface CrmRadarOportunidad {
+  id: string
+  titulo: string
+  cliente: string
+  responsable: string
+  montoEstimado: number
+  fechaEstimadaCierre?: Date
+  ultimaGestion?: Date
+  origen: string
+  riesgo: number
+}
+
+export interface CrmRadarCliente {
+  id: string
+  nombre: string
+  responsable: string
+  segmento: string
+  ultimaGestion?: Date
+  pipeline: number
+  estadoRelacion: string
+  criticidad: number
+}
+
+export interface CrmResumenMarketing {
+  campanasActivas: number
+  desvioPresupuestario: number
+  leads: number
+  conversion: number
+}
+
+export interface CrmDistribucion {
+  nombre: string
+  cantidad: number
+}
+
+export interface CrmResultadoCampana {
+  id: string
+  nombre: string
+  tipoCampana: string
+  presupuesto: number
+  gastado: number
+  leadsGenerados: number
+  oportunidadesGeneradas: number
+  negociosGanados: number
+}
+
+export interface CrmRadarCampana {
+  id: string
+  nombre: string
+  objetivo: string
+  responsable: string
+  fechaInicio: Date
+  fechaFin: Date
+  desvio: number
+  costoPorLead: number
+  oportunidadesGeneradas: number
+  tasaConversion: number
+}
+
+export interface CrmActividadUsuario {
+  usuarioId: string
+  nombre: string
+  llamadas: number
+  emails: number
+  reuniones: number
+  visitas: number
+  total: number
+}
+
+export interface CrmActividadReciente {
+  id: string
+  fechaHora: Date
+  tipoInteraccion: string
+  canal: string
+  resultado: string
+  cliente: string
+  usuario: string
+  descripcion?: string
+}
+
+export interface CrmReportes {
+  resumenComercial: CrmResumenComercial
+  pipelinePorEtapa: CrmPipelineEtapa[]
+  distribucionProbabilidad: CrmProbabilidad[]
+  rankingVendedores: CrmRankingVendedor[]
+  radarOportunidades: CrmRadarOportunidad[]
+  radarClientes: CrmRadarCliente[]
+  resumenMarketing: CrmResumenMarketing
+  clientesPorSegmento: CrmDistribucion[]
+  clientesPorIndustria: CrmDistribucion[]
+  resultadosCampanas: CrmResultadoCampana[]
+  radarCampanas: CrmRadarCampana[]
+  actividadPorUsuario: CrmActividadUsuario[]
+  actividadReciente: CrmActividadReciente[]
 }
 
 // Help Desk Module - Tickets
@@ -278,10 +519,10 @@ export interface HDTicket extends BaseEntity {
   descripcion: string
   clienteId: string
   contactoId?: string
-  categoria: 'soporte_tecnico' | 'consulta' | 'reclamo' | 'solicitud_servicio' | 'sugerencia'
-  prioridad: 'critica' | 'alta' | 'media' | 'baja'
-  estado: 'nuevo' | 'asignado' | 'en_progreso' | 'esperando_cliente' | 'resuelto' | 'cerrado'
-  canal: 'email' | 'telefono' | 'chat' | 'web' | 'presencial'
+  categoria: "soporte_tecnico" | "consulta" | "reclamo" | "solicitud_servicio" | "sugerencia"
+  prioridad: "critica" | "alta" | "media" | "baja"
+  estado: "nuevo" | "asignado" | "en_progreso" | "esperando_cliente" | "resuelto" | "cerrado"
+  canal: "email" | "telefono" | "chat" | "web" | "presencial"
   asignadoAId?: string
   departamentoId?: string
   slaId?: string
@@ -314,11 +555,11 @@ export interface HDServicio extends BaseEntity {
   categoriaId: string
   duracionEstimada: number // en minutos
   precioBase: number
-  tipoPrecio: 'fijo' | 'por_hora' | 'por_proyecto' | 'escalonado'
+  tipoPrecio: "fijo" | "por_hora" | "por_proyecto" | "escalonado"
   requiereRecursos?: string[]
   garantiaDias?: number
   condiciones?: string
-  estado: 'activo' | 'inactivo'
+  estado: "activo" | "inactivo"
 }
 
 export interface HDCategoriaServicio extends BaseEntity {
@@ -335,8 +576,8 @@ export interface HDOrdenServicio extends BaseEntity {
   contactoId?: string
   servicioId: string
   tecnicoAsignadoId?: string
-  estado: 'pendiente' | 'programada' | 'en_proceso' | 'pausada' | 'completada' | 'cancelada'
-  prioridad: 'alta' | 'media' | 'baja'
+  estado: "pendiente" | "programada" | "en_proceso" | "pausada" | "completada" | "cancelada"
+  prioridad: "alta" | "media" | "baja"
   fechaProgramada?: Date
   fechaInicio?: Date
   fechaFin?: Date
@@ -360,7 +601,7 @@ export interface HDRecursoUtilizado {
 export interface HDSLA extends BaseEntity {
   nombre: string
   descripcion?: string
-  tipoCliente?: 'vip' | 'estandar' | 'basico'
+  tipoCliente?: "vip" | "estandar" | "basico"
   tiempoRespuesta: number // en minutos
   tiempoResolucion: number // en minutos
   horasOperacion: HDHorarioOperacion
@@ -369,7 +610,7 @@ export interface HDSLA extends BaseEntity {
   prioridadAltaMultiplier: number
   prioridadMediaMultiplier: number
   prioridadBajaMultiplier: number
-  estado: 'activo' | 'inactivo'
+  estado: "activo" | "inactivo"
 }
 
 export interface HDHorarioOperacion {
@@ -381,7 +622,7 @@ export interface HDHorarioOperacion {
 export interface HDCliente extends BaseEntity {
   codigo: string
   nombre: string
-  tipoCliente: 'vip' | 'estandar' | 'basico'
+  tipoCliente: "vip" | "estandar" | "basico"
   email?: string
   telefono?: string
   direccion?: string
@@ -412,13 +653,13 @@ export interface HDFacturaServicio extends BaseEntity {
   ordenesServicioIds: string[]
   fecha: Date
   fechaVencimiento: Date
-  estado: 'borrador' | 'emitida' | 'pagada' | 'vencida' | 'anulada'
+  estado: "borrador" | "emitida" | "pagada" | "vencida" | "anulada"
   items: HDFacturaItem[]
   subtotal: number
   descuento: number
   impuestos: number
   total: number
-  moneda: 'USD' | 'ARS' | 'EUR' | 'MXN'
+  moneda: "USD" | "ARS" | "EUR" | "MXN"
   metodoPago?: string
   referenciaPago?: string
   notas?: string
@@ -441,8 +682,8 @@ export interface HDContrato extends BaseEntity {
   numero: string
   clienteId: string
   nombre: string
-  tipo: 'mantenimiento' | 'soporte' | 'suscripcion' | 'proyecto'
-  estado: 'activo' | 'pausado' | 'vencido' | 'cancelado'
+  tipo: "mantenimiento" | "soporte" | "suscripcion" | "proyecto"
+  estado: "activo" | "pausado" | "vencido" | "cancelado"
   fechaInicio: Date
   fechaFin: Date
   valorMensual?: number
@@ -461,7 +702,7 @@ export interface HDArticulo extends BaseEntity {
   contenido: string
   categoriaId: string
   tags?: string[]
-  estado: 'borrador' | 'publicado' | 'archivado'
+  estado: "borrador" | "publicado" | "archivado"
   vistas: number
   utilidad: number // votos positivos
   autorId: string
@@ -474,8 +715,8 @@ export interface HDAgente extends BaseEntity {
   email: string
   telefono?: string
   departamentoId?: string
-  rol: 'administrador' | 'supervisor' | 'agente' | 'tecnico'
-  estado: 'activo' | 'inactivo' | 'vacaciones'
+  rol: "administrador" | "supervisor" | "agente" | "tecnico"
+  estado: "activo" | "inactivo" | "vacaciones"
   avatar?: string
   habilidades?: string[]
   ticketsAsignados: number
