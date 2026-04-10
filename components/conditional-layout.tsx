@@ -8,9 +8,18 @@ import { AuthGuard } from "@/components/auth-guard"
 
 const PUBLIC_ROUTES = ["/login"]
 
+function normalizePathname(pathname: string) {
+  if (!pathname || pathname === "/") {
+    return "/"
+  }
+
+  return pathname.replace(/\/+$/, "") || "/"
+}
+
 export function ConditionalLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const isPublic = PUBLIC_ROUTES.includes(pathname)
+  const normalizedPathname = normalizePathname(pathname)
+  const isPublic = PUBLIC_ROUTES.includes(normalizedPathname)
 
   if (isPublic) {
     return <>{children}</>

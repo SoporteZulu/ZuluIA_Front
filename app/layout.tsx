@@ -1,6 +1,5 @@
 import React from "react"
 import type { Metadata } from "next"
-import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 
 import { ConditionalLayout } from "@/components/conditional-layout"
@@ -44,7 +43,6 @@ export default function RootLayout({
     <html lang="es">
       <body className={`${inter.className} antialiased`}>
         <ConditionalLayout>{children}</ConditionalLayout>
-        <Analytics />
       </body>
     </html>
   )
