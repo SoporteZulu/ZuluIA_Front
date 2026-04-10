@@ -42,9 +42,10 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { legacyPurchaseReturns, type LegacyPurchaseReturn } from "@/lib/compras-legacy-data"
+import { useComprasDevoluciones } from "@/lib/hooks/useCompras"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
+import type { CompraDevolucionResumen } from "@/lib/types/compras-operativa"
 
 type ReturnStage = "abierta" | "en_gestion" | "esperando_nc" | "cerrada"
 
@@ -77,24 +78,6 @@ const STAGE_CONFIG: Record<
   cerrada: { label: "Cerrada", variant: "default" },
 }
 
-const DEFAULT_TRACKERS: LocalReturnTracker[] = legacyPurchaseReturns.map((item) => ({
-  returnId: item.id,
-  stage:
-    item.estado === "PROCESADA"
-      ? item.requiereNotaCredito
-        ? "esperando_nc"
-        : "cerrada"
-      : "en_gestion",
-  owner: item.responsable,
-  nextStep:
-    item.estado === "PROCESADA"
-      ? item.requiereNotaCredito
-        ? "Esperar la nota de crédito o ajuste del proveedor."
-        : "Caso ya cerrado, sólo mantener trazabilidad."
-      : "Gestionar conformidad del proveedor y definir impacto económico.",
-  updatedAt: item.fecha,
-}))
-
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
 }
@@ -103,7 +86,7 @@ function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"
 }
 
-function matchesTerm(item: LegacyPurchaseReturn, term: string) {
+function matchesTerm(item: CompraDevolucionResumen, term: string) {
   if (term === "") return true
   const haystack = [
     item.proveedor,
@@ -142,17 +125,40 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
 }
 
 export default function DevolucionesCompraPage() {
+  const { devoluciones: liveReturns, loading, error } = useComprasDevoluciones()
   const { ordenes, loading: loadingOrders, error: ordersError } = useOrdenesCompra()
   const {
     rows: trackers,
     setRows: setTrackers,
     reset: resetTrackers,
-  } = useLegacyLocalCollection<LocalReturnTracker>(RETURN_TRACKER_STORAGE_KEY, DEFAULT_TRACKERS)
+  } = useLegacyLocalCollection<LocalReturnTracker>(RETURN_TRACKER_STORAGE_KEY, [])
 
   const [search, setSearch] = useState("")
-  const [typeFilter, setTypeFilter] = useState<"todos" | LegacyPurchaseReturn["tipo"]>("todos")
+  const [typeFilter, setTypeFilter] = useState<"todos" | CompraDevolucionResumen["tipo"]>("todos")
   const [stageFilter, setStageFilter] = useState<"todos" | ReturnStage>("todos")
-  const [selectedId, setSelectedId] = useState<number | null>(legacyPurchaseReturns[0]?.id ?? null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+
+  const defaultTrackers = useMemo(
+    () =>
+      liveReturns.map((item) => ({
+        returnId: item.id,
+        stage:
+          item.estado === "PROCESADA"
+            ? item.requiereNotaCredito
+              ? "esperando_nc"
+              : "cerrada"
+            : "en_gestion",
+        owner: item.responsable,
+        nextStep:
+          item.estado === "PROCESADA"
+            ? item.requiereNotaCredito
+              ? "Esperar la nota de crédito o ajuste del proveedor."
+              : "Caso ya cerrado, sólo mantener trazabilidad."
+            : "Gestionar conformidad del proveedor y definir impacto económico.",
+        updatedAt: item.fecha,
+      })),
+    [liveReturns]
+  )
 
   const trackerMap = useMemo(
     () => new Map(trackers.map((tracker) => [tracker.returnId, tracker])),
@@ -161,12 +167,12 @@ export default function DevolucionesCompraPage() {
 
   const returns = useMemo(
     () =>
-      legacyPurchaseReturns.map((item) => ({
+      liveReturns.map((item) => ({
         ...item,
         tracker:
-          trackerMap.get(item.id) ?? DEFAULT_TRACKERS.find((row) => row.returnId === item.id)!,
+          trackerMap.get(item.id) ?? defaultTrackers.find((row) => row.returnId === item.id)!,
       })),
-    [trackerMap]
+    [defaultTrackers, liveReturns, trackerMap]
   )
 
   const filtered = useMemo(() => {
@@ -212,7 +218,7 @@ export default function DevolucionesCompraPage() {
       const nextRow = {
         ...(index >= 0
           ? current[index]
-          : DEFAULT_TRACKERS.find((row) => row.returnId === returnId)!),
+          : defaultTrackers.find((row) => row.returnId === returnId)!),
         ...patch,
         updatedAt: new Date().toISOString(),
       }
@@ -249,16 +255,16 @@ export default function DevolucionesCompraPage() {
       <Alert>
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
-          El backend actual no expone devoluciones de compra ni su conciliación económica. Esta
-          vista cubre el circuito legacy de excepción, deja visible el impacto en stock y marca
-          cuándo el siguiente paso real debería continuar en notas de crédito o ajustes.
+          Esta vista ya consume devoluciones reales del backend de compras. El seguimiento local se
+          conserva para coordinar la gestión con proveedor y el paso siguiente hacia notas de
+          crédito o ajustes.
         </AlertDescription>
       </Alert>
 
-      {ordersError && (
+      {(error || ordersError) && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{ordersError}</AlertDescription>
+          <AlertDescription>{error || ordersError}</AlertDescription>
         </Alert>
       )}
 
@@ -266,25 +272,27 @@ export default function DevolucionesCompraPage() {
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Abiertas</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.open}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : kpis.open}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Con impacto stock</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.stockImpact}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : kpis.stockImpact}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Esperan NC</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.waitingCredit}</p>
+            <p className="mt-2 text-2xl font-bold text-amber-600">
+              {loading ? "..." : kpis.waitingCredit}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Monto visible</p>
-            <p className="mt-2 text-2xl font-bold">{formatMoney(kpis.total)}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : formatMoney(kpis.total)}</p>
           </CardContent>
         </Card>
       </div>
@@ -340,7 +348,7 @@ export default function DevolucionesCompraPage() {
             <Select
               value={typeFilter}
               onValueChange={(value) =>
-                setTypeFilter(value as "todos" | LegacyPurchaseReturn["tipo"])
+                setTypeFilter(value as "todos" | CompraDevolucionResumen["tipo"])
               }
             >
               <SelectTrigger className="w-full">
@@ -424,7 +432,9 @@ export default function DevolucionesCompraPage() {
                 {filtered.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                      No hay devoluciones que coincidan con los filtros actuales.
+                      {loading
+                        ? "Cargando devoluciones reales..."
+                        : "No hay devoluciones que coincidan con los filtros actuales."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -560,9 +570,7 @@ export default function DevolucionesCompraPage() {
                           <TableRow key={row.id}>
                             <TableCell className="font-medium">{row.codigo}</TableCell>
                             <TableCell>{row.descripcion}</TableCell>
-                            <TableCell>
-                              {row.cantidad} {row.unidad}
-                            </TableCell>
+                            <TableCell>{row.cantidad}</TableCell>
                             <TableCell>{row.motivo}</TableCell>
                           </TableRow>
                         ))}

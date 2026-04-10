@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 import {
   AlertCircle,
@@ -11,6 +12,7 @@ import {
   Search,
   ShieldAlert,
 } from "lucide-react"
+
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -40,29 +42,67 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { legacyPurchaseAllocations, type LegacyPurchaseAllocation } from "@/lib/compras-legacy-data"
+import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
+import { useProveedores } from "@/lib/hooks/useTerceros"
+import type { Comprobante } from "@/lib/types/comprobantes"
+import type { OrdenCompra } from "@/lib/types/configuracion"
 
 type AllocationStage = "pendiente" | "en_revision" | "lista_para_cierre" | "cerrada"
+type AllocationType = "Compras" | "Importación"
 
-type LocalAllocationTracker = {
+type LocalDistributionLine = {
+  id: string
+  cuenta: string
+  centroCosto: string
+  porcentaje: number
+  importe: number
+}
+
+type LocalAllocationRecord = {
   allocationId: number
   stage: AllocationStage
   owner: string
   nextStep: string
-  updatedAt: string
+  cuenta: string
+  centroCosto: string
+  accountingNote: string
+  distribucion: LocalDistributionLine[]
+}
+
+type AllocationRow = {
+  id: number
+  tipo: AllocationType
+  proveedor: string
+  comprobante: string
+  cuenta: string
+  centroCosto: string
+  estado: string
+  fecha: string
+  importe: number
+  saldo: number
+  ordenCompraReferencia: string | null
+  recepcionReferencia: string | null
+  responsable: string
+  moneda: string
+  circuitoOrigen: string
+  observacion: string
+  detallesClave: string[]
+  tracker: LocalAllocationRecord
 }
 
 const ALLOCATION_TRACKER_STORAGE_KEY = "zuluia_compras_allocation_trackers"
 
 const STATUS_CONFIG: Record<
-  LegacyPurchaseAllocation["estado"],
+  string,
   { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
 > = {
-  PENDIENTE: { label: "Pendiente", variant: "secondary" },
-  IMPUTADA: { label: "Imputada", variant: "default" },
-  OBSERVADA: { label: "Observada", variant: "destructive" },
+  BORRADOR: { label: "Borrador", variant: "secondary" },
+  EMITIDO: { label: "Registrada", variant: "default" },
+  PAGADO: { label: "Pagada", variant: "default" },
+  PAGADO_PARCIAL: { label: "Pago parcial", variant: "outline" },
+  ANULADO: { label: "Anulada", variant: "destructive" },
 }
 
 const STAGE_CONFIG: Record<
@@ -75,24 +115,6 @@ const STAGE_CONFIG: Record<
   cerrada: { label: "Cerrada", variant: "default" },
 }
 
-const DEFAULT_TRACKERS: LocalAllocationTracker[] = legacyPurchaseAllocations.map((item) => ({
-  allocationId: item.id,
-  stage:
-    item.estado === "IMPUTADA"
-      ? "cerrada"
-      : item.estado === "OBSERVADA"
-        ? "en_revision"
-        : "pendiente",
-  owner: item.responsable,
-  nextStep:
-    item.estado === "IMPUTADA"
-      ? "Mantener trazabilidad del cierre contable."
-      : item.estado === "OBSERVADA"
-        ? "Resolver observación y cerrar distribución contable."
-        : "Confirmar distribución y preparar imputación final.",
-  updatedAt: item.fecha,
-}))
-
 function formatMoney(value: number, currency = "ARS") {
   return value.toLocaleString("es-AR", { style: "currency", currency })
 }
@@ -101,9 +123,101 @@ function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString("es-AR") : "-"
 }
 
-function matchesTerm(item: LegacyPurchaseAllocation, term: string) {
+function inferAllocationType(document: Comprobante) {
+  const haystack =
+    `${document.tipoComprobanteDescripcion ?? ""} ${document.observacion ?? ""}`.toLowerCase()
+  return haystack.includes("import") || haystack.includes("despacho") ? "Importación" : "Compras"
+}
+
+function inferAccount(type: AllocationType, document: Comprobante) {
+  if (type === "Importación") return "Importaciones y nacionalización"
+  const description = (document.tipoComprobanteDescripcion ?? "").toLowerCase()
+  if (description.includes("serv")) return "Servicios y gastos de compras"
+  return "Compras y abastecimiento"
+}
+
+function inferCostCenter(relatedOrder: OrdenCompra | null) {
+  return relatedOrder ? `Orden OC-${relatedOrder.id}` : "Compras generales"
+}
+
+function buildSourceDetails(
+  document: Comprobante,
+  relatedOrder: OrdenCompra | null,
+  providerName: string
+) {
+  const details = [
+    `Documento real ${document.nroComprobante ?? `#${document.id}`} visible en backend.`,
+    `Proveedor vinculado: ${providerName}.`,
+  ]
+
+  if (relatedOrder) {
+    details.push(`Orden relacionada: OC-${relatedOrder.id}.`)
+    if (relatedOrder.fechaUltimaRecepcion) {
+      details.push(`Última recepción visible: ${formatDate(relatedOrder.fechaUltimaRecepcion)}.`)
+    }
+  } else {
+    details.push("Sin orden de compra vinculada visible en la consulta actual.")
+  }
+
+  if ((document.saldo ?? 0) > 0) {
+    details.push(`Saldo pendiente visible: ${formatMoney(document.saldo ?? 0)}.`)
+  }
+
+  if (document.observacion) {
+    details.push(document.observacion)
+  }
+
+  return details
+}
+
+function buildDefaultRecord(
+  document: Comprobante,
+  relatedOrder: OrdenCompra | null,
+  providerName: string,
+  type: AllocationType
+): LocalAllocationRecord {
+  const cuenta = inferAccount(type, document)
+  const centroCosto = inferCostCenter(relatedOrder)
+  const importe = document.total ?? 0
+  const stage: AllocationStage =
+    document.estado === "PAGADO"
+      ? "cerrada"
+      : document.estado === "PAGADO_PARCIAL"
+        ? "lista_para_cierre"
+        : document.estado === "BORRADOR"
+          ? "pendiente"
+          : "en_revision"
+
+  return {
+    allocationId: document.id,
+    stage,
+    owner: "Contabilidad compras",
+    nextStep:
+      stage === "cerrada"
+        ? "Mantener conciliación cerrada y trazabilidad documental."
+        : stage === "lista_para_cierre"
+          ? "Completar prorrateo final y cerrar el gasto pendiente."
+          : stage === "en_revision"
+            ? "Validar cuenta, centro de costo y soporte documental."
+            : "Preparar cuenta y centro de costo antes de imputar.",
+    cuenta,
+    centroCosto,
+    accountingNote: `Base real sobre ${document.nroComprobante ?? `#${document.id}`} · ${providerName}`,
+    distribucion: [
+      {
+        id: `dist-${document.id}-1`,
+        cuenta,
+        centroCosto,
+        porcentaje: 100,
+        importe,
+      },
+    ],
+  }
+}
+
+function matchesTerm(item: AllocationRow, term: string) {
   if (term === "") return true
-  const haystack = [
+  return [
     item.proveedor,
     item.comprobante,
     item.cuenta,
@@ -112,17 +226,18 @@ function matchesTerm(item: LegacyPurchaseAllocation, term: string) {
     item.ordenCompraReferencia ?? "",
     item.recepcionReferencia ?? "",
     item.observacion,
-    ...item.distribucion.map((row) => `${row.cuenta} ${row.centroCosto}`),
+    ...item.detallesClave,
   ]
     .join(" ")
     .toLowerCase()
-  return haystack.includes(term)
+    .includes(term)
 }
 
-function getAllocationHealth(item: LegacyPurchaseAllocation, tracker: LocalAllocationTracker) {
-  if (tracker.stage === "cerrada") return "Imputación cerrada y conciliada"
-  if (item.estado === "OBSERVADA") return "Tiene observaciones de prorrateo o costos accesorios"
-  if (tracker.stage === "lista_para_cierre") return "Lista para cierre contable"
+function getAllocationHealth(item: AllocationRow) {
+  if (item.tracker.stage === "cerrada") return "Imputación cerrada y conciliada"
+  if (item.tracker.stage === "lista_para_cierre") return "Lista para cierre contable"
+  if (item.estado === "PAGADO_PARCIAL") return "Tiene saldo o cierre económico parcial"
+  if (item.tracker.stage === "en_revision") return "Requiere validación de cuenta y centro de costo"
   return "Pendiente de distribución o validación"
 }
 
@@ -140,37 +255,91 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
 }
 
 export default function ImputacionesCompraPage() {
+  const searchParams = useSearchParams()
+  const {
+    comprobantes,
+    loading: loadingDocs,
+    error: docsError,
+  } = useComprobantes({ esCompra: true })
   const { ordenes, loading: loadingOrders, error: ordersError } = useOrdenesCompra()
   const {
-    rows: trackers,
-    setRows: setTrackers,
-    reset: resetTrackers,
-  } = useLegacyLocalCollection<LocalAllocationTracker>(
-    ALLOCATION_TRACKER_STORAGE_KEY,
-    DEFAULT_TRACKERS
-  )
+    terceros: proveedores,
+    loading: loadingProviders,
+    error: providersError,
+  } = useProveedores()
+  const {
+    rows: records,
+    setRows: setRecords,
+    reset: resetRecords,
+  } = useLegacyLocalCollection<LocalAllocationRecord>(ALLOCATION_TRACKER_STORAGE_KEY, [])
+
+  const routeComprobanteId = Number(searchParams.get("comprobanteId") ?? "")
+  const routeProviderId = Number(searchParams.get("proveedorId") ?? "")
+  const focusAllocationId =
+    Number.isFinite(routeComprobanteId) && routeComprobanteId > 0 ? routeComprobanteId : null
+  const focusProviderId =
+    Number.isFinite(routeProviderId) && routeProviderId > 0 ? routeProviderId : null
 
   const [search, setSearch] = useState("")
-  const [typeFilter, setTypeFilter] = useState<"todas" | "Compras" | "Importación">("todas")
+  const [typeFilter, setTypeFilter] = useState<"todas" | AllocationType>("todas")
   const [stageFilter, setStageFilter] = useState<"todas" | AllocationStage>("todas")
-  const [selectedId, setSelectedId] = useState<number | null>(
-    legacyPurchaseAllocations[0]?.id ?? null
-  )
+  const [selectedId, setSelectedId] = useState<number | null>(focusAllocationId)
+  const isLoadingOverview = loadingDocs || loadingOrders || loadingProviders
 
-  const trackerMap = useMemo(
-    () => new Map(trackers.map((tracker) => [tracker.allocationId, tracker])),
-    [trackers]
+  const orderByComprobanteId = useMemo(
+    () => new Map(ordenes.map((order) => [order.comprobanteId, order])),
+    [ordenes]
   )
-
-  const allocations = useMemo(
+  const providerNameById = useMemo(
     () =>
-      legacyPurchaseAllocations.map((item) => ({
-        ...item,
-        tracker:
-          trackerMap.get(item.id) ?? DEFAULT_TRACKERS.find((row) => row.allocationId === item.id)!,
-      })),
-    [trackerMap]
+      new Map(
+        proveedores.map((provider) => [provider.id, provider.razonSocial ?? `#${provider.id}`])
+      ),
+    [proveedores]
   )
+  const recordMap = useMemo(
+    () => new Map(records.map((record) => [record.allocationId, record])),
+    [records]
+  )
+
+  const allocations = useMemo<AllocationRow[]>(() => {
+    return comprobantes
+      .filter((document) => document.estado !== "ANULADO")
+      .map((document) => {
+        const relatedOrder = orderByComprobanteId.get(document.id) ?? null
+        const providerName = providerNameById.get(document.terceroId) ?? `#${document.terceroId}`
+        const type = inferAllocationType(document)
+        const tracker =
+          recordMap.get(document.id) ??
+          buildDefaultRecord(document, relatedOrder, providerName, type)
+
+        return {
+          id: document.id,
+          tipo: type,
+          proveedor: providerName,
+          comprobante: document.nroComprobante ?? `#${document.id}`,
+          cuenta: tracker.cuenta,
+          centroCosto: tracker.centroCosto,
+          estado: document.estado,
+          fecha: document.fecha,
+          importe: document.total ?? 0,
+          saldo: document.saldo ?? 0,
+          ordenCompraReferencia: relatedOrder ? `OC-${relatedOrder.id}` : null,
+          recepcionReferencia: relatedOrder?.fechaUltimaRecepcion
+            ? formatDate(relatedOrder.fechaUltimaRecepcion)
+            : null,
+          responsable: tracker.owner,
+          moneda: "ARS",
+          circuitoOrigen: relatedOrder
+            ? "Comprobante con orden vinculada"
+            : "Comprobante directo de compras",
+          observacion: tracker.accountingNote,
+          detallesClave: buildSourceDetails(document, relatedOrder, providerName),
+          tracker,
+        }
+      })
+      .sort((left, right) => right.importe - left.importe)
+  }, [comprobantes, orderByComprobanteId, providerNameById, recordMap])
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase().trim()
@@ -182,10 +351,18 @@ export default function ImputacionesCompraPage() {
     })
   }, [allocations, search, stageFilter, typeFilter])
 
-  const selected = allocations.find((item) => item.id === selectedId) ?? filtered[0] ?? null
+  const routeFocusedAllocation = useMemo(
+    () =>
+      focusAllocationId
+        ? (allocations.find((item) => item.id === focusAllocationId) ?? null)
+        : null,
+    [allocations, focusAllocationId]
+  )
+  const selected =
+    selectedId !== null ? (allocations.find((item) => item.id === selectedId) ?? null) : null
 
   const kpis = useMemo(() => {
-    const observed = allocations.filter((item) => item.estado === "OBSERVADA").length
+    const observed = allocations.filter((item) => item.tracker.stage === "en_revision").length
     const imported = allocations.filter((item) => item.tipo === "Importación").length
     const closed = allocations.filter((item) => item.tracker.stage === "cerrada").length
     const total = allocations.reduce((acc, item) => acc + item.importe, 0)
@@ -207,18 +384,42 @@ export default function ImputacionesCompraPage() {
       .slice(0, 5)
   }, [filtered])
 
-  const updateTracker = (allocationId: number, patch: Partial<LocalAllocationTracker>) => {
-    setTrackers((current) => {
+  const updateRecord = (allocationId: number, patch: Partial<LocalAllocationRecord>) => {
+    const base = allocations.find((item) => item.id === allocationId)?.tracker
+    if (!base) return
+
+    setRecords((current) => {
       const index = current.findIndex((row) => row.allocationId === allocationId)
-      const nextRow = {
-        ...(index >= 0
-          ? current[index]
-          : DEFAULT_TRACKERS.find((row) => row.allocationId === allocationId)!),
-        ...patch,
-        updatedAt: new Date().toISOString(),
+      const nextRow = { ...base, ...patch, allocationId }
+      if (index >= 0) {
+        return current.map((row, rowIndex) => (rowIndex === index ? nextRow : row))
       }
-      if (index >= 0) return current.map((row, rowIndex) => (rowIndex === index ? nextRow : row))
       return [...current, nextRow]
+    })
+  }
+
+  const updateAccountingFields = (
+    allocationId: number,
+    fields: { cuenta?: string; centroCosto?: string }
+  ) => {
+    const base = allocations.find((item) => item.id === allocationId)?.tracker
+    if (!base) return
+
+    const nextCuenta = fields.cuenta ?? base.cuenta
+    const nextCentroCosto = fields.centroCosto ?? base.centroCosto
+    const importe = allocations.find((item) => item.id === allocationId)?.importe ?? 0
+    updateRecord(allocationId, {
+      cuenta: nextCuenta,
+      centroCosto: nextCentroCosto,
+      distribucion: [
+        {
+          id: base.distribucion[0]?.id ?? `dist-${allocationId}-1`,
+          cuenta: nextCuenta,
+          centroCosto: nextCentroCosto,
+          porcentaje: 100,
+          importe,
+        },
+      ],
     })
   }
 
@@ -228,7 +429,8 @@ export default function ImputacionesCompraPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Imputaciones de compras</h1>
           <p className="text-muted-foreground">
-            Consola contable para distribución, observaciones y cierre de imputaciones de compras.
+            Consola contable híbrida: documentos reales de compras con conciliación local hasta que
+            exista endpoint formal.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -237,8 +439,7 @@ export default function ImputacionesCompraPage() {
           </Button>
           <Button asChild>
             <Link href="/compras/reportes">
-              <ArrowRight className="mr-2 h-4 w-4" />
-              Ir a reportes
+              <ArrowRight className="mr-2 h-4 w-4" /> Ir a reportes
             </Link>
           </Button>
         </div>
@@ -247,41 +448,60 @@ export default function ImputacionesCompraPage() {
       <Alert>
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
-          El backend actual no expone imputaciones contables de compras ni prorrateos de
-          importación. Esta vista cubre el análisis y seguimiento local hasta el cierre contable
-          real.
+          El backend sigue sin exponer imputaciones contables de compras. Esta vista ya no parte de
+          un lote fijo legacy: usa comprobantes reales de compra y suma una capa local para
+          distribución y cierre.
         </AlertDescription>
       </Alert>
-      {ordersError && (
+
+      {(docsError || ordersError || providersError) && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{ordersError}</AlertDescription>
+          <AlertDescription>{docsError || ordersError || providersError}</AlertDescription>
+        </Alert>
+      )}
+
+      {routeFocusedAllocation && (
+        <Alert>
+          <ShieldAlert className="h-4 w-4" />
+          <AlertDescription>
+            Llegaste con foco sobre la imputación del comprobante{" "}
+            {routeFocusedAllocation.comprobante}
+            {focusProviderId ? ` del proveedor #${focusProviderId}` : ""}. La fila quedó priorizada
+            para revisión.
+          </AlertDescription>
         </Alert>
       )}
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Observadas</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.observed}</p>
+            <p className="text-xs text-muted-foreground">En revisión</p>
+            <p className="mt-2 text-2xl font-bold text-amber-600">
+              {isLoadingOverview ? "..." : kpis.observed}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Importación</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.imported}</p>
+            <p className="mt-2 text-2xl font-bold">{isLoadingOverview ? "..." : kpis.imported}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Cerradas</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-600">{kpis.closed}</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-600">
+              {isLoadingOverview ? "..." : kpis.closed}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Importe visible</p>
-            <p className="mt-2 text-2xl font-bold">{formatMoney(kpis.total)}</p>
+            <p className="mt-2 text-2xl font-bold">
+              {isLoadingOverview ? "..." : formatMoney(kpis.total)}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -291,19 +511,17 @@ export default function ImputacionesCompraPage() {
           <CardHeader>
             <CardTitle className="text-base">Continuidad operativa</CardTitle>
             <CardDescription>
-              Las imputaciones enlazan factura, recepción y eventual nota de crédito, pero su
-              persistencia sigue fuera del backend actual.
+              Las imputaciones enlazan comprobante, orden y recepción visible. La capa contable
+              sigue siendo local hasta que exista persistencia específica.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            <Button variant="outline" className="bg-transparent" onClick={() => resetTrackers()}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Restablecer tablero local
+            <Button variant="outline" className="bg-transparent" onClick={() => resetRecords()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Restablecer tablero local
             </Button>
             <Button asChild>
               <Link href="/compras/notas-credito">
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                Ver notas
+                <CheckCircle2 className="mr-2 h-4 w-4" /> Ver notas
               </Link>
             </Button>
           </CardContent>
@@ -312,12 +530,16 @@ export default function ImputacionesCompraPage() {
           <CardHeader>
             <CardTitle className="text-base">Cobertura real</CardTitle>
             <CardDescription>
-              Órdenes visibles hoy para sostener el contexto del gasto.
+              Documentos visibles hoy para sostener la conciliación.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{loadingOrders ? "..." : ordenes.length}</p>
-            <p className="text-sm text-muted-foreground">órdenes disponibles</p>
+          <CardContent className="space-y-2">
+            <p className="text-2xl font-bold">{loadingDocs ? "..." : allocations.length}</p>
+            <p className="text-sm text-muted-foreground">
+              {isLoadingOverview
+                ? "Cargando documentos, órdenes y proveedores visibles..."
+                : `comprobantes base y ${ordenes.length} órdenes visibles / ${proveedores.length} proveedores visibles`}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -331,12 +553,12 @@ export default function ImputacionesCompraPage() {
                 className="pl-10"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar proveedor, cuenta, comprobante, recepción o centro de costo..."
+                placeholder="Buscar proveedor, cuenta, comprobante, orden o centro de costo..."
               />
             </div>
             <Select
               value={typeFilter}
-              onValueChange={(value) => setTypeFilter(value as "todas" | "Compras" | "Importación")}
+              onValueChange={(value) => setTypeFilter(value as "todas" | AllocationType)}
             >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Tipo" />
@@ -371,7 +593,7 @@ export default function ImputacionesCompraPage() {
           <CardHeader>
             <CardTitle className="text-base">Lote de imputaciones</CardTitle>
             <CardDescription>
-              Distribución contable, centro de costo y observaciones del circuito.
+              Base documental real con cuenta y centro de costo mantenidos localmente.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
@@ -389,7 +611,12 @@ export default function ImputacionesCompraPage() {
               </TableHeader>
               <TableBody>
                 {filtered.map((item) => (
-                  <TableRow key={item.id}>
+                  <TableRow
+                    key={item.id}
+                    className={
+                      focusAllocationId === item.id ? "bg-primary/5 hover:bg-primary/10" : undefined
+                    }
+                  >
                     <TableCell className="font-medium">IMP-{item.id}</TableCell>
                     <TableCell>{item.tipo}</TableCell>
                     <TableCell>
@@ -405,8 +632,8 @@ export default function ImputacionesCompraPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_CONFIG[item.estado].variant}>
-                        {STATUS_CONFIG[item.estado].label}
+                      <Badge variant={STATUS_CONFIG[item.estado]?.variant ?? "outline"}>
+                        {STATUS_CONFIG[item.estado]?.label ?? item.estado}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -424,7 +651,9 @@ export default function ImputacionesCompraPage() {
                 {filtered.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                      No hay imputaciones que coincidan con los filtros actuales.
+                      {loadingDocs
+                        ? "Cargando comprobantes reales..."
+                        : "No hay imputaciones que coincidan con los filtros actuales."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -435,7 +664,9 @@ export default function ImputacionesCompraPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Cola operativa</CardTitle>
-            <CardDescription>Se priorizan observadas y montos altos.</CardDescription>
+            <CardDescription>
+              Se priorizan revisión manual, importes altos y cierre pendiente.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {queue.map((item) => (
@@ -454,9 +685,7 @@ export default function ImputacionesCompraPage() {
                     {STAGE_CONFIG[item.tracker.stage].label}
                   </Badge>
                 </div>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {getAllocationHealth(item, item.tracker)}
-                </p>
+                <p className="mt-2 text-sm text-muted-foreground">{getAllocationHealth(item)}</p>
               </button>
             ))}
           </CardContent>
@@ -481,6 +710,7 @@ export default function ImputacionesCompraPage() {
                 <TabsTrigger value="observaciones">Observaciones</TabsTrigger>
                 <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
               </TabsList>
+
               <TabsContent value="circuito" className="space-y-4 pt-2">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Card>
@@ -500,13 +730,10 @@ export default function ImputacionesCompraPage() {
                             value: selected.ordenCompraReferencia ?? "Sin orden visible",
                           },
                           {
-                            label: "Recepción asociada",
+                            label: "Recepción visible",
                             value: selected.recepcionReferencia ?? "Sin recepción visible",
                           },
-                          {
-                            label: "Salud del circuito",
-                            value: getAllocationHealth(selected, selected.tracker),
-                          },
+                          { label: "Salud del circuito", value: getAllocationHealth(selected) },
                         ]}
                       />
                     </CardContent>
@@ -522,6 +749,10 @@ export default function ImputacionesCompraPage() {
                             label: "Importe",
                             value: formatMoney(selected.importe, selected.moneda),
                           },
+                          {
+                            label: "Saldo visible",
+                            value: formatMoney(selected.saldo, selected.moneda),
+                          },
                           { label: "Moneda", value: selected.moneda },
                           {
                             label: "Responsable",
@@ -529,54 +760,94 @@ export default function ImputacionesCompraPage() {
                           },
                           { label: "Circuito origen", value: selected.circuitoOrigen },
                           { label: "Fecha", value: formatDate(selected.fecha) },
-                          { label: "Estado legado", value: STATUS_CONFIG[selected.estado].label },
+                          {
+                            label: "Estado documental",
+                            value: STATUS_CONFIG[selected.estado]?.label ?? selected.estado,
+                          },
                           {
                             label: "Seguimiento local",
                             value: STAGE_CONFIG[selected.tracker.stage].label,
                           },
-                          { label: "Órdenes backend visibles", value: String(ordenes.length) },
                         ]}
                       />
                     </CardContent>
                   </Card>
                 </div>
               </TabsContent>
-              <TabsContent value="distribucion" className="pt-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Prorrateo visible</CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Cuenta</TableHead>
-                          <TableHead>Centro costo</TableHead>
-                          <TableHead>Porcentaje</TableHead>
-                          <TableHead>Importe</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {selected.distribucion.map((row) => (
-                          <TableRow key={row.id}>
-                            <TableCell className="font-medium">{row.cuenta}</TableCell>
-                            <TableCell>{row.centroCosto}</TableCell>
-                            <TableCell>{row.porcentaje}%</TableCell>
-                            <TableCell>{formatMoney(row.importe, selected.moneda)}</TableCell>
+
+              <TabsContent value="distribucion" className="space-y-4 pt-2">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Asignación principal</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Cuenta</label>
+                        <Input
+                          value={selected.tracker.cuenta}
+                          onChange={(event) =>
+                            updateAccountingFields(selected.id, { cuenta: event.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Centro de costo</label>
+                        <Input
+                          value={selected.tracker.centroCosto}
+                          onChange={(event) =>
+                            updateAccountingFields(selected.id, { centroCosto: event.target.value })
+                          }
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Prorrateo visible</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Cuenta</TableHead>
+                            <TableHead>Centro costo</TableHead>
+                            <TableHead>Porcentaje</TableHead>
+                            <TableHead>Importe</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
+                        </TableHeader>
+                        <TableBody>
+                          {selected.tracker.distribucion.map((row) => (
+                            <TableRow key={row.id}>
+                              <TableCell className="font-medium">{row.cuenta}</TableCell>
+                              <TableCell>{row.centroCosto}</TableCell>
+                              <TableCell>{row.porcentaje}%</TableCell>
+                              <TableCell>{formatMoney(row.importe, selected.moneda)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </div>
               </TabsContent>
+
               <TabsContent value="observaciones" className="pt-2">
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Observaciones del circuito</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-3 text-sm">
-                    <p className="text-muted-foreground">{selected.observacion}</p>
+                  <CardContent className="space-y-4 text-sm">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Nota contable local</label>
+                      <Textarea
+                        rows={5}
+                        value={selected.tracker.accountingNote}
+                        onChange={(event) =>
+                          updateRecord(selected.id, { accountingNote: event.target.value })
+                        }
+                      />
+                    </div>
                     <div className="space-y-2">
                       {selected.detallesClave.map((detail) => (
                         <div
@@ -590,12 +861,13 @@ export default function ImputacionesCompraPage() {
                   </CardContent>
                 </Card>
               </TabsContent>
+
               <TabsContent value="seguimiento" className="space-y-4 pt-2">
                 <Alert>
                   <ShieldAlert className="h-4 w-4" />
                   <AlertDescription>
                     Este seguimiento se guarda solo en el navegador actual y cubre el trabajo de
-                    conciliación contable hasta que exista backend formal de imputaciones.
+                    conciliación hasta que exista backend formal de imputaciones.
                   </AlertDescription>
                 </Alert>
                 <div className="grid gap-4 md:grid-cols-2">
@@ -609,7 +881,7 @@ export default function ImputacionesCompraPage() {
                         <Select
                           value={selected.tracker.stage}
                           onValueChange={(value) =>
-                            updateTracker(selected.id, { stage: value as AllocationStage })
+                            updateRecord(selected.id, { stage: value as AllocationStage })
                           }
                         >
                           <SelectTrigger className="w-full">
@@ -628,7 +900,7 @@ export default function ImputacionesCompraPage() {
                         <Input
                           value={selected.tracker.owner}
                           onChange={(event) =>
-                            updateTracker(selected.id, { owner: event.target.value })
+                            updateRecord(selected.id, { owner: event.target.value })
                           }
                         />
                       </div>
@@ -638,7 +910,7 @@ export default function ImputacionesCompraPage() {
                           rows={5}
                           value={selected.tracker.nextStep}
                           onChange={(event) =>
-                            updateTracker(selected.id, { nextStep: event.target.value })
+                            updateRecord(selected.id, { nextStep: event.target.value })
                           }
                         />
                       </div>
@@ -651,13 +923,13 @@ export default function ImputacionesCompraPage() {
                     <CardContent className="space-y-3 text-sm">
                       <div className="rounded-lg bg-muted/40 p-3">
                         <p className="text-xs text-muted-foreground">Estado actual</p>
-                        <p className="mt-1 font-medium">
-                          {getAllocationHealth(selected, selected.tracker)}
-                        </p>
+                        <p className="mt-1 font-medium">{getAllocationHealth(selected)}</p>
                       </div>
                       <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Última actualización local</p>
-                        <p className="mt-1 font-medium">{formatDate(selected.tracker.updatedAt)}</p>
+                        <p className="text-xs text-muted-foreground">Saldo documental</p>
+                        <p className="mt-1 font-medium">
+                          {formatMoney(selected.saldo, selected.moneda)}
+                        </p>
                       </div>
                       <div className="rounded-lg bg-muted/40 p-3">
                         <p className="text-xs text-muted-foreground">Paso sugerido</p>

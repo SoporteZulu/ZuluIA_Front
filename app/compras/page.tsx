@@ -109,13 +109,21 @@ function buildSupplierScore(orderStats: {
   return clamp(3 + deliveredRatio * 2 - delayedRatio * 1.5 - cancelledRatio, 1, 5)
 }
 
+function formatLoadableValue(value: string, loading: boolean) {
+  return loading ? "Cargando..." : value
+}
+
 export default function ComprasDashboard() {
   const [todayTimestamp] = useState(() => Date.now())
-  const { ordenes } = useOrdenesCompra()
-  const { terceros } = useProveedores()
-  const { comprobantes: facturasCompra } = useComprobantes({ esCompra: true })
+  const { ordenes, loading: ordenesLoading } = useOrdenesCompra()
+  const { terceros, loading: proveedoresLoading } = useProveedores()
+  const { comprobantes: facturasCompra, loading: facturasLoading } = useComprobantes({
+    esCompra: true,
+  })
   const defaultSucursalId = useDefaultSucursalId()
-  const { resumen } = useStockResumen(defaultSucursalId)
+  const { resumen, loading: stockLoading } = useStockResumen(defaultSucursalId)
+
+  const isDashboardLoading = ordenesLoading || proveedoresLoading || facturasLoading || stockLoading
 
   const comprasActivas = useMemo(
     () => facturasCompra.filter((c) => c.estado !== "ANULADO"),
@@ -384,35 +392,35 @@ export default function ComprasDashboard() {
       title: "Proveedores",
       url: "/compras/proveedores",
       icon: Truck,
-      count: `${terceros.length} activos`,
+      count: formatLoadableValue(`${terceros.length} activos`, proveedoresLoading),
       color: "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20",
     },
     {
       title: "Órdenes de Compra",
       url: "/compras/ordenes",
       icon: FileText,
-      count: `${kpis.ordenesActivas} activas`,
+      count: formatLoadableValue(`${kpis.ordenesActivas} activas`, ordenesLoading),
       color: "bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20",
     },
     {
       title: "Recepciones",
       url: "/compras/recepciones",
       icon: PackageCheck,
-      count: `${kpis.recepcionesPendientes} pendientes`,
+      count: formatLoadableValue(`${kpis.recepcionesPendientes} pendientes`, ordenesLoading),
       color: "bg-green-500/10 text-green-600 hover:bg-green-500/20",
     },
     {
-      title: "Requisiciones",
+      title: "Solicitudes",
       url: "/compras/solicitudes",
       icon: ClipboardList,
-      count: `${kpis.solicitudesPendientes} por revisar`,
+      count: formatLoadableValue(`${kpis.solicitudesPendientes} detectadas`, stockLoading),
       color: "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20",
     },
     {
       title: "Facturas",
       url: "/compras/facturas",
       icon: Receipt,
-      count: `${comprasActivas.length} comprobantes`,
+      count: formatLoadableValue(`${comprasActivas.length} comprobantes`, facturasLoading),
       color: "bg-purple-500/10 text-purple-600 hover:bg-purple-500/20",
     },
     {
@@ -426,7 +434,7 @@ export default function ComprasDashboard() {
       title: "Productos",
       url: "/inventario/productos",
       icon: Boxes,
-      count: `${kpis.productosStockBajo} con alerta`,
+      count: formatLoadableValue(`${kpis.productosStockBajo} con alerta`, stockLoading),
       color: "bg-red-500/10 text-red-600 hover:bg-red-500/20",
     },
     {
@@ -484,18 +492,25 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                ${kpis.valorComprasMes.toLocaleString("es-AR")}
-              </div>
-              <div
-                className={`flex items-center text-xs mt-1 ${variacionMensual >= 0 ? "text-green-600" : "text-red-600"}`}
-              >
-                {variacionMensual >= 0 ? (
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                ) : (
-                  <TrendingDown className="h-3 w-3 mr-1" />
+                {formatLoadableValue(
+                  `$${kpis.valorComprasMes.toLocaleString("es-AR")}`,
+                  facturasLoading
                 )}
-                <span>{`${variacionMensual >= 0 ? "+" : ""}${variacionMensual.toFixed(1)}% vs mes anterior`}</span>
               </div>
+              {facturasLoading ? (
+                <div className="mt-1 text-xs text-muted-foreground">Calculando variación...</div>
+              ) : (
+                <div
+                  className={`flex items-center text-xs mt-1 ${variacionMensual >= 0 ? "text-green-600" : "text-red-600"}`}
+                >
+                  {variacionMensual >= 0 ? (
+                    <TrendingUp className="h-3 w-3 mr-1" />
+                  ) : (
+                    <TrendingDown className="h-3 w-3 mr-1" />
+                  )}
+                  <span>{`${variacionMensual >= 0 ? "+" : ""}${variacionMensual.toFixed(1)}% vs mes anterior`}</span>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -506,9 +521,13 @@ export default function ComprasDashboard() {
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatMoney(kpis.saldoAbierto)}</div>
+              <div className="text-2xl font-bold">
+                {formatLoadableValue(formatMoney(kpis.saldoAbierto), facturasLoading)}
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {upcomingDueInvoices.length} próximas a vencer, {overdueInvoices.length} ya vencidas
+                {facturasLoading
+                  ? "Cargando vencimientos..."
+                  : `${upcomingDueInvoices.length} próximas a vencer, ${overdueInvoices.length} ya vencidas`}
               </p>
             </CardContent>
           </Card>
@@ -520,10 +539,16 @@ export default function ComprasDashboard() {
               <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{kpis.cumplimientoOrdenes.toFixed(1)}%</div>
+              <div className="text-2xl font-bold">
+                {formatLoadableValue(
+                  `${kpis.cumplimientoOrdenes.toFixed(1)}%`,
+                  ordenesLoading || facturasLoading || proveedoresLoading
+                )}
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Score promedio {kpis.ratingPromedioProveedores.toFixed(1)}/5 con{" "}
-                {kpis.proveedoresConActividad} proveedores activos
+                {ordenesLoading || facturasLoading || proveedoresLoading
+                  ? "Calculando performance de proveedores..."
+                  : `Score promedio ${kpis.ratingPromedioProveedores.toFixed(1)}/5 con ${kpis.proveedoresConActividad} proveedores activos`}
               </p>
             </CardContent>
           </Card>
@@ -535,8 +560,14 @@ export default function ComprasDashboard() {
               <Package className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{kpis.productosStockBajo}</div>
-              <p className="text-xs text-muted-foreground mt-1">Productos bajo punto de reorden</p>
+              <div className="text-2xl font-bold">
+                {formatLoadableValue(String(kpis.productosStockBajo), stockLoading)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {stockLoading
+                  ? "Consultando stock operativo..."
+                  : "Productos bajo punto de reorden"}
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -555,8 +586,14 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold text-red-600">{kpis.ordenesRetrasadas}</span> órdenes
-                de compra con fecha de entrega vencida
+                {ordenesLoading ? (
+                  "Cargando estado de órdenes..."
+                ) : (
+                  <>
+                    <span className="font-semibold text-red-600">{kpis.ordenesRetrasadas}</span>{" "}
+                    órdenes de compra con fecha de entrega vencida
+                  </>
+                )}
               </p>
               <Link
                 href="/compras/ordenes?filtro=retrasadas"
@@ -576,8 +613,16 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold text-orange-600">{kpis.proximosVencimientos}</span>{" "}
-                facturas de compra vencen en los próximos 7 días
+                {facturasLoading ? (
+                  "Cargando vencimientos de facturas..."
+                ) : (
+                  <>
+                    <span className="font-semibold text-orange-600">
+                      {kpis.proximosVencimientos}
+                    </span>{" "}
+                    facturas de compra vencen en los próximos 7 días
+                  </>
+                )}
               </p>
               <Link
                 href="/compras/facturas?filtro=proximos-vencimientos"
@@ -597,8 +642,14 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold text-yellow-600">{kpis.productosStockBajo}</span>{" "}
-                productos por debajo del punto de reorden
+                {stockLoading ? (
+                  "Cargando productos para reabastecer..."
+                ) : (
+                  <>
+                    <span className="font-semibold text-yellow-600">{kpis.productosStockBajo}</span>{" "}
+                    productos por debajo del punto de reorden
+                  </>
+                )}
               </p>
               <Link
                 href="/compras/solicitudes"
@@ -618,8 +669,16 @@ export default function ComprasDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold text-blue-600">{kpis.solicitudesPendientes}</span>{" "}
-                necesidades de compra detectadas desde stock real
+                {stockLoading ? (
+                  "Cargando necesidades detectadas desde stock..."
+                ) : (
+                  <>
+                    <span className="font-semibold text-blue-600">
+                      {kpis.solicitudesPendientes}
+                    </span>{" "}
+                    necesidades de compra detectadas desde stock real
+                  </>
+                )}
               </p>
               <Link
                 href="/compras/solicitudes"
@@ -734,7 +793,9 @@ export default function ComprasDashboard() {
             ))}
             {topProveedores.length === 0 && (
               <div className="text-sm text-muted-foreground">
-                No hay proveedores con compras registradas todavía.
+                {isDashboardLoading
+                  ? "Cargando proveedores y documentos de compras..."
+                  : "No hay proveedores con compras registradas todavía."}
               </div>
             )}
           </div>
@@ -794,7 +855,9 @@ export default function ComprasDashboard() {
                 {proveedoresRadar.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="py-4 text-center text-muted-foreground">
-                      Sin proveedores para analizar.
+                      {isDashboardLoading
+                        ? "Cargando proveedores para analizar..."
+                        : "Sin proveedores para analizar."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -868,7 +931,9 @@ export default function ComprasDashboard() {
                 {facturasSeguimiento.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="py-4 text-center text-muted-foreground">
-                      Sin facturas abiertas para seguimiento.
+                      {facturasLoading
+                        ? "Cargando facturas para seguimiento..."
+                        : "Sin facturas abiertas para seguimiento."}
                     </TableCell>
                   </TableRow>
                 )}

@@ -44,22 +44,15 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useItems } from "@/lib/hooks/useItems"
+import { useComprasSolicitudes } from "@/lib/hooks/useCompras"
 import { useStockResumen } from "@/lib/hooks/useStock"
 import { useProveedores } from "@/lib/hooks/useTerceros"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
-import type { Item } from "@/lib/types/items"
-import type { StockBajoMinimo } from "@/lib/types/stock"
+import type { CompraSolicitudResumen } from "@/lib/types/compras-operativa"
 
 type Severity = "critica" | "urgente" | "normal"
 
-type ReplenishmentCase = StockBajoMinimo & {
-  item?: Item
-  faltante: number
-  sugerido: number
-  costoEstimado: number
-  severidad: Severity
-}
+type ReplenishmentCase = CompraSolicitudResumen & { severidad: Severity }
 
 const SEVERITY_CONFIG: Record<
   Severity,
@@ -80,27 +73,8 @@ function calculateSeverity(stockActual: number, stockMinimo: number): Severity {
   return "normal"
 }
 
-function calculateSuggestedUnits(item: Item | undefined, stockActual: number, stockMinimo: number) {
-  const faltante = Math.max(stockMinimo - stockActual, 1)
-  if (item?.stockMaximo && item.stockMaximo > stockActual) {
-    return Math.max(item.stockMaximo - stockActual, faltante)
-  }
-  return faltante
-}
-
-function getCoverageTarget(item: Item | undefined, stockActual: number, sugerido: number) {
-  const target = stockActual + sugerido
-  if (item?.stockMaximo && item.stockMaximo > 0) {
-    return `${target} u. sobre objetivo ${item.stockMaximo}`
-  }
-  return `${target} u. proyectadas contra mínimo operativo`
-}
-
 function getReplenishmentStatus(row: ReplenishmentCase) {
-  if (row.stockActual <= 0) return "Reposición inmediata requerida"
-  if (row.faltante >= row.stockMinimo) return "Déficit completo contra mínimo"
-  if (row.severidad === "urgente") return "Reposición prioritaria en curso"
-  return "Reposición preventiva recomendada"
+  return row.estadoReposicion
 }
 
 function getOperationalAction(row: ReplenishmentCase) {
@@ -129,8 +103,7 @@ function FieldGrid({ fields }: { fields: Array<{ label: string; value: string }>
 export default function SolicitudesCompraPage() {
   const defaultSucursalId = useDefaultSucursalId()
   const { sucursales } = useSucursales()
-  const { items } = useItems()
-  const { terceros: proveedores } = useProveedores()
+  const { terceros: proveedores, loading: loadingProviders } = useProveedores()
   const [sucursalId, setSucursalId] = useState<number | undefined>(defaultSucursalId)
   const [searchTerm, setSearchTerm] = useState("")
   const [severityFilter, setSeverityFilter] = useState<"todas" | Severity>("todas")
@@ -140,23 +113,19 @@ export default function SolicitudesCompraPage() {
 
   const effectiveSucursalId = sucursalId ?? defaultSucursalId
 
-  const { resumen, bajoMinimo, loading, refetch } = useStockResumen(effectiveSucursalId)
+  const { resumen, loading: loadingResumen } = useStockResumen(effectiveSucursalId)
+  const { solicitudes, loading, error, refetch } = useComprasSolicitudes({
+    sucursalId: effectiveSucursalId,
+    depositoId: depositoFilter === "todos" ? undefined : Number(depositoFilter),
+    severidad: severityFilter === "todas" ? undefined : severityFilter,
+  })
 
   const replenishmentCases = useMemo<ReplenishmentCase[]>(() => {
-    return bajoMinimo
-      .map((row) => {
-        const item = items.find((current) => current.id === row.itemId)
-        const faltante = Math.max(row.stockMinimo - row.stockActual, 0)
-        const sugerido = calculateSuggestedUnits(item, row.stockActual, row.stockMinimo)
-        return {
-          ...row,
-          item,
-          faltante,
-          sugerido,
-          costoEstimado: sugerido * (item?.precioCosto ?? 0),
-          severidad: calculateSeverity(row.stockActual, row.stockMinimo),
-        }
-      })
+    return solicitudes
+      .map((row) => ({
+        ...row,
+        severidad: calculateSeverity(row.stockActual, row.stockMinimo),
+      }))
       .sort((left, right) => {
         const severityOrder = { critica: 0, urgente: 1, normal: 2 }
         return (
@@ -164,7 +133,7 @@ export default function SolicitudesCompraPage() {
           right.faltante - left.faltante
         )
       })
-  }, [bajoMinimo, items])
+  }, [solicitudes])
 
   const depositos = useMemo(() => {
     const map = new Map<number, string>()
@@ -178,7 +147,9 @@ export default function SolicitudesCompraPage() {
       const matchesSearch =
         term === "" ||
         row.codigo.toLowerCase().includes(term) ||
-        row.descripcion.toLowerCase().includes(term)
+        row.descripcion.toLowerCase().includes(term) ||
+        row.depositoDescripcion.toLowerCase().includes(term) ||
+        (row.categoriaDescripcion ?? "").toLowerCase().includes(term)
       const matchesSeverity = severityFilter === "todas" || row.severidad === severityFilter
       const matchesDeposito =
         depositoFilter === "todos" || String(row.depositoId) === depositoFilter
@@ -261,6 +232,7 @@ export default function SolicitudesCompraPage() {
 
   const selectedSucursalName =
     sucursales.find((row) => row.id === effectiveSucursalId)?.descripcion ?? "-"
+  const isLoadingOverview = loading || loadingProviders || loadingResumen
 
   return (
     <div className="space-y-6 pb-6">
@@ -290,18 +262,25 @@ export default function SolicitudesCompraPage() {
       <Alert>
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
-          El backend actual no expone un endpoint para registrar, aprobar o rechazar solicitudes de
-          compra. Esta vista reemplaza la maqueta anterior por casos reales detectados desde stock y
-          deja explícito el límite funcional actual.
+          Esta vista ya consume solicitudes reales detectadas por el backend sobre stock bajo
+          mínimo. Sigue siendo un panel operativo de necesidad y no un workflow manual de
+          aprobación.
         </AlertDescription>
       </Alert>
+
+      {error && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="border-dashed">
           <CardHeader>
             <CardTitle className="text-base">Solicitudes automáticas</CardTitle>
             <CardDescription>
-              Esta vista sigue concentrada en reposición por stock mínimo y abastecimiento real.
+              El backend ya consolida la detección, severidad y compra sugerida por reposición.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -315,10 +294,10 @@ export default function SolicitudesCompraPage() {
         </Card>
         <Card className="border-dashed">
           <CardHeader>
-            <CardTitle className="text-base">Requisiciones legacy</CardTitle>
+            <CardTitle className="text-base">Circuito complementario</CardTitle>
             <CardDescription>
-              El circuito manual de requisición por área u obra ahora vive separado para no
-              mezclarlo con la reposición automática.
+              El circuito manual de requisición por área u obra vive separado para no mezclarlo con
+              la reposición automática basada en stock.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
@@ -339,25 +318,31 @@ export default function SolicitudesCompraPage() {
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Casos detectados</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.total}</p>
+            <p className="mt-2 text-2xl font-bold">{isLoadingOverview ? "..." : kpis.total}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Críticos</p>
-            <p className="mt-2 text-2xl font-bold text-destructive">{kpis.criticas}</p>
+            <p className="mt-2 text-2xl font-bold text-destructive">
+              {isLoadingOverview ? "..." : kpis.criticas}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Sin stock</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.sinStock}</p>
+            <p className="mt-2 text-2xl font-bold text-amber-600">
+              {isLoadingOverview ? "..." : kpis.sinStock}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Costo estimado</p>
-            <p className="mt-2 text-2xl font-bold">{formatMoney(kpis.costoEstimado)}</p>
+            <p className="mt-2 text-2xl font-bold">
+              {isLoadingOverview ? "..." : formatMoney(kpis.costoEstimado)}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -439,10 +424,9 @@ export default function SolicitudesCompraPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {selectedSucursalName}.{" "}
-            {resumen
-              ? `${resumen.itemsBajoMinimo} ítems bajo mínimo y ${resumen.itemsSinStock} sin stock.`
-              : "Sin resumen disponible aún."}
+            {loadingResumen
+              ? "Cargando resumen de stock por sucursal..."
+              : `${selectedSucursalName}. ${resumen ? `${resumen.itemsBajoMinimo} ítems bajo mínimo y ${resumen.itemsSinStock} sin stock.` : "Sin resumen disponible aún."}`}
           </CardContent>
         </Card>
         <Card>
@@ -453,8 +437,9 @@ export default function SolicitudesCompraPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {proveedores.length} proveedores activos disponibles y {kpis.totalSugerido} unidades
-            sugeridas para recomponer cobertura en la sucursal seleccionada.
+            {isLoadingOverview
+              ? "Cargando cobertura de proveedores y unidades sugeridas..."
+              : `${proveedores.length} proveedores activos disponibles y ${kpis.totalSugerido} unidades sugeridas para recomponer cobertura en la sucursal seleccionada.`}
           </CardContent>
         </Card>
         <Card>
@@ -465,9 +450,9 @@ export default function SolicitudesCompraPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {kpis.criticas} casos críticos y {kpis.urgentes} urgentes requieren priorización.
-            Consolide por proveedor y avance a una orden real cuando el abastecimiento quede
-            confirmado.
+            {isLoadingOverview
+              ? "Calculando prioridad operativa de abastecimiento..."
+              : `${kpis.criticas} casos críticos y ${kpis.urgentes} urgentes requieren priorización. Consolide por proveedor y avance a una orden real cuando el abastecimiento quede confirmado.`}
           </CardContent>
         </Card>
       </div>
@@ -486,29 +471,39 @@ export default function SolicitudesCompraPage() {
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Proveedores activos
                 </p>
-                <p className="mt-1 text-2xl font-semibold">{providerCoverage.active}</p>
+                <p className="mt-1 text-2xl font-semibold">
+                  {loadingProviders ? "..." : providerCoverage.active}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  {providerCoverage.withEmail} con email y {providerCoverage.withPhone} con teléfono
-                  visible.
+                  {loadingProviders
+                    ? "Cargando cobertura de contactos..."
+                    : `${providerCoverage.withEmail} con email y ${providerCoverage.withPhone} con teléfono visible.`}
                 </p>
               </div>
               <div className="rounded-lg border p-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Depósitos afectados
                 </p>
-                <p className="mt-1 text-2xl font-semibold">{concentrationByDeposito.length}</p>
+                <p className="mt-1 text-2xl font-semibold">
+                  {loading ? "..." : concentrationByDeposito.length}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  {concentrationByDeposito[0]?.depositoDescripcion ?? "Sin concentración visible"}{" "}
-                  lidera el faltante.
+                  {loading
+                    ? "Calculando concentración por depósito..."
+                    : `${concentrationByDeposito[0]?.depositoDescripcion ?? "Sin concentración visible"} lidera el faltante.`}
                 </p>
               </div>
               <div className="rounded-lg border p-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Unidades sugeridas
                 </p>
-                <p className="mt-1 text-2xl font-semibold">{kpis.totalSugerido}</p>
+                <p className="mt-1 text-2xl font-semibold">
+                  {loading ? "..." : kpis.totalSugerido}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  Total de unidades propuestas para recomponer cobertura.
+                  {loading
+                    ? "Calculando recomposición sugerida..."
+                    : "Total de unidades propuestas para recomponer cobertura."}
                 </p>
               </div>
             </div>
@@ -711,35 +706,28 @@ export default function SolicitudesCompraPage() {
                   fields={[
                     { label: "Estado de reposición", value: getReplenishmentStatus(selectedCase) },
                     { label: "Compra sugerida", value: `${selectedCase.sugerido} unidades` },
-                    {
-                      label: "Cobertura objetivo",
-                      value: getCoverageTarget(
-                        selectedCase.item,
-                        selectedCase.stockActual,
-                        selectedCase.sugerido
-                      ),
-                    },
+                    { label: "Cobertura objetivo", value: selectedCase.coberturaObjetivo },
                     { label: "Costo estimado", value: formatMoney(selectedCase.costoEstimado) },
-                    {
-                      label: "Precio costo",
-                      value: formatMoney(selectedCase.item?.precioCosto ?? 0),
-                    },
+                    { label: "Precio costo", value: formatMoney(selectedCase.precioCosto ?? 0) },
                     {
                       label: "Stock máximo",
-                      value: selectedCase.item?.stockMaximo
-                        ? String(selectedCase.item.stockMaximo)
+                      value: selectedCase.stockMaximo
+                        ? String(selectedCase.stockMaximo)
                         : "No definido",
                     },
                     {
                       label: "Categoría",
-                      value: selectedCase.item?.categoriaDescripcion ?? "No informada",
+                      value: selectedCase.categoriaDescripcion ?? "No informada",
                     },
                     {
                       label: "Unidad",
-                      value: selectedCase.item?.unidadMedidaDescripcion ?? "No informada",
+                      value: selectedCase.unidadMedidaDescripcion ?? "No informada",
                     },
-                    { label: "Maneja stock", value: selectedCase.item?.manejaStock ? "Sí" : "No" },
-                    { label: "Proveedor preferido", value: "No disponible en backend actual" },
+                    { label: "Maneja stock", value: selectedCase.manejaStock ? "Sí" : "No" },
+                    {
+                      label: "Proveedor preferido",
+                      value: selectedCase.proveedorPreferido ?? "No informado",
+                    },
                   ]}
                 />
 
@@ -749,7 +737,8 @@ export default function SolicitudesCompraPage() {
                   </CardHeader>
                   <CardContent className="text-sm text-muted-foreground">
                     {getOperationalAction(selectedCase)}. El circuito actual permite detectar el
-                    caso, dimensionar la compra y continuar manualmente hacia una orden real.
+                    caso, dimensionar la compra y continuar hacia requisiciones u órdenes según el
+                    tipo de necesidad.
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -757,10 +746,9 @@ export default function SolicitudesCompraPage() {
               <TabsContent value="legado" className="space-y-4">
                 <Card>
                   <CardContent className="pt-6 text-sm text-muted-foreground">
-                    La pantalla ya deja visible severidad, faltante, costo y cobertura objetivo.
-                    Alta manual de solicitud, aprobación por responsable, consolidación automática
-                    por proveedor y conversión directa a orden quedan reservadas para cuando exista
-                    ese backend.
+                    La pantalla ya deja visible severidad, faltante, cobertura objetivo y costo
+                    estimado desde el backend. La parte que sigue separada es el workflow manual por
+                    área u obra, que hoy vive en requisiciones y cotizaciones.
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -774,7 +762,7 @@ export default function SolicitudesCompraPage() {
           <DialogFooter className="gap-2 sm:justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <AlertCircle className="h-4 w-4" />
-              Esta vista no persiste solicitudes; prepara el abastecimiento real.
+              Esta vista usa la señal real del backend para preparar abastecimiento y derivación.
             </div>
             <div className="flex gap-2">
               <Button
@@ -783,6 +771,9 @@ export default function SolicitudesCompraPage() {
                 onClick={() => setIsDetailOpen(false)}
               >
                 Cerrar
+              </Button>
+              <Button variant="outline" className="bg-transparent" asChild>
+                <Link href="/compras/requisiciones">Ir a requisiciones</Link>
               </Button>
               <Button asChild>
                 <Link href="/compras/ordenes">

@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 import {
@@ -48,7 +49,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { buildLegacyPurchaseInvoiceOverlay } from "@/lib/compras-legacy-data"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
@@ -142,6 +142,16 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
       ))}
     </div>
   )
+}
+
+function getPurchaseOperationalControl(
+  invoice: Pick<ComprobanteDetalle, "estado" | "saldo" | "fechaVto" | "cae">
+) {
+  if (invoice.estado === "ANULADO") return "Control cerrado por anulación"
+  if (invoice.saldo <= 0) return "Control económico cerrado"
+  if (invoice.fechaVto) return `Control con vencimiento ${formatDate(invoice.fechaVto)}`
+  if (invoice.cae) return `Control fiscal con CAE ${invoice.cae}`
+  return "Control documental pendiente de seguimiento"
 }
 
 type PurchaseFormItem = {
@@ -242,14 +252,45 @@ function PurchaseInvoiceForm({ onClose, onSaved, emitir }: PurchaseInvoiceFormPr
       { subtotal: 0, iva: 0, total: 0 }
     )
   }, [lineItems])
-
-  const legacyPreview = buildLegacyPurchaseInvoiceOverlay(
-    {
-      id: form.tipoComprobanteId || form.proveedorId || 0,
-      observacion: form.observacion,
-      fechaVto: form.fechaVto,
-    },
-    proveedores.find((supplier) => supplier.id === form.proveedorId)?.razonSocial ?? null
+  const selectedSupplier = useMemo(
+    () => proveedores.find((supplier) => supplier.id === form.terceroId) ?? null,
+    [form.terceroId, proveedores]
+  )
+  const selectedType = useMemo(
+    () => compraTypes.find((tipo) => tipo.id === effectiveTipoComprobanteId) ?? null,
+    [compraTypes, effectiveTipoComprobanteId]
+  )
+  const operationalPreviewFields = useMemo(
+    () => [
+      { label: "Proveedor", value: selectedSupplier?.razonSocial ?? "Sin proveedor seleccionado" },
+      { label: "Domicilio", value: formatSupplierAddress(selectedSupplier) },
+      {
+        label: "Condición IVA",
+        value: selectedSupplier?.condicionIvaDescripcion ?? "No informada",
+      },
+      {
+        label: "Tipo de comprobante",
+        value: selectedType
+          ? `${selectedType.codigo} · ${selectedType.descripcion}`
+          : "Sin tipo seleccionado",
+      },
+      {
+        label: "Vencimiento",
+        value: form.fechaVto ? formatDate(form.fechaVto) : "Sin vencimiento informado",
+      },
+      { label: "Items cargados", value: String(lineItems.length) },
+      { label: "Total estimado", value: formatMoney(totals.total) },
+      {
+        label: "Control operativo",
+        value: getPurchaseOperationalControl({
+          estado: "EMITIDO",
+          saldo: totals.total,
+          fechaVto: form.fechaVto ?? null,
+          cae: null,
+        }),
+      },
+    ],
+    [form.fechaVto, lineItems.length, selectedSupplier, selectedType, totals.total]
   )
 
   const handleSave = async () => {
@@ -301,8 +342,8 @@ function PurchaseInvoiceForm({ onClose, onSaved, emitir }: PurchaseInvoiceFormPr
           <TabsTrigger value="totales" className="py-2 text-xs">
             Totales
           </TabsTrigger>
-          <TabsTrigger value="legado" className="py-2 text-xs">
-            Legado
+          <TabsTrigger value="operativa" className="py-2 text-xs">
+            Operativa
           </TabsTrigger>
         </TabsList>
 
@@ -518,36 +559,32 @@ function PurchaseInvoiceForm({ onClose, onSaved, emitir }: PurchaseInvoiceFormPr
           </Card>
         </TabsContent>
 
-        <TabsContent value="legado" className="mt-4 space-y-4">
+        <TabsContent value="operativa" className="mt-4 space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Preview documental heredado</CardTitle>
+              <CardTitle className="text-base">Resumen operativo actual</CardTitle>
               <CardDescription>
-                Imputación y control visible en lectura mientras no existen campos nativos.
+                Lectura real de lo que ya queda definido antes de emitir el comprobante.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <DetailFieldGrid
-                fields={[
-                  { label: "Centro de costo", value: legacyPreview.centroCosto },
-                  { label: "Imputación principal", value: legacyPreview.imputacionPrincipal },
-                  { label: "Recepción asociada", value: legacyPreview.recepcionAsociada },
-                  { label: "Remito proveedor", value: legacyPreview.remitoProveedor },
-                  { label: "Circuito fiscal", value: legacyPreview.circuitoFiscal },
-                  { label: "Condición de pago", value: legacyPreview.condicionPago },
-                  { label: "Responsable carga", value: legacyPreview.responsableCarga },
-                  { label: "Control documental", value: legacyPreview.controlDocumental },
-                ]}
-              />
+              <DetailFieldGrid fields={operationalPreviewFields} />
               <div className="grid gap-4 md:grid-cols-2 text-sm">
                 <div className="rounded-lg border p-4">
-                  <p className="font-medium">Retenciones previstas</p>
+                  <p className="font-medium">Canales del proveedor</p>
                   <p className="mt-2 text-muted-foreground">
-                    {legacyPreview.retenciones.join(" · ")}
+                    {[
+                      selectedSupplier?.telefono,
+                      selectedSupplier?.celular,
+                      selectedSupplier?.email,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "Sin canales visibles"}
                   </p>
                 </div>
                 <div className="rounded-lg border p-4 text-muted-foreground">
-                  {legacyPreview.observacionInterna}
+                  Esta emisión usa el motor documental real. Lo que no aparece como campo nativo en
+                  backend queda explícitamente fuera, en vez de simularse con overlay legado.
                 </div>
               </div>
             </CardContent>
@@ -589,8 +626,6 @@ function PurchaseInvoiceDetail({
   sucursalName: string
   relatedOrder: OrdenCompra | null
 }) {
-  const legacyFields = buildLegacyPurchaseInvoiceOverlay(invoice, supplierName)
-
   const principalFields = [
     { label: "Comprobante", value: invoice.nroComprobante ?? `#${invoice.id}` },
     { label: "Tipo", value: typeName },
@@ -628,6 +663,50 @@ function PurchaseInvoiceDetail({
     },
   ]
 
+  const extendedOperationalFields = [
+    {
+      label: "Documento origen",
+      value:
+        invoice.comprobanteOrigenNumero && invoice.comprobanteOrigenTipo
+          ? `${invoice.comprobanteOrigenTipo} ${invoice.comprobanteOrigenNumero}`
+          : "Sin documento origen visible",
+    },
+    {
+      label: "Motivo devolución",
+      value: invoice.motivoDevolucionDescripcion ?? "No aplica",
+    },
+    {
+      label: "Tipo devolución",
+      value: invoice.tipoDevolucionDescripcion ?? "No aplica",
+    },
+    {
+      label: "Autorizador",
+      value: invoice.autorizadorDevolucionNombre ?? "No informado",
+    },
+    {
+      label: "Fecha autorización",
+      value: formatDate(invoice.fechaAutorizacionDevolucion),
+    },
+    {
+      label: "Reingresa stock",
+      value:
+        invoice.reingresaStock === undefined ? "No aplica" : invoice.reingresaStock ? "Sí" : "No",
+    },
+    {
+      label: "Acredita cuenta corriente",
+      value:
+        invoice.acreditaCuentaCorriente === undefined
+          ? "No aplica"
+          : invoice.acreditaCuentaCorriente
+            ? "Sí"
+            : "No",
+    },
+    {
+      label: "Control ampliado",
+      value: getPurchaseOperationalControl(invoice),
+    },
+  ]
+
   const supplierFields = [
     { label: "Razón social", value: supplierName },
     { label: "Nombre fantasía", value: supplier?.nombreFantasia ?? "-" },
@@ -649,7 +728,7 @@ function PurchaseInvoiceDetail({
         <TabsTrigger value="items">Items</TabsTrigger>
         <TabsTrigger value="fiscal">Fiscal</TabsTrigger>
         <TabsTrigger value="trazabilidad">Trazabilidad</TabsTrigger>
-        <TabsTrigger value="legado">Legado</TabsTrigger>
+        <TabsTrigger value="operativa">Operativa</TabsTrigger>
       </TabsList>
 
       <TabsContent value="principal" className="space-y-4">
@@ -780,33 +859,26 @@ function PurchaseInvoiceDetail({
         </Card>
       </TabsContent>
 
-      <TabsContent value="legado" className="space-y-4">
+      <TabsContent value="operativa" className="space-y-4">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Landmark className="h-4 w-4" /> Circuito heredado ampliado
+              <Landmark className="h-4 w-4" /> Operativa ampliada
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <DetailFieldGrid
-              fields={[
-                { label: "Centro de costo", value: legacyFields.centroCosto },
-                { label: "Imputación principal", value: legacyFields.imputacionPrincipal },
-                { label: "Recepción asociada", value: legacyFields.recepcionAsociada },
-                { label: "Remito proveedor", value: legacyFields.remitoProveedor },
-                { label: "Circuito fiscal", value: legacyFields.circuitoFiscal },
-                { label: "Condición de pago", value: legacyFields.condicionPago },
-                { label: "Responsable carga", value: legacyFields.responsableCarga },
-                { label: "Control documental", value: legacyFields.controlDocumental },
-              ]}
-            />
+            <DetailFieldGrid fields={extendedOperationalFields} />
             <div className="grid gap-4 md:grid-cols-2 text-sm">
               <div className="rounded-lg border p-4">
-                <p className="font-medium">Retenciones previstas</p>
-                <p className="mt-2 text-muted-foreground">{legacyFields.retenciones.join(" · ")}</p>
+                <p className="font-medium">Observación devolución</p>
+                <p className="mt-2 text-muted-foreground">
+                  {invoice.observacionDevolucion ?? "Sin observación adicional de devolución."}
+                </p>
               </div>
               <div className="rounded-lg border p-4 text-muted-foreground">
-                {legacyFields.observacionInterna}
+                Esta lectura usa exclusivamente datos del comprobante real y sus relaciones visibles
+                en backend. Las imputaciones avanzadas siguen perteneciendo al circuito específico
+                de compras y contabilidad.
               </div>
             </div>
           </CardContent>
@@ -818,6 +890,12 @@ function PurchaseInvoiceDetail({
 
 export default function FacturasComprasPage() {
   const searchParams = useSearchParams()
+  const routeComprobanteId = Number(searchParams.get("comprobanteId") ?? "")
+  const routeProviderId = Number(searchParams.get("proveedorId") ?? "")
+  const focusInvoiceId =
+    Number.isFinite(routeComprobanteId) && routeComprobanteId > 0 ? routeComprobanteId : null
+  const focusProviderId =
+    Number.isFinite(routeProviderId) && routeProviderId > 0 ? routeProviderId : null
   const {
     comprobantes,
     loading,
@@ -831,10 +909,10 @@ export default function FacturasComprasPage() {
     refetch,
   } = useComprobantes({ esCompra: true })
   const { tipos } = useComprobantesConfig()
-  const { ordenes } = useOrdenesCompra()
+  const { ordenes, loading: loadingOrders } = useOrdenesCompra()
   const { sucursales } = useSucursales()
-  const { terceros: proveedores } = useProveedores()
-  const [searchTerm, setSearchTerm] = useState("")
+  const { terceros: proveedores, loading: loadingProviders } = useProveedores()
+  const [searchTerm, setSearchTerm] = useState(focusInvoiceId ? String(focusInvoiceId) : "")
   const [statusFilter, setStatusFilter] = useState("todos")
   const [typeFilter, setTypeFilter] = useState("todos")
   const [manualDueFilter, setManualDueFilter] = useState<string | null>(null)
@@ -846,6 +924,7 @@ export default function FacturasComprasPage() {
   const routeDueFilter =
     searchParams.get("filtro") === "proximos-vencimientos" ? "proximos" : "todos"
   const dueFilter = manualDueFilter ?? routeDueFilter
+  const isLoadingOverview = loading || loadingOrders || loadingProviders
 
   const compraTypes = useMemo(() => tipos.filter((tipo) => tipo.esCompra), [tipos])
   const ordenesByComprobanteId = useMemo(
@@ -867,6 +946,13 @@ export default function FacturasComprasPage() {
   const selectedInvoice = useMemo(
     () => comprobantes.find((invoice) => invoice.id === selectedInvoiceId) ?? null,
     [comprobantes, selectedInvoiceId]
+  )
+  const routeFocusedInvoice = useMemo(
+    () =>
+      focusInvoiceId
+        ? (comprobantes.find((invoice) => invoice.id === focusInvoiceId) ?? null)
+        : null,
+    [comprobantes, focusInvoiceId]
   )
   const detailOpen = isDetailOpen && selectedInvoice !== null
 
@@ -932,7 +1018,9 @@ export default function FacturasComprasPage() {
   const highlightedInvoice =
     selectedInvoice && filtered.some((invoice) => invoice.id === selectedInvoice.id)
       ? selectedInvoice
-      : (filtered[0] ?? null)
+      : routeFocusedInvoice && filtered.some((invoice) => invoice.id === routeFocusedInvoice.id)
+        ? routeFocusedInvoice
+        : (filtered[0] ?? null)
   const highlightedSupplier = highlightedInvoice
     ? (proveedores.find((proveedor) => proveedor.id === highlightedInvoice.terceroId) ?? null)
     : null
@@ -1021,7 +1109,7 @@ export default function FacturasComprasPage() {
             <CardTitle className="text-sm font-medium">Total</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{kpis.total}</div>
+            <div className="text-2xl font-bold">{isLoadingOverview ? "..." : kpis.total}</div>
           </CardContent>
         </Card>
         <Card>
@@ -1029,7 +1117,9 @@ export default function FacturasComprasPage() {
             <CardTitle className="text-sm font-medium">Registradas</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{kpis.registradas}</div>
+            <div className="text-2xl font-bold text-blue-600">
+              {isLoadingOverview ? "..." : kpis.registradas}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -1037,7 +1127,9 @@ export default function FacturasComprasPage() {
             <CardTitle className="text-sm font-medium">Pagadas</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{kpis.pagadas}</div>
+            <div className="text-2xl font-bold text-green-600">
+              {isLoadingOverview ? "..." : kpis.pagadas}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -1045,7 +1137,9 @@ export default function FacturasComprasPage() {
             <CardTitle className="text-sm font-medium">Saldo pendiente</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-lg font-bold">{formatMoney(kpis.saldoPendiente)}</div>
+            <div className="text-lg font-bold">
+              {isLoadingOverview ? "..." : formatMoney(kpis.saldoPendiente)}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -1053,7 +1147,9 @@ export default function FacturasComprasPage() {
             <CardTitle className="text-sm font-medium">Con OC vinculada</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{kpis.vinculadasOc}</div>
+            <div className="text-2xl font-bold text-primary">
+              {isLoadingOverview ? "..." : kpis.vinculadasOc}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -1088,6 +1184,23 @@ export default function FacturasComprasPage() {
 
             <DetailFieldGrid fields={highlightedFields} />
 
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                className="bg-transparent"
+                onClick={() => loadDetail(highlightedInvoice)}
+              >
+                <Eye className="mr-2 h-4 w-4" /> Abrir detalle
+              </Button>
+              <Button variant="outline" className="bg-transparent" asChild>
+                <Link
+                  href={`/compras/imputaciones?comprobanteId=${highlightedInvoice.id}&proveedorId=${highlightedInvoice.terceroId}`}
+                >
+                  <Landmark className="mr-2 h-4 w-4" /> Ver imputación
+                </Link>
+              </Button>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-3 text-sm text-muted-foreground">
               <div className="rounded-lg border p-4">
                 Facturas vencidas con saldo dentro del filtro actual: {vencidas}.
@@ -1103,6 +1216,18 @@ export default function FacturasComprasPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      {routeFocusedInvoice && (
+        <Alert>
+          <ReceiptText className="h-4 w-4" />
+          <AlertDescription>
+            Llegaste con foco sobre el comprobante{" "}
+            {routeFocusedInvoice.nroComprobante ?? `#${routeFocusedInvoice.id}`}
+            {focusProviderId ? ` del proveedor #${focusProviderId}` : ""}. La vista quedó centrada
+            en ese documento.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Card>
         <CardHeader>
@@ -1212,7 +1337,11 @@ export default function FacturasComprasPage() {
                   return (
                     <TableRow
                       key={invoice.id}
-                      className="cursor-pointer hover:bg-muted/40"
+                      className={
+                        focusInvoiceId === invoice.id
+                          ? "cursor-pointer bg-primary/5 hover:bg-primary/10"
+                          : "cursor-pointer hover:bg-muted/40"
+                      }
                       onClick={() => loadDetail(invoice)}
                     >
                       <TableCell className="font-mono font-semibold">
@@ -1301,8 +1430,9 @@ export default function FacturasComprasPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {kpis.total} comprobantes registrados con proveedor, tipo y detalle real de ítems sobre
-            la API actual.
+            {isLoadingOverview
+              ? "Cargando comprobantes, proveedores y órdenes relacionadas..."
+              : `${kpis.total} comprobantes registrados con proveedor, tipo y detalle real de ítems sobre la API actual.`}
           </CardContent>
         </Card>
         <Card>
@@ -1312,12 +1442,9 @@ export default function FacturasComprasPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {kpis.pagadas} pagadas, {kpis.registradas} registradas y{" "}
-            {
-              comprobantes.filter((invoice) => invoice.saldo > 0 && invoice.estado !== "ANULADO")
-                .length
-            }{" "}
-            con saldo pendiente dentro del contrato actual.
+            {isLoadingOverview
+              ? "Calculando estado de saldo y vencimientos..."
+              : `${kpis.pagadas} pagadas, ${kpis.registradas} registradas y ${comprobantes.filter((invoice) => invoice.saldo > 0 && invoice.estado !== "ANULADO").length} con saldo pendiente dentro del contrato actual.`}
           </CardContent>
         </Card>
         <Card>
@@ -1327,8 +1454,9 @@ export default function FacturasComprasPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {kpis.vinculadasOc} facturas ya muestran vínculo con OC; quedan listos para integrar
-            imputaciones, recepción contra OC, retenciones y prorrateos.
+            {isLoadingOverview
+              ? "Cargando trazabilidad entre facturas y órdenes..."
+              : `${kpis.vinculadasOc} facturas ya muestran vínculo con OC; quedan listos para integrar imputaciones, recepción contra OC, retenciones y prorrateos.`}
           </CardContent>
         </Card>
       </div>

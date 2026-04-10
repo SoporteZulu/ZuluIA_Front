@@ -1,7 +1,9 @@
 "use client"
 
+import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -99,6 +101,16 @@ function getOperationalStatus(order: OrdenCompra) {
   return "Pendiente habilitada para ingreso"
 }
 
+function getReceptionPriority(order: OrdenCompra) {
+  if (order.estadoOc !== "PENDIENTE") return 99
+  const offset = getDaysOffset(order.fechaEntregaReq)
+  if (offset !== null && offset < 0) return 0
+  if (offset === 0) return 1
+  if (offset !== null && offset <= 2) return 2
+  if (order.habilitada) return 3
+  return 4
+}
+
 function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
   return (
     <div className="grid gap-3 md:grid-cols-2">
@@ -126,13 +138,23 @@ const ESTADO_CONFIG: Record<
 }
 
 export default function RecepcionesPage() {
+  const searchParams = useSearchParams()
   const { ordenes, loading, error, estado, setEstado, recibir, cancelar, refetch } =
     useOrdenesCompra()
-  const { comprobantes } = useComprobantes({ esCompra: true })
-  const { terceros: proveedores } = useProveedores()
+  const { comprobantes, loading: loadingComprobantes } = useComprobantes({ esCompra: true })
+  const { terceros: proveedores, loading: loadingProviders } = useProveedores()
+  const isLoadingOverview = loading || loadingComprobantes || loadingProviders
+
+  const routeOrderId = Number(searchParams.get("ordenId") ?? "")
+  const routeProviderId = Number(searchParams.get("proveedorId") ?? "")
+  const focusOrderId = Number.isFinite(routeOrderId) && routeOrderId > 0 ? routeOrderId : null
+  const focusProviderId =
+    Number.isFinite(routeProviderId) && routeProviderId > 0 ? routeProviderId : null
 
   const [searchTerm, setSearchTerm] = useState("")
-  const [proveedorFilter, setProveedorFilter] = useState<string>("todos")
+  const [proveedorFilter, setProveedorFilter] = useState<string>(
+    focusProviderId ? String(focusProviderId) : "todos"
+  )
   const [confirmId, setConfirmId] = useState<number | null>(null)
   const [cancelId, setCancelId] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -169,6 +191,11 @@ export default function RecepcionesPage() {
     })
   }, [ordenes, proveedorFilter, searchTerm, getProveedorNombre])
 
+  const routeFocusedOrder = useMemo(
+    () => (focusOrderId ? (ordenes.find((order) => order.id === focusOrderId) ?? null) : null),
+    [focusOrderId, ordenes]
+  )
+
   const handleRecibir = async () => {
     if (confirmId === null) return
     setSubmitting(true)
@@ -203,11 +230,34 @@ export default function RecepcionesPage() {
       order.fechaEntregaReq < new Date().toISOString().slice(0, 10)
   ).length
 
+  const saldoAbierto = filteredOrdenes.reduce((sum, order) => {
+    const relatedInvoice = getComprobanteRelacionado(order.comprobanteId)
+    return sum + (relatedInvoice?.saldo ?? 0)
+  }, 0)
+
+  const operationalQueue = useMemo(
+    () =>
+      filteredOrdenes
+        .filter((order) => order.estadoOc === "PENDIENTE")
+        .sort((left, right) => {
+          const priorityDiff = getReceptionPriority(left) - getReceptionPriority(right)
+          if (priorityDiff !== 0) return priorityDiff
+          return (
+            (getDaysOffset(left.fechaEntregaReq) ?? 9999) -
+            (getDaysOffset(right.fechaEntregaReq) ?? 9999)
+          )
+        })
+        .slice(0, 5),
+    [filteredOrdenes]
+  )
+
   const habilitadas = filteredOrdenes.filter((order) => order.habilitada).length
   const highlightedOrder =
     detailOrder && filteredOrdenes.some((order) => order.id === detailOrder.id)
       ? detailOrder
-      : (filteredOrdenes[0] ?? null)
+      : routeFocusedOrder && filteredOrdenes.some((order) => order.id === routeFocusedOrder.id)
+        ? routeFocusedOrder
+        : (filteredOrdenes[0] ?? null)
   const highlightedSupplier = highlightedOrder ? getProveedor(highlightedOrder.proveedorId) : null
   const highlightedInvoice = highlightedOrder
     ? getComprobanteRelacionado(highlightedOrder.comprobanteId)
@@ -241,8 +291,16 @@ export default function RecepcionesPage() {
       icon: Clock,
     }
     const Icon = cfg.icon
+    const isFocused = focusOrderId === oc.id
     return (
-      <TableRow className="cursor-pointer hover:bg-muted/50" onClick={() => setDetailOrder(oc)}>
+      <TableRow
+        className={
+          isFocused
+            ? "cursor-pointer bg-primary/5 hover:bg-primary/10"
+            : "cursor-pointer hover:bg-muted/50"
+        }
+        onClick={() => setDetailOrder(oc)}
+      >
         <TableCell className="font-medium">OC-{oc.id}</TableCell>
         <TableCell>{getProveedorNombre(oc.proveedorId)}</TableCell>
         <TableCell>
@@ -301,15 +359,21 @@ export default function RecepcionesPage() {
       )}
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Pendientes de Recepción</CardTitle>
             <Truck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{pendientes.length}</div>
-            <p className="text-xs text-muted-foreground">órdenes en tránsito / por recibir</p>
+            <div className="text-2xl font-bold">
+              {isLoadingOverview ? "..." : pendientes.length}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isLoadingOverview
+                ? "Cargando recepción pendiente..."
+                : "órdenes en tránsito / por recibir"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -318,9 +382,11 @@ export default function RecepcionesPage() {
             <PackageCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{recibidas.length}</div>
+            <div className="text-2xl font-bold">{isLoadingOverview ? "..." : recibidas.length}</div>
             <p className="text-xs text-muted-foreground">
-              confirmadas en sistema sobre el flujo actual
+              {isLoadingOverview
+                ? "Cargando recepciones confirmadas..."
+                : "confirmadas en sistema sobre el flujo actual"}
             </p>
           </CardContent>
         </Card>
@@ -330,8 +396,14 @@ export default function RecepcionesPage() {
             <XCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{canceladas.length}</div>
-            <p className="text-xs text-muted-foreground">órdenes fuera del circuito operativo</p>
+            <div className="text-2xl font-bold">
+              {isLoadingOverview ? "..." : canceladas.length}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isLoadingOverview
+                ? "Cargando órdenes fuera de circuito..."
+                : "órdenes fuera del circuito operativo"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -340,9 +412,29 @@ export default function RecepcionesPage() {
             <CalendarClock className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{vencidas}</div>
+            <div className="text-2xl font-bold text-amber-600">
+              {isLoadingOverview ? "..." : vencidas}
+            </div>
             <p className="text-xs text-muted-foreground">
-              requieren seguimiento sobre fechas reales
+              {isLoadingOverview
+                ? "Evaluando fechas de entrega..."
+                : "requieren seguimiento sobre fechas reales"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Saldo Abierto Asociado</CardTitle>
+            <ClipboardList className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {isLoadingOverview ? "..." : formatMoney(saldoAbierto)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isLoadingOverview
+                ? "Cargando saldo documental asociado..."
+                : "comprobantes visibles ligados a las órdenes filtradas"}
             </p>
           </CardContent>
         </Card>
@@ -356,8 +448,9 @@ export default function RecepcionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {filteredOrdenes.length} órdenes visibles en recepción y {habilitadas} aún habilitadas
-            para ingreso dentro del circuito actual.
+            {isLoadingOverview
+              ? "Cargando órdenes visibles para recepción..."
+              : `${filteredOrdenes.length} órdenes visibles en recepción y ${habilitadas} aún habilitadas para ingreso dentro del circuito actual.`}
           </CardContent>
         </Card>
         <Card>
@@ -367,8 +460,9 @@ export default function RecepcionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {pendientes.length} pendientes y {vencidas} vencidas ya permiten priorizar seguimiento
-            sin depender de bloques decorativos.
+            {isLoadingOverview
+              ? "Calculando prioridades de entrega..."
+              : `${pendientes.length} pendientes y ${vencidas} vencidas ya permiten priorizar seguimiento sin depender de bloques decorativos.`}
           </CardContent>
         </Card>
         <Card>
@@ -383,6 +477,66 @@ export default function RecepcionesPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-dashed">
+        <CardHeader>
+          <CardTitle className="text-base">Cola operativa de recepción</CardTitle>
+          <CardDescription>
+            Prioriza primero las órdenes vencidas o con entrega inmediata y deja a mano la acción de
+            recepción.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {operationalQueue.length > 0 ? (
+            operationalQueue.map((order) => {
+              const relatedInvoice = getComprobanteRelacionado(order.comprobanteId)
+              return (
+                <div
+                  key={order.id}
+                  className="flex flex-col gap-3 rounded-lg border p-4 lg:flex-row lg:items-center lg:justify-between"
+                >
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">OC-{order.id}</p>
+                      <Badge variant="outline">{getDeliveryStatus(order)}</Badge>
+                      <Badge variant={order.habilitada ? "default" : "secondary"}>
+                        {order.habilitada ? "Lista para ingresar" : "Pendiente no habilitada"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {getProveedorNombre(order.proveedorId)} · {getOperationalStatus(order)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Comprobante {relatedInvoice?.nroComprobante ?? `#${order.comprobanteId}`} ·
+                      Saldo {formatMoney(relatedInvoice?.saldo ?? 0)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      className="bg-transparent"
+                      onClick={() => setDetailOrder(order)}
+                    >
+                      <Eye className="mr-2 h-4 w-4" /> Ver detalle
+                    </Button>
+                    {order.habilitada && (
+                      <Button onClick={() => setConfirmId(order.id)}>
+                        <PackageCheck className="mr-2 h-4 w-4" /> Recibir
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {isLoadingOverview
+                ? "Cargando cola operativa de recepción..."
+                : "No hay órdenes pendientes para priorizar con los filtros actuales."}
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {highlightedOrder ? (
         <Card className="border-primary/20 bg-primary/5">
@@ -407,9 +561,33 @@ export default function RecepcionesPage() {
           </CardHeader>
           <CardContent>
             <DetailFieldGrid fields={highlightedFields} />
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                className="bg-transparent"
+                onClick={() => setDetailOrder(highlightedOrder)}
+              >
+                <Eye className="mr-2 h-4 w-4" /> Abrir detalle
+              </Button>
+              {highlightedOrder.estadoOc === "PENDIENTE" && highlightedOrder.habilitada && (
+                <Button onClick={() => setConfirmId(highlightedOrder.id)}>
+                  <PackageCheck className="mr-2 h-4 w-4" /> Confirmar recepción
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
       ) : null}
+
+      {routeFocusedOrder && (
+        <Alert>
+          <ClipboardList className="h-4 w-4" />
+          <AlertDescription>
+            Llegaste con foco sobre la orden OC-{routeFocusedOrder.id}. La recepción quedó resaltada
+            y filtrada por su proveedor para evitar búsqueda manual.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Filters */}
       <Card>
@@ -749,6 +927,31 @@ export default function RecepcionesPage() {
                     )}
                   </CardContent>
                 </Card>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button variant="outline" className="bg-transparent" asChild>
+                    <Link
+                      href={`/compras/facturas?comprobanteId=${detailOrder.comprobanteId}&proveedorId=${detailOrder.proveedorId}`}
+                    >
+                      Ver factura ligada
+                    </Link>
+                  </Button>
+                  <Button variant="outline" className="bg-transparent" asChild>
+                    <Link
+                      href={`/compras/imputaciones?comprobanteId=${detailOrder.comprobanteId}&proveedorId=${detailOrder.proveedorId}`}
+                    >
+                      Ver imputación ligada
+                    </Link>
+                  </Button>
+                </div>
+                <div className="flex justify-end">
+                  <Button variant="outline" className="bg-transparent" asChild>
+                    <Link
+                      href={`/compras/ordenes?ordenId=${detailOrder.id}&proveedorId=${detailOrder.proveedorId}`}
+                    >
+                      Volver a la orden
+                    </Link>
+                  </Button>
+                </div>
               </TabsContent>
 
               <TabsContent value="legado" className="space-y-4">

@@ -157,18 +157,46 @@ No describe la intencion del legado en abstracto: deja claro que pantallas ya tr
 
 - Ruta: `app/compras/solicitudes/page.tsx`
 - Estado: operativo real como panel de necesidad, no como workflow formal
-- Base tecnica: `useStockResumen`, `useItems`, `useProveedores`, `useSucursales`
+- Base tecnica: `useComprasSolicitudes`, `useStockResumen`, `useProveedores`, `useSucursales`
 - Cobertura actual:
-  - Detecta necesidades reales de reabastecimiento desde stock bajo minimo.
-  - Clasifica severidad, faltante, sugerencia y costo estimado.
-  - Expone el limite actual: no existe endpoint real para alta o aprobacion de solicitudes.
+  - Consume `/api/compras/solicitudes` para detectar necesidades reales de reabastecimiento desde backend.
+  - Recibe severidad, faltante, sugerencia, cobertura objetivo y costo estimado ya calculados por API.
+  - Mantiene la lectura operativa por sucursal y deposito sin simular workflow manual inexistente.
 - Preparado:
-  - La vista reemplaza una maqueta falsa por un backlog operativo honesto.
+  - La vista reemplaza una maqueta falsa por un backlog operativo honesto y enlaza al circuito real siguiente.
 - Pendiente legado:
   - Alta formal de solicitud.
   - Aprobacion.
   - Rechazo.
   - Conversion directa a orden de compra.
+
+### Requisiciones de compra
+
+- Ruta: `app/compras/requisiciones/page.tsx`
+- Estado: operativo real
+- Base tecnica: `useRequisicionesCompra`, `useSucursales`, `useEmpleados`, `useItems`
+- Cobertura actual:
+  - Consulta paginada de requisiciones reales con detalle e indicadores operativos.
+  - Alta real de requisiciones desde frontend con cabecera e items.
+  - Acciones reales de enviar, aprobar, rechazar y cancelar.
+  - Seguimiento local separado para priorizacion interna sin duplicar estado del backend.
+- Pendiente legado:
+  - Formularios mas guiados por area, centro de costo o presupuesto si ese metadata reaparece por API.
+  - Conversion mas directa hacia cotizacion con precarga automatica de renglones.
+
+### Cotizaciones de compra
+
+- Ruta: `app/compras/cotizaciones/page.tsx`
+- Estado: operativo real
+- Base tecnica: `useCotizacionesCompra`, `useRequisicionesCompra`, `useProveedores`, `useItems`, `useSucursales`
+- Cobertura actual:
+  - Consulta real de cotizaciones con detalle, vencimiento y estado comercial.
+  - Alta real de cotizaciones desde frontend con proveedor, requisicion opcional e items.
+  - Precarga de sucursal, observacion y renglones desde requisiciones aprobadas usando el detalle real del backend.
+  - Acciones reales de aprobar y rechazar.
+  - Seguimiento local para priorizacion comercial y pase a orden.
+- Pendiente legado:
+  - Comparativas comerciales avanzadas entre multiples proveedores si el backend expone esa estructura.
 
 ### Ordenes de compra
 
@@ -177,10 +205,12 @@ No describe la intencion del legado en abstracto: deja claro que pantallas ya tr
 - Base tecnica: `useOrdenesCompra`, `useComprobantes({ esCompra: true })`, `useProveedores`
 - Cobertura actual:
   - Alta basica real de ordenes mediante `CreateOrdenCompraDto`, vinculando un `comprobanteId` de compra existente.
+  - Pase operativo desde cotizaciones aprobadas, con proveedor y contexto comercial precargados para iniciar la orden dentro del contrato actual.
   - Consulta de ordenes.
   - Detalle de cabecera.
   - Acciones reales de recibir y cancelar.
   - Trazabilidad visible hacia el comprobante relacionado con estado, fecha y saldo.
+  - Resumen operativo de alta y detalle ampliado derivados de la orden real y del comprobante base, sin overlay legado adicional.
 - Preparado:
   - Bloque de recepcion y seguimiento operativo ya desacoplado del resto del circuito.
   - Formulario alineado al contrato actual del backend sin simular renglones inexistentes.
@@ -201,6 +231,8 @@ No describe la intencion del legado en abstracto: deja claro que pantallas ya tr
   - Confirma recepcion y cancelacion contra endpoints reales.
   - KPIs de pendientes, recibidas, canceladas y vencidas.
   - Detalle logistico con documento de compra vinculado cuando el comprobante existe en la consulta actual.
+  - Continuidad desde ordenes con foco directo sobre una orden puntual en recepciones, resaltando proveedor y acciones sin busqueda manual.
+  - Cola operativa priorizada sobre ordenes pendientes, con lectura de saldo asociado y accion rapida de recepcion.
 - Pendiente legado:
   - Remito de compra separado.
   - Recepcion parcial por item.
@@ -216,10 +248,28 @@ No describe la intencion del legado en abstracto: deja claro que pantallas ya tr
   - Consulta, detalle y anulacion.
   - Items, totales y filtros por estado, proveedor y tipo.
   - Trazabilidad hacia ordenes de compra vinculadas mediante `comprobanteId`.
+  - Resumen operativo y detalle ampliado derivados de datos reales del backend, sin overlay legado decorativo.
+  - Apertura con foco por comprobante desde recepciones y salto directo a imputaciones sobre el mismo documento.
 - Pendiente legado:
   - Imputaciones contables avanzadas.
   - Reimpresion y anulacion con flujo fiscal ampliado.
   - Vinculo formal con recepciones y ordenes a nivel renglon si el backend no lo expone aun.
+
+### Imputaciones de compra
+
+- Ruta: `app/compras/imputaciones/page.tsx`
+- Estado: hibrido con base real
+- Base tecnica: `useComprobantes({ esCompra: true })`, `useOrdenesCompra`, `useProveedores`, `useLegacyLocalCollection`
+- Cobertura actual:
+  - Toma comprobantes reales de compra como base documental de la imputacion.
+  - Vincula ordenes visibles y recepcion conocida cuando existen en backend.
+  - Mantiene localmente cuenta, centro de costo, distribucion y seguimiento de cierre.
+  - Evita el lote fijo legacy y deja explicito que la persistencia contable sigue sin endpoint propio.
+  - Acepta foco directo por comprobante desde recepciones o facturas para continuar la conciliacion sin busqueda manual.
+- Pendiente legado:
+  - Persistencia backend de imputaciones y prorrateos.
+  - Distribucion por multiples cuentas y centros de costo con validacion formal.
+  - Integracion contable completa con asientos, gastos de importacion y cierre automatico.
 
 ### Cedulones
 
@@ -237,7 +287,8 @@ No describe la intencion del legado en abstracto: deja claro que pantallas ya tr
 
 ## Resumen ejecutivo
 
-- Ya operan con backend real: dashboard ventas, facturas de venta, remitos, notas de credito y debito, listas de precios, puntos de facturacion, reportes de ventas, proveedores, solicitudes por stock bajo minimo, ordenes de compra, recepciones y facturas de compra.
+- Ya operan con backend real: dashboard ventas, facturas de venta, remitos, notas de credito y debito, listas de precios, puntos de facturacion, reportes de ventas, proveedores, solicitudes por stock bajo minimo, requisiciones, cotizaciones, ordenes de compra, recepciones y facturas de compra.
+- Operan en modo hibrido con base real y capa local: imputaciones de compra, porque el documento base ya viene del backend pero la conciliacion contable todavia no tiene endpoint dedicado.
 - Operan condicionados por metadata real: pedidos de venta, remitos y notas, porque dependen de tipos documentales detectables desde el backend.
 - Se evitó maquillar flujos sin API: solicitudes de compra ahora muestran necesidad real de abastecimiento en vez de formularios decorativos.
 - La siguiente fase fuerte del legado se concentra en relaciones documento a documento, detalle por renglon, aprobaciones, fiscalidad avanzada y automatizaciones masivas.
