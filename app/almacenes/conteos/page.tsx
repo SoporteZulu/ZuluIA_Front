@@ -9,12 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { WmsDialogContent } from "@/components/almacenes/wms-responsive"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -440,7 +440,7 @@ export default function ConteosAlmacenesPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{editingId ? "Editar conteo" : "Nuevo conteo"}</DialogTitle>
             <DialogDescription>
@@ -591,7 +591,7 @@ export default function ConteosAlmacenesPage() {
               Guardar conteo
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

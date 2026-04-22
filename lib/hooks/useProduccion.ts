@@ -13,6 +13,9 @@ import type {
 function normalizeDetail(detail: OrdenTrabajoProduccionDetalle): OrdenTrabajoProduccionDetalle {
   return {
     ...detail,
+    itemResultadoId: detail.itemResultadoId === null ? null : Number(detail.itemResultadoId ?? 0),
+    itemResultadoCodigo: detail.itemResultadoCodigo ?? undefined,
+    itemResultadoDescripcion: detail.itemResultadoDescripcion ?? undefined,
     cantidad: Number(detail.cantidad ?? 0),
     cantidadProducida:
       detail.cantidadProducida === null ? null : Number(detail.cantidadProducida ?? 0),

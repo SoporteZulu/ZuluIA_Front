@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { apiFetch, apiGet, apiPost, apiPut } from "@/lib/api"
-import type { Transportista, CreateTransportistaDto } from "@/lib/types/transportistas"
+import type {
+  CreateTransportistaDto,
+  Transportista,
+  UpdateTransportistaDto,
+} from "@/lib/types/transportistas"
 
 export function useTransportistas(soloActivos = true) {
   const [transportistas, setTransportistas] = useState<Transportista[]>([])
@@ -46,7 +50,7 @@ export function useTransportistas(soloActivos = true) {
     }
   }
 
-  const actualizar = async (id: number, dto: Partial<CreateTransportistaDto>): Promise<boolean> => {
+  const actualizar = async (id: number, dto: UpdateTransportistaDto): Promise<boolean> => {
     try {
       await apiPut<void>(`/api/transportistas/${id}`, dto)
       await fetchTransportistas()

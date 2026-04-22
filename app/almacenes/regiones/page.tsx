@@ -9,12 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { WmsDialogContent } from "@/components/almacenes/wms-responsive"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -404,7 +404,7 @@ export default function RegionesAlmacenPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{editingId ? "Editar región" : "Nueva región"}</DialogTitle>
             <DialogDescription>
@@ -526,7 +526,7 @@ export default function RegionesAlmacenPage() {
               Guardar región
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

@@ -17,3 +17,9 @@ export interface CreateTransportistaDto {
   patente?: string
   marcaVehiculo?: string
 }
+
+export interface UpdateTransportistaDto {
+  domicilioPartida?: string
+  patente?: string
+  marcaVehiculo?: string
+}

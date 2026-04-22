@@ -42,6 +42,9 @@ export interface OrdenEmpaqueDetalle {
 }
 
 export interface OrdenTrabajoProduccionDetalle extends OrdenTrabajo {
+  itemResultadoId?: number | null
+  itemResultadoCodigo?: string
+  itemResultadoDescripcion?: string
   formulaCodigo: string
   formulaDescripcion: string
   depositoOrigenDescripcion: string

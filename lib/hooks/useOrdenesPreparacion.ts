@@ -54,6 +54,8 @@ function normalizeEstado(value: unknown): OrdenPreparacion["estado"] {
   }
 }
 
+  const ORDENES_PREPARACION_API_BASE = "/api/OrdenesPreparacion"
+
 function normalizeDetalle(detalle: OrdenPreparacionDetalle): OrdenPreparacionDetalle {
   return {
     ...detalle,
@@ -143,9 +145,9 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
       if (options.desde) params.set("desde", options.desde)
       if (options.hasta) params.set("hasta", options.hasta)
 
-      const result = await apiGet<OrdenesPreparacionPaged>(
-        `/api/ordenes-preparacion?${params.toString()}`
-      )
+        const result = await apiGet<OrdenesPreparacionPaged>(
+          `${ORDENES_PREPARACION_API_BASE}?${params.toString()}`
+        )
       const items = Array.isArray(result) ? result : (result.items ?? [])
       setOrdenes(Array.isArray(items) ? items.map(normalizeOrden) : [])
       setTotalCount(Array.isArray(result) ? items.length : (result.totalCount ?? items.length))
@@ -164,7 +166,7 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
       if (options.sucursalId) params.set("sucursalId", String(options.sucursalId))
       const suffix = params.toString() ? `?${params.toString()}` : ""
       const result = await apiGet<OrdenPreparacionResumen>(
-        `/api/ordenes-preparacion/resumen${suffix}`
+        `${ORDENES_PREPARACION_API_BASE}/resumen${suffix}`
       )
       setResumen(normalizeResumen(result))
     } catch (e) {
@@ -187,7 +189,7 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
 
   const crear = async (dto: CreateOrdenPreparacionDto): Promise<number | null> => {
     try {
-      const response = await apiPost<{ id: number }>("/api/ordenes-preparacion", dto)
+        const response = await apiPost<{ id: number }>(ORDENES_PREPARACION_API_BASE, dto)
       await refreshAll()
       return Number(response?.id ?? 0) || null
     } catch (e) {
@@ -198,7 +200,7 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
 
   const getById = useCallback(async (id: number): Promise<OrdenPreparacion | null> => {
     try {
-      const result = await apiGet<OrdenPreparacion>(`/api/ordenes-preparacion/${id}`)
+        const result = await apiGet<OrdenPreparacion>(`${ORDENES_PREPARACION_API_BASE}/${id}`)
       return normalizeOrden(result)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar el detalle de picking")
@@ -209,7 +211,7 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
   const getEventos = useCallback(async (id: number): Promise<OrdenPreparacionEvento[]> => {
     try {
       const result = await apiGet<OrdenPreparacionEvento[]>(
-        `/api/ordenes-preparacion/${id}/eventos`
+          `${ORDENES_PREPARACION_API_BASE}/${id}/eventos`
       )
       return Array.isArray(result) ? result.map(normalizeEvento) : []
     } catch (e) {
@@ -222,7 +224,7 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
     async (id: number): Promise<OrdenPreparacionTrazabilidad | null> => {
       try {
         const result = await apiGet<OrdenPreparacionTrazabilidad>(
-          `/api/ordenes-preparacion/${id}/trazabilidad`
+          `${ORDENES_PREPARACION_API_BASE}/${id}/trazabilidad`
         )
         return normalizeTrazabilidad(result)
       } catch (e) {
@@ -236,7 +238,7 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
   const iniciar = useCallback(
     async (id: number): Promise<boolean> => {
       try {
-        await apiPost(`/api/ordenes-preparacion/${id}/iniciar`, {})
+        await apiPost(`${ORDENES_PREPARACION_API_BASE}/${id}/iniciar`, {})
         await refreshAll()
         return true
       } catch (e) {
@@ -250,7 +252,7 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
   const registrarPicking = useCallback(
     async (id: number, dto: RegistrarPickingOrdenPreparacionDto): Promise<boolean> => {
       try {
-        await apiPost(`/api/ordenes-preparacion/${id}/picking`, dto)
+        await apiPost(`${ORDENES_PREPARACION_API_BASE}/${id}/picking`, dto)
         await refreshAll()
         return true
       } catch (e) {
@@ -264,7 +266,7 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
   const confirmar = useCallback(
     async (id: number): Promise<boolean> => {
       try {
-        await apiPost(`/api/ordenes-preparacion/${id}/confirmar`, {})
+          await apiPost(`${ORDENES_PREPARACION_API_BASE}/${id}/confirmar`, {})
         await refreshAll()
         return true
       } catch (e) {
@@ -278,7 +280,7 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
   const despachar = useCallback(
     async (id: number, dto: DespacharOrdenPreparacionDto): Promise<boolean> => {
       try {
-        await apiPost(`/api/ordenes-preparacion/${id}/despachar`, dto)
+          await apiPost(`${ORDENES_PREPARACION_API_BASE}/${id}/despachar`, dto)
         await refreshAll()
         return true
       } catch (e) {
@@ -292,7 +294,7 @@ export function useOrdenesPreparacion(options: UseOrdenesPreparacionOptions = {}
   const anular = useCallback(
     async (id: number): Promise<boolean> => {
       try {
-        await apiPost(`/api/ordenes-preparacion/${id}/anular`, {})
+          await apiPost(`${ORDENES_PREPARACION_API_BASE}/${id}/anular`, {})
         await refreshAll()
         return true
       } catch (e) {

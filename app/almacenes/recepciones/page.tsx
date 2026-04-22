@@ -22,7 +22,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -46,7 +45,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  WmsDetailFieldGrid,
+  WmsDialogContent,
+  WmsTabsList,
+} from "@/components/almacenes/wms-responsive"
 import { useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
@@ -226,19 +231,6 @@ function formatProviderAddress(provider?: Tercero | null) {
   return parts.length > 0 ? parts.join(" · ") : "Sin domicilio visible"
 }
 
-function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {fields.map((field) => (
-        <div key={field.label} className="rounded-lg bg-muted/40 p-3">
-          <Label>{field.label}</Label>
-          <p className="text-sm font-medium">{field.value}</p>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 function SummaryCard({
   title,
   value,
@@ -354,6 +346,50 @@ export default function RecepcionesPage() {
     [tiposComprobante]
   )
 
+  const resetReceiveDialog = () => {
+    setReceiveDraft({
+      fechaRecepcion: new Date().toISOString().slice(0, 10),
+      cantidadRecibida: "",
+      tipoComprobanteRemitoId: remitoCompraTipos[0] ? String(remitoCompraTipos[0].id) : "auto",
+      remitoValorizado: false,
+      observacion: "",
+    })
+    setOrderToReceive(null)
+    setActionError(null)
+    setProcessingId(null)
+  }
+
+  const buildReceivePayload = (order: OrdenCompra, options?: { full?: boolean }) => {
+    if (!receiveDraft.fechaRecepcion) {
+      setActionError("Informá la fecha efectiva de recepción.")
+      return null
+    }
+
+    const saldoPendiente = Number(order.saldoPendiente ?? 0)
+    const cantidadRecibida = options?.full ? saldoPendiente : Number(receiveDraft.cantidadRecibida)
+
+    if (Number.isNaN(cantidadRecibida) || cantidadRecibida <= 0) {
+      setActionError("La cantidad recibida debe ser mayor a cero.")
+      return null
+    }
+
+    if (cantidadRecibida > saldoPendiente) {
+      setActionError("La cantidad recibida no puede superar el saldo pendiente de la orden.")
+      return null
+    }
+
+    return {
+      fechaRecepcion: receiveDraft.fechaRecepcion,
+      cantidadRecibida,
+      tipoComprobanteRemitoId:
+        receiveDraft.tipoComprobanteRemitoId === "auto"
+          ? undefined
+          : Number(receiveDraft.tipoComprobanteRemitoId),
+      remitoValorizado: receiveDraft.remitoValorizado,
+      observacion: receiveDraft.observacion || undefined,
+    }
+  }
+
   const openDetail = async (order: OrdenCompra) => {
     setActionError(null)
     const detail = await getById(order.id)
@@ -374,26 +410,16 @@ export default function RecepcionesPage() {
     setIsReceiveOpen(true)
   }
 
-  const handleReceive = async (order: OrdenCompra, payload?: { full?: boolean }) => {
+  const handleReceive = async (order: OrdenCompra, options?: { full?: boolean }) => {
+    const dto = buildReceivePayload(order, options)
+    if (!dto) {
+      return
+    }
+
     setProcessingId(order.id)
     setActionError(null)
 
-    const cantidadRecibida = Number(receiveDraft.cantidadRecibida)
-    const ok = await recibir(
-      order.id,
-      payload?.full
-        ? {}
-        : {
-            fechaRecepcion: receiveDraft.fechaRecepcion,
-            cantidadRecibida,
-            tipoComprobanteRemitoId:
-              receiveDraft.tipoComprobanteRemitoId === "auto"
-                ? undefined
-                : Number(receiveDraft.tipoComprobanteRemitoId),
-            remitoValorizado: receiveDraft.remitoValorizado,
-            observacion: receiveDraft.observacion || undefined,
-          }
-    )
+    const ok = await recibir(order.id, dto)
     if (!ok) {
       setActionError(`No se pudo registrar la recepción de la orden ${order.id}.`)
       setProcessingId(null)
@@ -406,26 +432,11 @@ export default function RecepcionesPage() {
       setSelectedOrder(detail)
     }
     setIsReceiveOpen(false)
-    setOrderToReceive(null)
-    setProcessingId(null)
+    resetReceiveDialog()
   }
 
   const handleReceiveSubmit = async () => {
     if (!orderToReceive) return
-
-    const cantidad = Number(receiveDraft.cantidadRecibida)
-    if (!receiveDraft.fechaRecepcion) {
-      setActionError("Informá la fecha efectiva de recepción.")
-      return
-    }
-    if (Number.isNaN(cantidad) || cantidad <= 0) {
-      setActionError("La cantidad recibida debe ser mayor a cero.")
-      return
-    }
-    if (cantidad > Number(orderToReceive.saldoPendiente ?? 0)) {
-      setActionError("La cantidad recibida no puede superar el saldo pendiente de la orden.")
-      return
-    }
 
     await handleReceive(orderToReceive)
   }
@@ -723,7 +734,7 @@ export default function RecepcionesPage() {
       </Card>
 
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-w-3xl">
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Truck className="h-5 w-5" />
@@ -736,14 +747,14 @@ export default function RecepcionesPage() {
 
           {selectedOrder && (
             <Tabs defaultValue="general" className="py-2">
-              <TabsList className="grid w-full grid-cols-3">
+              <WmsTabsList className="md:grid-cols-3">
                 <TabsTrigger value="general">General</TabsTrigger>
                 <TabsTrigger value="proveedor">Proveedor</TabsTrigger>
                 <TabsTrigger value="circuito">Circuito</TabsTrigger>
-              </TabsList>
+              </WmsTabsList>
 
               <TabsContent value="general" className="space-y-4">
-                <DetailFieldGrid
+                <WmsDetailFieldGrid
                   fields={[
                     { label: "Estado", value: selectedOrder.estadoOc },
                     {
@@ -785,7 +796,7 @@ export default function RecepcionesPage() {
               </TabsContent>
 
               <TabsContent value="proveedor" className="space-y-4">
-                <DetailFieldGrid
+                <WmsDetailFieldGrid
                   fields={[
                     {
                       label: "Razón social",
@@ -831,7 +842,7 @@ export default function RecepcionesPage() {
                     <CardDescription>{selectedOperationalStatus?.detail}</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <DetailFieldGrid
+                    <WmsDetailFieldGrid
                       fields={[
                         {
                           label: "Circuito recepción",
@@ -921,30 +932,49 @@ export default function RecepcionesPage() {
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
-      <Dialog open={isReceiveOpen} onOpenChange={setIsReceiveOpen}>
-        <DialogContent>
+      <Dialog
+        open={isReceiveOpen}
+        onOpenChange={(open) => {
+          setIsReceiveOpen(open)
+          if (!open) {
+            resetReceiveDialog()
+          }
+        }}
+      >
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Registrar recepción</DialogTitle>
             <DialogDescription>
               Podés registrar una recepción parcial o total con fecha, remito y observación
-              operativa.
+              operativa. El cierre completo conserva los mismos metadatos del formulario.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-lg border p-3 text-sm">
-                <p className="text-muted-foreground">Orden</p>
-                <p className="font-medium">#{orderToReceive?.id ?? "-"}</p>
-              </div>
-              <div className="rounded-lg border p-3 text-sm">
-                <p className="text-muted-foreground">Saldo pendiente</p>
-                <p className="font-medium">{formatQuantity(orderToReceive?.saldoPendiente)}</p>
-              </div>
-            </div>
+            <WmsDetailFieldGrid
+              columns="2"
+              fields={[
+                { label: "Orden", value: orderToReceive ? `#${orderToReceive.id}` : "-" },
+                {
+                  label: "Saldo pendiente",
+                  value: formatQuantity(orderToReceive?.saldoPendiente),
+                },
+                {
+                  label: "Proveedor",
+                  value: orderToReceive ? getProveedorLabel(orderToReceive.proveedorId) : "-",
+                },
+                {
+                  label: "Documento base",
+                  value: orderToReceive
+                    ? (getComprobante(orderToReceive.comprobanteId)?.nroComprobante ??
+                      `#${orderToReceive.comprobanteId}`)
+                    : "-",
+                },
+              ]}
+            />
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -1016,7 +1046,8 @@ export default function RecepcionesPage() {
 
             <div className="space-y-2">
               <Label>Observación</Label>
-              <Input
+              <Textarea
+                rows={3}
                 value={receiveDraft.observacion}
                 onChange={(event) =>
                   setReceiveDraft((current) => ({ ...current, observacion: event.target.value }))
@@ -1044,7 +1075,7 @@ export default function RecepcionesPage() {
               {processingId === orderToReceive?.id ? "Procesando..." : "Registrar recepción"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

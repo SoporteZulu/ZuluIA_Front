@@ -39,7 +39,7 @@ export function useStockMovimientos(itemId?: number, depositoId?: number) {
       })
 
       const result = await apiGet<PagedResult<MovimientoStock>>(
-        `/api/movimientos-stock?${params.toString()}`
+        `/api/stock/movimientos?${params.toString()}`
       )
       const items = (Array.isArray(result) ? result : (result.items ?? [])).map(normMovimiento)
       setMovimientos(items)
@@ -141,6 +141,7 @@ export function useStockActions() {
 
   const ajustar = async (dto: AjusteStockDto): Promise<boolean> => {
     setLoading(true)
+    setError(null)
     try {
       await apiPost<{ movimientoId: number; mensaje: string }>("/api/stock/ajuste", dto)
       return true
@@ -154,6 +155,7 @@ export function useStockActions() {
 
   const transferir = async (dto: TransferenciaStockDto): Promise<boolean> => {
     setLoading(true)
+    setError(null)
     try {
       await apiPost<void>("/api/stock/transferencia", dto)
       return true

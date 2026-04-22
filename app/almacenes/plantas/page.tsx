@@ -25,12 +25,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { WmsDialogContent } from "@/components/almacenes/wms-responsive"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -671,7 +671,7 @@ export default function PlantasPage() {
       </Card>
 
       <Dialog open={isDetailOpen && !!selectedDeposito} onOpenChange={handleDetailOpenChange}>
-        <DialogContent className="max-w-2xl">
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Warehouse className="h-5 w-5" />
@@ -727,11 +727,11 @@ export default function PlantasPage() {
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
       <Dialog open={isFormOpen} onOpenChange={handleFormOpenChange}>
-        <DialogContent className="max-w-lg">
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>{editingDeposito ? "Editar depósito" : "Nuevo depósito"}</DialogTitle>
             <DialogDescription>
@@ -778,11 +778,11 @@ export default function PlantasPage() {
               Guardar depósito
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
       <Dialog open={isDeleteOpen && !!depositoToDelete} onOpenChange={handleDeleteOpenChange}>
-        <DialogContent className="max-w-md">
+        <WmsDialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Desactivar depósito</DialogTitle>
             <DialogDescription>
@@ -806,7 +806,7 @@ export default function PlantasPage() {
               Confirmar baja
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

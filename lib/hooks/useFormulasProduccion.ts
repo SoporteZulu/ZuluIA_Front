@@ -1,8 +1,13 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { apiDelete, apiFetch, apiGet, apiPost } from "@/lib/api"
-import type { FormulaProduccion, CreateFormulaProduccionDto } from "@/lib/types/formulas-produccion"
+import { apiDelete, apiFetch, apiGet, apiPost, apiPut } from "@/lib/api"
+import type {
+  CreateFormulaProduccionDto,
+  FormulaProduccion,
+  FormulaProduccionHistorial,
+  UpdateFormulaProduccionDto,
+} from "@/lib/types/formulas-produccion"
 
 type RawFormulaIngrediente = {
   id?: number
@@ -38,6 +43,19 @@ type RawFormulaProduccion = {
   ingredientes?: RawFormulaIngrediente[]
 }
 
+type RawFormulaHistorial = {
+  id?: number
+  formulaId?: number
+  version?: number
+  codigo?: string
+  descripcion?: string
+  cantidadResultado?: number
+  motivo?: string | null
+  snapshotJson?: string | null
+  createdAt?: string
+  createdBy?: string | number | null
+}
+
 function normalizeFormula(raw: RawFormulaProduccion): FormulaProduccion {
   const componentes = (raw.componentes ?? raw.ingredientes ?? []).map((componente, index) => ({
     id: Number(componente.id ?? index + 1),
@@ -65,6 +83,21 @@ function normalizeFormula(raw: RawFormulaProduccion): FormulaProduccion {
     observacion: raw.observacion ?? null,
     createdAt: raw.createdAt,
     componentes,
+  }
+}
+
+function normalizeHistorial(raw: RawFormulaHistorial): FormulaProduccionHistorial {
+  return {
+    id: Number(raw.id ?? 0),
+    formulaId: Number(raw.formulaId ?? 0),
+    version: Number(raw.version ?? 0),
+    codigo: String(raw.codigo ?? ""),
+    descripcion: String(raw.descripcion ?? ""),
+    cantidadResultado: Number(raw.cantidadResultado ?? 0),
+    motivo: raw.motivo ?? null,
+    snapshotJson: raw.snapshotJson ?? null,
+    createdAt: raw.createdAt,
+    createdBy: raw.createdBy ?? null,
   }
 }
 
@@ -139,6 +172,34 @@ export function useFormulasProduccion(soloActivas = true) {
     }
   }
 
+  const actualizar = async (
+    id: number,
+    dto: UpdateFormulaProduccionDto
+  ): Promise<boolean> => {
+    try {
+      await apiPut(`/api/formulas-produccion/${id}`, {
+        descripcion: dto.descripcion.trim(),
+        cantidadResultado: dto.cantidadProducida,
+        observacion: dto.observacion ?? null,
+      })
+      await fetchFormulas()
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al actualizar fórmula de producción")
+      return false
+    }
+  }
+
+  const getHistorial = async (id: number): Promise<FormulaProduccionHistorial[]> => {
+    try {
+      const result = await apiGet<RawFormulaHistorial[]>(`/api/formulas-produccion/${id}/historial`)
+      return Array.isArray(result) ? result.map(normalizeHistorial) : []
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al cargar historial de fórmula")
+      return []
+    }
+  }
+
   const activar = async (id: number): Promise<boolean> => {
     try {
       await apiFetch<void>(`/api/formulas-produccion/${id}/activar`, { method: "PATCH" })
@@ -161,5 +222,16 @@ export function useFormulasProduccion(soloActivas = true) {
     }
   }
 
-  return { formulas, loading, error, getById, crear, activar, desactivar, refetch: fetchFormulas }
+  return {
+    formulas,
+    loading,
+    error,
+    getById,
+    getHistorial,
+    crear,
+    actualizar,
+    activar,
+    desactivar,
+    refetch: fetchFormulas,
+  }
 }

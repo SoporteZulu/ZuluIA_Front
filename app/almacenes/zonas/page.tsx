@@ -9,12 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { WmsDialogContent } from "@/components/almacenes/wms-responsive"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -301,7 +301,7 @@ export default function ZonasAlmacenPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>{editingId ? "Editar zona" : "Nueva zona"}</DialogTitle>
             <DialogDescription>
@@ -328,7 +328,7 @@ export default function ZonasAlmacenPage() {
               Guardar zona
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )
