@@ -13,6 +13,29 @@ interface UseDescuentosComercialesOptions {
   vigenteEn?: string
 }
 
+type DescuentoComercialApiItem = {
+  id: number
+  terceroId?: number
+  itemId?: number
+  porcentaje?: number
+  fechaDesde?: string
+  fechaHasta?: string | null
+}
+
+const descuentosComercialesApiPath = "/api/DescuentosComerciales"
+
+function normalizeDescuento(item: DescuentoComercialApiItem): DescuentoComercial {
+  return {
+    id: item.id,
+    terceroId: item.terceroId,
+    itemId: item.itemId,
+    porcentaje: Number(item.porcentaje ?? 0),
+    desde: item.fechaDesde,
+    hasta: item.fechaHasta ?? undefined,
+    activo: true,
+  }
+}
+
 export function useDescuentosComerciales(options: UseDescuentosComercialesOptions = {}) {
   const [descuentos, setDescuentos] = useState<DescuentoComercial[]>([])
   const [loading, setLoading] = useState(true)
@@ -27,15 +50,10 @@ export function useDescuentosComerciales(options: UseDescuentosComercialesOption
       if (options.itemId) params.set("itemId", String(options.itemId))
       if (options.vigenteEn) params.set("vigenteEn", options.vigenteEn)
 
-      const result = await apiGet<DescuentoComercial[]>(
-        `/api/descuentos-comerciales?${params.toString()}`
+      const result = await apiGet<DescuentoComercialApiItem[]>(
+        `${descuentosComercialesApiPath}?${params.toString()}`
       )
-      setDescuentos(
-        (Array.isArray(result) ? result : []).map((d) => ({
-          ...d,
-          porcentaje: Number(d.porcentaje ?? 0),
-        }))
-      )
+      setDescuentos((Array.isArray(result) ? result : []).map(normalizeDescuento))
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar descuentos comerciales")
     } finally {
@@ -49,7 +67,13 @@ export function useDescuentosComerciales(options: UseDescuentosComercialesOption
 
   const crear = async (dto: CreateDescuentoComercialDto): Promise<boolean> => {
     try {
-      await apiPost<{ id: number }>("/api/descuentos-comerciales", dto)
+      await apiPost<{ id: number }>(descuentosComercialesApiPath, {
+        terceroId: dto.terceroId ?? 0,
+        itemId: dto.itemId ?? 0,
+        fechaDesde: dto.desde,
+        fechaHasta: dto.hasta ?? null,
+        porcentaje: dto.porcentaje,
+      })
       await fetchDescuentos()
       return true
     } catch (e) {
@@ -63,7 +87,12 @@ export function useDescuentosComerciales(options: UseDescuentosComercialesOption
     dto: Partial<CreateDescuentoComercialDto> & { activo?: boolean }
   ): Promise<boolean> => {
     try {
-      await apiPut<void>(`/api/descuentos-comerciales/${id}`, { id, ...dto })
+      await apiPut<void>(`${descuentosComercialesApiPath}/${id}`, {
+        id,
+        fechaDesde: dto.desde,
+        fechaHasta: dto.hasta ?? null,
+        porcentaje: dto.porcentaje,
+      })
       await fetchDescuentos()
       return true
     } catch (e) {
@@ -74,7 +103,7 @@ export function useDescuentosComerciales(options: UseDescuentosComercialesOption
 
   const eliminar = async (id: number): Promise<boolean> => {
     try {
-      await apiDelete(`/api/descuentos-comerciales/${id}`)
+      await apiDelete(`${descuentosComercialesApiPath}/${id}`)
       await fetchDescuentos()
       return true
     } catch (e) {

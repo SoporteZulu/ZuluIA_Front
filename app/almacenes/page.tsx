@@ -46,16 +46,28 @@ import {
 import { WmsDialogContent } from "@/components/almacenes/wms-responsive"
 import { useDepositos } from "@/lib/hooks/useDepositos"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
-import { useComprobantes } from "@/lib/hooks/useComprobantes"
+import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useStockActions, useStockResumen } from "@/lib/hooks/useStock"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 import { useTerceros } from "@/lib/hooks/useTerceros"
+import type { TipoComprobante } from "@/lib/types/comprobantes"
 import {
   getOrdenCompraRecepcionLabel,
   getOrdenCompraRecepcionProgress,
   isOrdenCompraRecepcionAbierta,
   isOrdenCompraRecepcionParcial,
 } from "@/lib/utils"
+
+function normalizeText(value?: string | null) {
+  return (value ?? "").trim().toLowerCase()
+}
+
+function isDeliveryNoteType(tipo?: TipoComprobante | null, fallbackLabel?: string | null) {
+  const code = normalizeText(tipo?.codigo)
+  const description = `${normalizeText(tipo?.descripcion)} ${normalizeText(fallbackLabel)}`
+
+  return description.includes("remito") || code.startsWith("rem")
+}
 
 function getSalidaStatusLabel(estado: string) {
   switch ((estado ?? "").toUpperCase()) {
@@ -120,6 +132,7 @@ export default function AlmacenesPage() {
   const { depositos } = useDepositos()
   const { ordenes } = useOrdenesCompra()
   const { comprobantes } = useComprobantes({ esVenta: true })
+  const { tipos } = useComprobantesConfig()
   const { terceros } = useTerceros()
   const { ajustar, loading: adjusting, error: adjustError } = useStockActions()
   const [selectedAlert, setSelectedAlert] = useState<string | null>(null)
@@ -134,9 +147,25 @@ export default function AlmacenesPage() {
     totalDepositos: resumen?.totalDepositos ?? depositos.length,
   }
 
+  const tipoComprobanteById = React.useMemo(
+    () => new Map(tipos.map((tipo) => [tipo.id, tipo])),
+    [tipos]
+  )
+
   const recepcionesAbiertas = ordenes.filter(isOrdenCompraRecepcionAbierta)
   const recepcionesParciales = recepcionesAbiertas.filter(isOrdenCompraRecepcionParcial).length
-  const salidasActivas = comprobantes.filter((c) => c.estado === "BORRADOR")
+  const salidasActivas = React.useMemo(
+    () =>
+      comprobantes.filter(
+        (comprobante) =>
+          comprobante.estado === "BORRADOR" &&
+          isDeliveryNoteType(
+            tipoComprobanteById.get(comprobante.tipoComprobanteId),
+            comprobante.tipoComprobanteDescripcion
+          )
+      ),
+    [comprobantes, tipoComprobanteById]
+  )
   const alertasCriticas = bajoMinimo.filter((item) => item.stockActual <= 0).length
   const alertasReposicion = bajoMinimo.filter((item) => item.stockActual > 0).length
   const depositosConCobertura = kpis.totalDepositos > 0 && kpis.totalItemsConStock > 0
@@ -345,8 +374,8 @@ export default function AlmacenesPage() {
                 <p className="text-xs uppercase tracking-wide text-sky-900/70">Salida visible</p>
                 <p className="mt-2 text-sm font-semibold text-sky-950">
                   {salidasActivas.length > 0
-                    ? "Documentos borrador en curso"
-                    : "Sin salidas en foco"}
+                    ? "Remitos WMS en preparación"
+                    : "Sin salidas WMS en foco"}
                 </p>
               </div>
             </div>
@@ -376,7 +405,7 @@ export default function AlmacenesPage() {
                   <p className="text-sm font-medium">Recepción y despacho</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {recepcionesAbiertas.length} ingresos abiertos y {salidasActivas.length} salidas
-                    visibles.
+                    WMS visibles.
                   </p>
                 </div>
                 <Warehouse className="h-5 w-5 text-sky-700" />
@@ -716,7 +745,7 @@ export default function AlmacenesPage() {
               {salidasActivas.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
-                    No hay salidas activas visibles en el lote actual.
+                    No hay remitos WMS activos visibles en el lote actual.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -820,17 +849,17 @@ export default function AlmacenesPage() {
           <CardHeader>
             <CardTitle>Salidas en preparacion</CardTitle>
             <CardDescription>
-              Documentos borrador visibles como ordenes de salida activas.
+              Remitos WMS en borrador visibles como salidas operativas.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             <p>
-              El tablero muestra comprobantes en borrador como salidas pendientes dentro del
+              El tablero muestra remitos reales en borrador como salidas pendientes dentro del
               circuito actual.
             </p>
             <p>
-              Esto recupera visibilidad operativa del modulo sin alterar backend ni contratos
-              documentales.
+              Esto evita mezclar pedidos, facturas u otros borradores comerciales con el flujo WMS
+              de preparación y despacho.
             </p>
           </CardContent>
         </Card>

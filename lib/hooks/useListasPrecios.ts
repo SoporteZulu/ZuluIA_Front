@@ -10,6 +10,8 @@ import type {
   UpsertItemEnListaDto,
 } from "@/lib/types/listas-precios"
 
+const listasPreciosApiPath = "/api/ListasPrecios"
+
 export function useListasPrecios(fecha?: string) {
   const [listas, setListas] = useState<ListaPrecios[]>([])
   const [loading, setLoading] = useState(true)
@@ -19,7 +21,7 @@ export function useListasPrecios(fecha?: string) {
     setLoading(true)
     setError(null)
     try {
-      const url = fecha ? `/api/listas-precios?fecha=${fecha}` : "/api/listas-precios"
+      const url = fecha ? `${listasPreciosApiPath}?fecha=${fecha}` : listasPreciosApiPath
       const result = await apiGet<ListaPrecios[] | PagedResult<ListaPrecios>>(url)
       setListas(Array.isArray(result) ? result : (result.items ?? []))
     } catch (e) {
@@ -35,7 +37,7 @@ export function useListasPrecios(fecha?: string) {
 
   const getById = async (id: number): Promise<ListaPreciosDetalle | null> => {
     try {
-      const r = await apiGet<ListaPreciosDetalle>(`/api/listas-precios/${id}`)
+      const r = await apiGet<ListaPreciosDetalle>(`${listasPreciosApiPath}/${id}`)
       if (!r) return null
       return {
         ...r,
@@ -53,7 +55,7 @@ export function useListasPrecios(fecha?: string) {
 
   const crear = async (dto: CreateListaPreciosDto): Promise<boolean> => {
     try {
-      await apiPost<{ id: number }>("/api/listas-precios", dto)
+      await apiPost<{ id: number }>(listasPreciosApiPath, dto)
       await fetchListas()
       return true
     } catch (e) {
@@ -64,7 +66,7 @@ export function useListasPrecios(fecha?: string) {
 
   const actualizar = async (id: number, dto: Partial<CreateListaPreciosDto>): Promise<boolean> => {
     try {
-      await apiPut<void>(`/api/listas-precios/${id}`, { ...dto, id })
+      await apiPut<void>(`${listasPreciosApiPath}/${id}`, { ...dto, id })
       await fetchListas()
       return true
     } catch (e) {
@@ -75,7 +77,7 @@ export function useListasPrecios(fecha?: string) {
 
   const eliminar = async (id: number): Promise<boolean> => {
     try {
-      await apiDelete(`/api/listas-precios/${id}`)
+      await apiDelete(`${listasPreciosApiPath}/${id}`)
       await fetchListas()
       return true
     } catch (e) {
@@ -86,7 +88,7 @@ export function useListasPrecios(fecha?: string) {
 
   const upsertItem = async (listaId: number, dto: UpsertItemEnListaDto): Promise<boolean> => {
     try {
-      await apiPost<void>(`/api/listas-precios/${listaId}/items`, dto)
+      await apiPost<void>(`${listasPreciosApiPath}/${listaId}/items`, dto)
       await fetchListas()
       return true
     } catch (e) {
@@ -97,7 +99,7 @@ export function useListasPrecios(fecha?: string) {
 
   const removeItem = async (listaId: number, itemId: number): Promise<boolean> => {
     try {
-      await apiDelete(`/api/listas-precios/${listaId}/items/${itemId}`)
+      await apiDelete(`${listasPreciosApiPath}/${listaId}/items/${itemId}`)
       await fetchListas()
       return true
     } catch (e) {

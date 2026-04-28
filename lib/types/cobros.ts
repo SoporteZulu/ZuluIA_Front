@@ -29,6 +29,9 @@ export interface RegistrarCobroDto {
   sucursalId: number
   terceroId: number
   fecha: string
+  monedaId: number
+  cotizacion: number
+  observacion?: string
   medios: {
     formaPagoId: number
     cajaId: number
@@ -37,7 +40,7 @@ export interface RegistrarCobroDto {
     cotizacion?: number
     chequeId?: number | null
   }[]
-  imputaciones?: {
+  comprobantesAImputar: {
     comprobanteId: number
     importe: number
   }[]

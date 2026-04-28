@@ -137,6 +137,7 @@ export default function ProduccionPage() {
   }, [ordenes, search])
 
   const selected = filtered.find((row) => row.id === selectedId) ?? filtered[0] ?? null
+  const highlightedDetail = selected ? detail : null
 
   useEffect(() => {
     if (!selected) return
@@ -172,8 +173,9 @@ export default function ProduccionPage() {
   const enProceso = filtered.filter((row) => row.estado === "EN_PROCESO").length
   const completadas = filtered.filter((row) => row.estado === "COMPLETADO").length
   const consumoRegistrado =
-    detail?.consumos.reduce((sum, row) => sum + row.cantidadConsumida, 0) ?? 0
-  const empaqueRegistrado = detail?.empaques.reduce((sum, row) => sum + row.cantidad, 0) ?? 0
+    highlightedDetail?.consumos.reduce((sum, row) => sum + row.cantidadConsumida, 0) ?? 0
+  const empaqueRegistrado =
+    highlightedDetail?.empaques.reduce((sum, row) => sum + row.cantidad, 0) ?? 0
 
   const handleFinalizar = async () => {
     setActionError(null)
@@ -651,7 +653,8 @@ export default function ProduccionPage() {
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      El cierre persiste consumos y producción final en la misma operación de backend.
+                      El cierre persiste consumos y producción final en la misma operación de
+                      backend.
                     </p>
                   </div>
                   <Button

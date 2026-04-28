@@ -611,9 +611,16 @@ export default function PuntosFacturacionPage() {
     })
   }, [getTipoDescripcion, puntos, searchTerm, statusFilter, typeFilter])
 
-  const activos = puntos.filter((punto) => punto.activo).length
-  const inactivos = puntos.filter((punto) => !punto.activo).length
-  const conTipo = puntos.filter((punto) => Boolean(punto.tipoPuntoFacturacionId)).length
+  const visibleStats = useMemo(
+    () => ({
+      total: filtered.length,
+      activos: filtered.filter((punto) => punto.activo).length,
+      inactivos: filtered.filter((punto) => !punto.activo).length,
+      conTipo: filtered.filter((punto) => Boolean(punto.tipoPuntoFacturacionId)).length,
+    }),
+    [filtered]
+  )
+
   const highlightedPoint = useMemo(
     () =>
       [...filtered]
@@ -630,7 +637,7 @@ export default function PuntosFacturacionPage() {
   const typeCoverage = useMemo(
     () =>
       Array.from(
-        puntos.reduce((acc, punto) => {
+        filtered.reduce((acc, punto) => {
           const key = getTipoDescripcion(punto.tipoPuntoFacturacionId)
           acc.set(key, (acc.get(key) ?? 0) + 1)
           return acc
@@ -639,7 +646,7 @@ export default function PuntosFacturacionPage() {
         .map(([tipo, cantidad]) => ({ tipo, cantidad }))
         .sort((left, right) => right.cantidad - left.cantidad)
         .slice(0, 6),
-    [getTipoDescripcion, puntos]
+    [filtered, getTipoDescripcion]
   )
 
   useEffect(() => {
@@ -742,27 +749,27 @@ export default function PuntosFacturacionPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <DashboardKpi
           icon={MapPin}
-          label="Puntos"
-          value={String(puntos.length)}
-          description="Configurados en la sucursal actual"
+          label="Puntos visibles"
+          value={String(visibleStats.total)}
+          description="Dentro de la sucursal y filtros actuales"
         />
         <DashboardKpi
           icon={CheckCircle}
           label="Activos"
-          value={String(activos)}
-          description="Disponibles para operar"
+          value={String(visibleStats.activos)}
+          description="Disponibles para operar dentro de la selección actual"
         />
         <DashboardKpi
           icon={XCircle}
           label="Inactivos"
-          value={String(inactivos)}
-          description="Fuera de circulación"
+          value={String(visibleStats.inactivos)}
+          description="Fuera de circulación dentro de la selección actual"
         />
         <DashboardKpi
           icon={Settings2}
           label="Tipificados"
-          value={String(conTipo)}
-          description="Con tipo explícito asignado"
+          value={String(visibleStats.conTipo)}
+          description="Con tipo explícito dentro de la selección actual"
         />
         <DashboardKpi
           icon={Building2}
@@ -1006,7 +1013,10 @@ export default function PuntosFacturacionPage() {
                 <ShieldCheck className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="font-semibold text-foreground">Tipificación</p>
-                  <p>{conTipo} punto(s) tienen tipo operativo explícito cargado.</p>
+                  <p>
+                    {visibleStats.conTipo} punto(s) visibles tienen tipo operativo explícito
+                    cargado.
+                  </p>
                 </div>
               </div>
             </div>

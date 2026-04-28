@@ -94,6 +94,25 @@ const tipoIcons: Record<CRMInteraction["tipoInteraccion"], React.ReactNode> = {
   mensaje: <MessageSquare className="h-5 w-5" />,
 }
 
+function getCatalogLabel<T extends string>(
+  option: { id: string; nombre: string },
+  labels: Record<T, string>
+) {
+  const fallbackLabel = labels[option.id as T]
+  const normalizedName = option.nombre.trim()
+
+  if (!fallbackLabel) {
+    return normalizedName || option.id
+  }
+
+  if (!normalizedName) {
+    return fallbackLabel
+  }
+
+  const normalizedKey = normalizedName.toLowerCase().replace(/\s+/g, "_")
+  return normalizedKey === option.id ? fallbackLabel : normalizedName
+}
+
 const formatDateTime = (date?: Date | string | null) => {
   if (!date) return "Sin fecha"
 
@@ -188,7 +207,10 @@ function InteraccionesContent() {
   const tipoOptions = useMemo(
     () =>
       catalogos.tiposInteraccion.length > 0
-        ? catalogos.tiposInteraccion
+        ? catalogos.tiposInteraccion.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, tipoLabels),
+          }))
         : Object.entries(tipoLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.tiposInteraccion]
   )
@@ -196,7 +218,10 @@ function InteraccionesContent() {
   const canalOptions = useMemo(
     () =>
       catalogos.canalesInteraccion.length > 0
-        ? catalogos.canalesInteraccion
+        ? catalogos.canalesInteraccion.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, canalLabels),
+          }))
         : Object.entries(canalLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.canalesInteraccion]
   )
@@ -204,7 +229,10 @@ function InteraccionesContent() {
   const resultadoOptions = useMemo(
     () =>
       catalogos.resultadosInteraccion.length > 0
-        ? catalogos.resultadosInteraccion
+        ? catalogos.resultadosInteraccion.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, resultadoLabels),
+          }))
         : Object.entries(resultadoLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.resultadosInteraccion]
   )
@@ -271,9 +299,12 @@ function InteraccionesContent() {
 
   const [formData, setFormData] = useState<Partial<CRMInteraction>>(() => buildEmptyForm())
 
+  const searchTerm = search.trim().toLowerCase()
+
   const filteredInteractions = interacciones
     .filter((int) => {
-      const matchesSearch = int.descripcion?.toLowerCase().includes(search.toLowerCase())
+      const matchesSearch =
+        searchTerm === "" || (int.descripcion ?? "").toLowerCase().includes(searchTerm)
       const matchesTipo = filterTipo === "all" || int.tipoInteraccion === filterTipo
       const matchesResultado = filterResultado === "all" || int.resultado === filterResultado
       return matchesSearch && matchesTipo && matchesResultado
@@ -318,6 +349,11 @@ function InteraccionesContent() {
     usersById,
   ])
 
+  const visibleClientIds = useMemo(
+    () => new Set(filteredInteractions.map((interaction) => interaction.clienteId)),
+    [filteredInteractions]
+  )
+
   const stats = useMemo(() => {
     const success = filteredInteractions.filter(
       (interaction) => interaction.resultado === "exitosa"
@@ -328,8 +364,7 @@ function InteraccionesContent() {
     const rescheduled = filteredInteractions.filter(
       (interaction) => interaction.resultado === "reprogramada"
     ).length
-    const activeClients = new Set(filteredInteractions.map((interaction) => interaction.clienteId))
-      .size
+    const activeClients = visibleClientIds.size
 
     return {
       total: filteredInteractions.length,
@@ -338,7 +373,7 @@ function InteraccionesContent() {
       rescheduled,
       activeClients,
     }
-  }, [filteredInteractions])
+  }, [filteredInteractions, visibleClientIds])
 
   const channelCoverage = useMemo(() => {
     return Object.entries(
@@ -374,6 +409,7 @@ function InteraccionesContent() {
 
   const clientRadar = useMemo(() => {
     return crmClients
+      .filter((client) => visibleClientIds.has(client.id))
       .map((client) => {
         const clientInteractions = filteredInteractions.filter(
           (interaction) => interaction.clienteId === client.id
@@ -416,7 +452,14 @@ function InteraccionesContent() {
       .filter((item) => item.interactions > 0 || item.pendingTasks > 0 || item.urgentClosings > 0)
       .sort((left, right) => right.score - left.score || right.pendingTasks - left.pendingTasks)
       .slice(0, 4)
-  }, [crmClients, filteredInteractions, openOpportunitiesByClient, pendingTasksByClient, today])
+  }, [
+    crmClients,
+    filteredInteractions,
+    openOpportunitiesByClient,
+    pendingTasksByClient,
+    today,
+    visibleClientIds,
+  ])
 
   const highlightedClient = clientRadar[0] ?? null
 
@@ -424,7 +467,13 @@ function InteraccionesContent() {
     const items: Array<{ title: string; detail: string }> = []
     const overduePending = tareas.filter((task) => {
       const daysUntil = getDaysUntil(task.fechaVencimiento, today)
-      return task.estado !== "completada" && daysUntil !== null && daysUntil < 0
+      return (
+        task.estado !== "completada" &&
+        Boolean(task.clienteId) &&
+        visibleClientIds.has(task.clienteId as string) &&
+        daysUntil !== null &&
+        daysUntil < 0
+      )
     }).length
 
     if (stats.noResponse > 0) {
@@ -466,7 +515,7 @@ function InteraccionesContent() {
     }
 
     return items.slice(0, 4)
-  }, [clientRadar, stats.noResponse, stats.rescheduled, tareas, today])
+  }, [clientRadar, stats.noResponse, stats.rescheduled, tareas, today, visibleClientIds])
 
   const getResultadoColor = (resultado: CRMInteraction["resultado"]) => {
     const colors = {
@@ -564,6 +613,30 @@ function InteraccionesContent() {
         nombre: `${contact.nombre} ${contact.apellido}`,
       }))
   }, [catalogos.contactos, crmContacts, formData.clienteId])
+
+  const contactSelectOptions = useMemo(() => {
+    if (!formData.contactoId) {
+      return clientContacts
+    }
+
+    const currentOption = clientContacts.find((contact) => contact.id === formData.contactoId)
+    if (currentOption) {
+      return clientContacts
+    }
+
+    const currentContact = contactsById.get(formData.contactoId)
+    if (!currentContact) {
+      return clientContacts
+    }
+
+    return [
+      ...clientContacts,
+      {
+        id: currentContact.id,
+        nombre: `${currentContact.nombre} ${currentContact.apellido} (actual)`,
+      },
+    ]
+  }, [clientContacts, contactsById, formData.contactoId])
 
   if (loading && interacciones.length === 0) {
     return (
@@ -1021,15 +1094,21 @@ function InteraccionesContent() {
                   <div className="space-y-2">
                     <Label>Contacto</Label>
                     <Select
-                      value={formData.contactoId || ""}
-                      onValueChange={(value) => setFormData({ ...formData, contactoId: value })}
+                      value={formData.contactoId || "__none__"}
+                      onValueChange={(value) =>
+                        setFormData({
+                          ...formData,
+                          contactoId: value === "__none__" ? "" : value,
+                        })
+                      }
                       disabled={!formData.clienteId}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar" />
                       </SelectTrigger>
                       <SelectContent>
-                        {clientContacts.map((contact) => (
+                        <SelectItem value="__none__">Sin contacto</SelectItem>
+                        {contactSelectOptions.map((contact) => (
                           <SelectItem key={contact.id} value={contact.id}>
                             {contact.nombre}
                           </SelectItem>
@@ -1121,7 +1200,7 @@ function InteraccionesContent() {
                 <div className="space-y-2">
                   <Label>Responsable</Label>
                   <Select
-                    value={formData.usuarioResponsableId}
+                    value={formData.usuarioResponsableId || defaultUsuarioResponsableId}
                     onValueChange={(value) =>
                       setFormData({ ...formData, usuarioResponsableId: value })
                     }

@@ -262,37 +262,51 @@ export default function InventarioPage() {
     return items.reduce((acc, item) => acc + (item.stock ?? 0) * Number(item.precioCosto ?? 0), 0)
   }, [items])
 
+  const visibleItemIds = useMemo(
+    () => new Set(filteredProducts.map((item) => item.id)),
+    [filteredProducts]
+  )
+
   const itemsConDatosAmpliados = useMemo(
     () =>
-      items.filter((item) =>
+      filteredProducts.filter((item) =>
         Boolean(item.codigoBarras || item.descripcionAdicional || item.codigoAfip)
       ).length,
-    [items]
+    [filteredProducts]
   )
 
   const itemsConCoberturaComprometida = useMemo(
     () =>
-      items.filter(
+      filteredProducts.filter(
         (item) => item.manejaStock && (item.stock ?? 0) > 0 && (item.stock ?? 0) <= item.stockMinimo
       ).length,
-    [items]
+    [filteredProducts]
+  )
+
+  const visibleLowStockAlerts = useMemo(
+    () => bajoMinimo.filter((item) => visibleItemIds.has(item.itemId)),
+    [bajoMinimo, visibleItemIds]
   )
 
   const featuredAlert = useMemo(() => {
     if (selectedItem) {
-      return bajoMinimo.find((item) => item.itemId === selectedItem.id) ?? bajoMinimo[0] ?? null
+      return (
+        visibleLowStockAlerts.find((item) => item.itemId === selectedItem.id) ??
+        visibleLowStockAlerts[0] ??
+        null
+      )
     }
 
-    return bajoMinimo[0] ?? null
-  }, [bajoMinimo, selectedItem])
+    return visibleLowStockAlerts[0] ?? null
+  }, [selectedItem, visibleLowStockAlerts])
 
   const featuredAlertItem = useMemo(() => {
     if (!featuredAlert) {
       return selectedItem
     }
 
-    return items.find((item) => item.id === featuredAlert.itemId) ?? selectedItem
-  }, [featuredAlert, items, selectedItem])
+    return filteredProducts.find((item) => item.id === featuredAlert.itemId) ?? selectedItem
+  }, [featuredAlert, filteredProducts, selectedItem])
 
   const ultimoMovimientoVisible = movimientos[0] ?? null
   const ultimaActualizacionStock = stock?.depositos
@@ -484,13 +498,13 @@ export default function InventarioPage() {
         <SummaryCard
           title="Fichas ampliadas"
           value={itemsConDatosAmpliados}
-          description="Items con codigo de barras, AFIP o descripcion extendida visibles"
+          description="Items visibles con codigo de barras, AFIP o descripcion extendida"
           icon={<Package className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Cobertura comprometida"
           value={itemsConCoberturaComprometida}
-          description="Items con stock positivo pero en umbral minimo"
+          description="Items visibles con stock positivo pero en umbral minimo"
           icon={<ShieldAlert className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
@@ -1077,9 +1091,7 @@ export default function InventarioPage() {
                     { label: "Estado de ficha", value: getCatalogStatus(selectedItem) },
                     {
                       label: "Tipo de stock",
-                      value: selectedItem.manejaStock
-                        ? "Stock gestionado"
-                        : "Sin gestión de stock",
+                      value: selectedItem.manejaStock ? "Stock gestionado" : "Sin gestión de stock",
                     },
                   ]}
                 />

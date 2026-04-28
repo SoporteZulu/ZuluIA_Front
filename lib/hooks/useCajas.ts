@@ -1,8 +1,33 @@
-'use client'
+"use client"
 
-import { useState, useEffect, useCallback } from 'react'
-import { apiGet, apiPost, apiPut } from '@/lib/api'
-import type { Caja, TipoCaja, CreateCajaDto } from '@/lib/types/cajas'
+import { useState, useEffect, useCallback } from "react"
+import { apiGet, apiPost, apiPut } from "@/lib/api"
+import type { Caja, TipoCaja, CreateCajaDto } from "@/lib/types/cajas"
+
+type CajaApi = Partial<Caja> & {
+  id: number
+  sucursalId: number
+  descripcion?: string | null
+  activa?: boolean | null
+}
+
+function normalizeCaja(caja: CajaApi): Caja {
+  const nombre = caja.nombre?.trim() || caja.descripcion?.trim() || `Caja ${caja.id}`
+
+  return {
+    id: caja.id,
+    sucursalId: caja.sucursalId,
+    tipoCajaId: caja.tipoCajaId ?? 0,
+    tipoCajaDescripcion: caja.tipoCajaDescripcion,
+    nombre,
+    descripcion: caja.descripcion?.trim() || nombre,
+    monedaId: caja.monedaId,
+    activa: caja.activa ?? true,
+    saldoActual: Number(caja.saldoActual ?? 0),
+    fechaApertura: caja.fechaApertura,
+    saldoInicial: Number(caja.saldoInicial ?? 0),
+  }
+}
 
 export function useCajas(sucursalId?: number) {
   const [cajas, setCajas] = useState<Caja[]>([])
@@ -18,26 +43,22 @@ export function useCajas(sucursalId?: number) {
     setLoading(true)
     setError(null)
     try {
-      const result = await apiGet<Caja[]>(`/api/cajas?sucursalId=${sucursalId}`)
-      setCajas(
-        (Array.isArray(result) ? result : []).map(c => ({
-          ...c,
-          saldoActual: Number(c.saldoActual ?? 0),
-          saldoInicial: Number(c.saldoInicial ?? 0),
-        }))
-      )
+      const result = await apiGet<CajaApi[]>(`/api/cajas?sucursalId=${sucursalId}`)
+      setCajas((Array.isArray(result) ? result : []).map(normalizeCaja))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar cajas')
+      setError(e instanceof Error ? e.message : "Error al cargar cajas")
     } finally {
       setLoading(false)
     }
   }, [sucursalId])
 
-  useEffect(() => { fetchCajas() }, [fetchCajas])
+  useEffect(() => {
+    fetchCajas()
+  }, [fetchCajas])
 
   const getTipos = async (): Promise<TipoCaja[]> => {
     try {
-      const result = await apiGet<TipoCaja[]>('/api/cajas/tipos')
+      const result = await apiGet<TipoCaja[]>("/api/cajas/tipos")
       return Array.isArray(result) ? result : []
     } catch {
       return []
@@ -46,11 +67,11 @@ export function useCajas(sucursalId?: number) {
 
   const crear = async (dto: CreateCajaDto): Promise<boolean> => {
     try {
-      await apiPost<{ id: number }>('/api/cajas', dto)
+      await apiPost<{ id: number }>("/api/cajas", dto)
       await fetchCajas()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al crear caja')
+      setError(e instanceof Error ? e.message : "Error al crear caja")
       return false
     }
   }
@@ -61,7 +82,7 @@ export function useCajas(sucursalId?: number) {
       await fetchCajas()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al actualizar caja')
+      setError(e instanceof Error ? e.message : "Error al actualizar caja")
       return false
     }
   }

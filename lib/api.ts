@@ -10,17 +10,30 @@ async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = `Error ${res.status}: ${res.statusText}`
     try {
-      const body = await res.json()
-      if (body?.error) message = body.error
-      else if (body?.message) message = body.message
-      else if (typeof body === "string") message = body
+      const rawBody = await res.text()
+      if (rawBody.trim()) {
+        const body = JSON.parse(rawBody)
+        if (body?.error) message = body.error
+        else if (body?.message) message = body.message
+        else if (typeof body === "string") message = body
+      }
     } catch {
       // ignore JSON parse errors, use default message
     }
     throw new Error(message)
   }
   if (res.status === 204) return undefined as T
-  return res.json()
+
+  const rawBody = await res.text()
+  if (!rawBody.trim()) {
+    return undefined as T
+  }
+
+  try {
+    return JSON.parse(rawBody) as T
+  } catch {
+    return rawBody as T
+  }
 }
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {

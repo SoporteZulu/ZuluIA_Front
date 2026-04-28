@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -49,6 +49,7 @@ import {
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { SalesDialogContent, SalesTabsList } from "@/components/ventas/sales-responsive"
 import { Textarea } from "@/components/ui/textarea"
+import { apiGet } from "@/lib/api"
 import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useDefaultSucursalId, useSucursales } from "@/lib/hooks/useSucursales"
 import { useTerceros } from "@/lib/hooks/useTerceros"
@@ -57,11 +58,19 @@ import { useMotivosDebito, useVentasDocumentos } from "@/lib/hooks/useVentasDocu
 import type {
   Comprobante,
   ComprobanteDetalle,
+  ComprobanteItem,
   EmitirComprobanteDto,
   TipoComprobante,
 } from "@/lib/types/comprobantes"
 import type { Tercero } from "@/lib/types/terceros"
-import type { CreateNotaDebitoVentaDto, MotivoDebitoVenta } from "@/lib/types/ventas"
+import type {
+  CreateNotaCreditoVentaDto,
+  CreateNotaDebitoVentaDto,
+  MotivoDebitoVenta,
+} from "@/lib/types/ventas"
+
+const MOTIVO_DEVOLUCION_ERROR_ENTREGA = 2
+const MOTIVO_DEVOLUCION_OTRO = 99
 
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
@@ -107,6 +116,14 @@ function isDebitType(tipo: TipoComprobante) {
   return text.includes("debito") || /(^|\W)nd($|\W)/.test(text)
 }
 
+function inferNoteKindFromTypeLabel(value?: string | null): NoteKind | null {
+  const text = normalizeText(value)
+  if (!text) return null
+  if (text.includes("debito") || /(^|\W)nd($|\W)/.test(text)) return "debito"
+  if (text.includes("credito") || /(^|\W)nc($|\W)/.test(text)) return "credito"
+  return null
+}
+
 function parseOperationalObservation(value?: string | null) {
   const parts = (value ?? "")
     .split(" | ")
@@ -149,16 +166,25 @@ function parseOperationalObservation(value?: string | null) {
   }
 }
 
-function getNoteDocumentStatus(note: ComprobanteDetalle) {
+function getNoteDocumentStatus(note: ComprobanteDetalle, kind: NoteKind) {
   if (note.estado === "ANULADO") return "Documento anulado"
   if (note.estado === "BORRADOR") return "Pendiente de emisión"
-  if (note.estado === "PAGADO") return "Documento aplicado"
-  if (note.estado === "PAGADO_PARCIAL") return "Aplicación parcial registrada"
+  if (note.estado === "PAGADO") {
+    return kind === "debito" ? "Cargo compensado" : "Documento aplicado"
+  }
+  if (note.estado === "PAGADO_PARCIAL") {
+    return kind === "debito" ? "Compensación parcial registrada" : "Aplicación parcial registrada"
+  }
   return "Documento emitido en circuito comercial"
 }
 
 function getApplicationStatus(note: ComprobanteDetalle, kind: NoteKind) {
-  if (note.estado === "ANULADO") return "Sin aplicación vigente"
+  if (note.estado === "ANULADO") {
+    return kind === "debito" ? "Sin impacto vigente" : "Sin aplicación vigente"
+  }
+  if (note.estado === "BORRADOR") {
+    return "Pendiente de emisión"
+  }
   if (note.saldo <= 0 || note.estado === "PAGADO") {
     return kind === "debito"
       ? "Cargo compensado sin saldo pendiente"
@@ -180,7 +206,72 @@ function getApplicationStatus(note: ComprobanteDetalle, kind: NoteKind) {
     : "Saldo pendiente sin vencimiento informado"
 }
 
-const STATUS_CONFIG: Record<
+function isIssuedActiveStatus(estado: string) {
+  return estado !== "BORRADOR" && estado !== "ANULADO"
+}
+
+function hasIssuedVisibleBalance(note: Pick<Comprobante, "estado" | "saldo">) {
+  return isIssuedActiveStatus(note.estado) && note.saldo > 0
+}
+
+function getCountLabel(count: number, singular: string, plural: string) {
+  return count === 1 ? singular : plural
+}
+
+function getDetectionVerb(count: number) {
+  return count === 1 ? "detectada" : "detectadas"
+}
+
+function getPreserveVerb(count: number) {
+  return count === 1 ? "conserva" : "conservan"
+}
+
+function getBalanceSummaryLabel(kind: NoteKind, count: number) {
+  if (kind === "debito") {
+    return count === 1 ? "cargo con saldo" : "cargos con saldo"
+  }
+
+  return count === 1 ? "crédito con saldo" : "créditos con saldo"
+}
+
+function getCuentaCorrienteMovimiento(note: ComprobanteDetalle) {
+  if (typeof note.cuentaCorrienteDebe === "number" && note.cuentaCorrienteDebe > 0) {
+    return `Débito registrado por ${formatMoney(note.cuentaCorrienteDebe)}`
+  }
+
+  if (typeof note.cuentaCorrienteHaber === "number" && note.cuentaCorrienteHaber > 0) {
+    return `Crédito registrado por ${formatMoney(note.cuentaCorrienteHaber)}`
+  }
+
+  return "Sin movimiento registrado en cuenta corriente"
+}
+
+function getCuentaCorrienteSaldo(note: ComprobanteDetalle) {
+  if (typeof note.cuentaCorrienteSaldoPosterior !== "number") {
+    return "Sin saldo consolidado informado"
+  }
+
+  if (note.cuentaCorrienteSaldoPosterior > 0) {
+    return `Saldo deudor consolidado ${formatMoney(note.cuentaCorrienteSaldoPosterior)}`
+  }
+
+  if (note.cuentaCorrienteSaldoPosterior < 0) {
+    return `Saldo acreedor consolidado ${formatMoney(Math.abs(note.cuentaCorrienteSaldoPosterior))}`
+  }
+
+  return "Saldo consolidado sin deuda pendiente"
+}
+
+function mapCreditMotiveToDevolucion(motive: string) {
+  switch (motive) {
+    case "error":
+      return MOTIVO_DEVOLUCION_ERROR_ENTREGA
+    default:
+      return MOTIVO_DEVOLUCION_OTRO
+  }
+}
+
+const BASE_STATUS_CONFIG: Record<
   string,
   { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
 > = {
@@ -189,6 +280,25 @@ const STATUS_CONFIG: Record<
   PAGADO: { label: "Aplicado", variant: "outline" },
   PAGADO_PARCIAL: { label: "Aplicación parcial", variant: "outline" },
   ANULADO: { label: "Anulado", variant: "destructive" },
+}
+
+function getStatusConfig(kind: NoteKind, estado: string) {
+  if (kind === "debito") {
+    if (estado === "PAGADO") {
+      return { label: "Compensado", variant: "outline" as const }
+    }
+
+    if (estado === "PAGADO_PARCIAL") {
+      return { label: "Compensación parcial", variant: "outline" as const }
+    }
+  }
+
+  return (
+    BASE_STATUS_CONFIG[estado] ?? {
+      label: estado,
+      variant: "outline" as const,
+    }
+  )
 }
 
 type NoteKind = "credito" | "debito"
@@ -235,9 +345,9 @@ function getKindConfig(kind: NoteKind): NoteKindConfig {
       operationalPlaceholder:
         "Recargo, diferencia de precio, interés, reimputación o respaldo comercial del débito",
       scopeSummary:
-        "Recargos, diferencias y referencias operativas ya quedan visibles; la imputación exacta contra documento origen sigue pendiente de integración formal.",
+        "Recargos, diferencias, referencias operativas e impacto en cuenta corriente ya quedan visibles; cuando el ajuste es parcial y tiene comprobante base, cada renglón queda vinculado con exactitud.",
       nextPhaseSummary:
-        "Quedan para la siguiente fase la vinculación exacta con comprobante base, los motivos fiscales específicos y la aplicación automática sobre saldo origen.",
+        "Quedan para la siguiente fase los motivos fiscales específicos y la aplicación automática sobre saldo origen.",
       topDescription:
         "Recargos, intereses, diferencias y reimputaciones comerciales documentadas sobre ventas con emisión real.",
       defaultMotive: "recargo",
@@ -265,9 +375,9 @@ function getKindConfig(kind: NoteKind): NoteKindConfig {
     operationalPlaceholder:
       "Devolución, bonificación, corrección comercial o respaldo operativo del crédito",
     scopeSummary:
-      "Devoluciones, bonificaciones y referencias operativas ya quedan visibles; la vinculación exacta contra factura origen sigue pendiente de integración formal.",
+      "Devoluciones, bonificaciones, referencias operativas y aplicación contra comprobante origen ya quedan visibles; cuando el ajuste es parcial y tiene comprobante base, los renglones quedan vinculados con exactitud.",
     nextPhaseSummary:
-      "Quedan para la siguiente fase la relación exacta por renglón, el motivo fiscal específico y la aplicación automática contra comprobante origen.",
+      "Quedan para la siguiente fase el motivo fiscal específico, los ajustes fiscales complementarios y la reimpresión documental específica.",
     topDescription:
       "Ajustes por devolución, bonificación o corrección comercial con emisión real sobre ventas.",
     defaultMotive: "devolucion",
@@ -295,6 +405,76 @@ type NoteFormItem = {
   descuento: number
   alicuotaIvaId: number
   alicuotaIvaPct: number
+  comprobanteItemOrigenId: number | null
+  cantidadDocumentoOrigen: number | null
+  precioDocumentoOrigen: number | null
+  originMatchState: "none" | "linked" | "ambiguous" | "missing"
+  originMatchLabel: string | null
+}
+
+type NoteLineOriginLink = Pick<
+  NoteFormItem,
+  | "comprobanteItemOrigenId"
+  | "cantidadDocumentoOrigen"
+  | "precioDocumentoOrigen"
+  | "originMatchState"
+  | "originMatchLabel"
+>
+
+function buildEmptyOriginLink(): NoteLineOriginLink {
+  return {
+    comprobanteItemOrigenId: null,
+    cantidadDocumentoOrigen: null,
+    precioDocumentoOrigen: null,
+    originMatchState: "none",
+    originMatchLabel: null,
+  }
+}
+
+function buildMatchedOriginLink(referenceItem: ComprobanteItem): NoteLineOriginLink {
+  return {
+    comprobanteItemOrigenId: referenceItem.id,
+    cantidadDocumentoOrigen: referenceItem.cantidad,
+    precioDocumentoOrigen: referenceItem.precioUnitario,
+    originMatchState: "linked",
+    originMatchLabel: `Renglón base ${referenceItem.id} · ${referenceItem.cantidad} x ${formatMoney(referenceItem.precioUnitario)}`,
+  }
+}
+
+function reconcileOriginLinks(
+  currentItems: NoteFormItem[],
+  referenceDetail: ComprobanteDetalle | null,
+  shouldLinkExactly: boolean
+): NoteLineOriginLink[] {
+  if (!shouldLinkExactly || !referenceDetail) {
+    return currentItems.map(() => buildEmptyOriginLink())
+  }
+
+  return currentItems.map((currentItem) => {
+    const currentItemGroup = currentItems.filter((item) => item.itemId === currentItem.itemId)
+    const referenceMatches = referenceDetail.items.filter(
+      (item) => item.itemId === currentItem.itemId
+    )
+
+    if (referenceMatches.length === 0) {
+      return {
+        ...buildEmptyOriginLink(),
+        originMatchState: "missing",
+        originMatchLabel: "El ítem no existe en el comprobante base seleccionado.",
+      }
+    }
+
+    if (currentItemGroup.length !== 1 || referenceMatches.length !== 1) {
+      return {
+        ...buildEmptyOriginLink(),
+        originMatchState: "ambiguous",
+        originMatchLabel:
+          "Hay más de una coincidencia para este producto en el ajuste o en el comprobante base.",
+      }
+    }
+
+    return buildMatchedOriginLink(referenceMatches[0])
+  })
 }
 
 function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
@@ -317,6 +497,7 @@ interface CreditDebitNoteFormProps {
   onClose: () => void
   onSaved: () => void
   emitir: (dto: EmitirComprobanteDto) => Promise<boolean>
+  crearNotaCredito?: (dto: CreateNotaCreditoVentaDto) => Promise<boolean>
   crearNotaDebito?: (dto: CreateNotaDebitoVentaDto) => Promise<boolean>
   motivosDebito?: MotivoDebitoVenta[]
 }
@@ -336,6 +517,26 @@ function createCreditDebitFormState(
   }
 }
 
+function buildFallbackNoteDetail(note: Comprobante): ComprobanteDetalle {
+  return {
+    ...note,
+    comprobanteOrigenId: null,
+    comprobanteOrigenNumero: null,
+    comprobanteOrigenTipo: null,
+    motivoDevolucion: null,
+    motivoDevolucionDescripcion: null,
+    tipoDevolucion: null,
+    tipoDevolucionDescripcion: null,
+    autorizadorDevolucionId: null,
+    autorizadorDevolucionNombre: null,
+    fechaAutorizacionDevolucion: null,
+    observacionDevolucion: null,
+    reingresaStock: false,
+    acreditaCuentaCorriente: false,
+    items: [],
+  }
+}
+
 function CreditDebitNoteForm({
   kind,
   availableTypes,
@@ -343,6 +544,7 @@ function CreditDebitNoteForm({
   onClose,
   onSaved,
   emitir,
+  crearNotaCredito,
   crearNotaDebito,
   motivosDebito = [],
 }: CreditDebitNoteFormProps) {
@@ -367,8 +569,46 @@ function CreditDebitNoteForm({
   const [detalleOperativo, setDetalleOperativo] = useState("")
   const [deliveryChannel, setDeliveryChannel] = useState<"mail" | "manual">("manual")
   const [inheritReferenceDueDate, setInheritReferenceDueDate] = useState(kind === "debito")
+  const [selectedReferenceDetail, setSelectedReferenceDetail] = useState<ComprobanteDetalle | null>(
+    null
+  )
+  const [loadingReferenceDetail, setLoadingReferenceDetail] = useState(false)
+  const [referenceDetailError, setReferenceDetailError] = useState<string | null>(null)
   const resolvedMotivoDebitoId =
     motivoDebitoId || (motivosDebito[0] ? String(motivosDebito[0].id) : "")
+  const selectedMotivoDebito = useMemo(
+    () => motivosDebito.find((item) => String(item.id) === resolvedMotivoDebitoId) ?? null,
+    [motivosDebito, resolvedMotivoDebitoId]
+  )
+  const displayMotivo =
+    kind === "debito" && selectedMotivoDebito
+      ? `${selectedMotivoDebito.codigo} · ${selectedMotivoDebito.descripcion}`
+      : motivo
+
+  useEffect(() => {
+    setForm((prev) => {
+      const nextSucursalId = prev.sucursalId || defaultSucursalId || 0
+      const nextTipoComprobanteId =
+        prev.tipoComprobanteId && availableTypes.some((tipo) => tipo.id === prev.tipoComprobanteId)
+          ? prev.tipoComprobanteId
+          : (availableTypes[0]?.id ?? 0)
+
+      if (nextSucursalId === prev.sucursalId && nextTipoComprobanteId === prev.tipoComprobanteId) {
+        return prev
+      }
+
+      return {
+        ...prev,
+        sucursalId: nextSucursalId,
+        tipoComprobanteId: nextTipoComprobanteId,
+      }
+    })
+  }, [availableTypes, defaultSucursalId])
+
+  useEffect(() => {
+    if (kind !== "debito" || motivoDebitoId || motivosDebito.length === 0) return
+    setMotivoDebitoId(String(motivosDebito[0].id))
+  }, [kind, motivoDebitoId, motivosDebito])
 
   const selectedCustomer = useMemo(
     () => clientes.find((cliente) => cliente.id === form.terceroId) ?? null,
@@ -393,20 +633,147 @@ function CreditDebitNoteForm({
     [comprobanteReferenciaId, filteredReferenceDocuments]
   )
   const referenceDaysPastDue = getDaysPastDue(selectedReference?.fechaVto)
+  const requiresExactOriginLink = alcance === "parcial" && selectedReference !== null
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!selectedReference) {
+      setSelectedReferenceDetail(null)
+      setLoadingReferenceDetail(false)
+      setReferenceDetailError(null)
+      return
+    }
+
+    setLoadingReferenceDetail(true)
+    setReferenceDetailError(null)
+
+    apiGet<ComprobanteDetalle>(`/api/comprobantes/${selectedReference.id}`)
+      .then((detail) => {
+        if (cancelled) return
+        setSelectedReferenceDetail(detail)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setSelectedReferenceDetail(null)
+        setReferenceDetailError(
+          "No se pudo cargar el detalle del comprobante base para vincular los renglones con exactitud."
+        )
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingReferenceDetail(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedReference])
+
+  const lineLinkSignature = useMemo(
+    () => lineItems.map((item) => `${item.id}:${item.itemId}`).join("|"),
+    [lineItems]
+  )
+
+  useEffect(() => {
+    setLineItems((prev) => {
+      const nextLinks = reconcileOriginLinks(prev, selectedReferenceDetail, requiresExactOriginLink)
+      let changed = false
+
+      const next = prev.map((item, index) => {
+        const nextLink = nextLinks[index]
+        if (
+          item.comprobanteItemOrigenId === nextLink.comprobanteItemOrigenId &&
+          item.cantidadDocumentoOrigen === nextLink.cantidadDocumentoOrigen &&
+          item.precioDocumentoOrigen === nextLink.precioDocumentoOrigen &&
+          item.originMatchState === nextLink.originMatchState &&
+          item.originMatchLabel === nextLink.originMatchLabel
+        ) {
+          return item
+        }
+
+        changed = true
+        return {
+          ...item,
+          ...nextLink,
+        }
+      })
+
+      return changed ? next : prev
+    })
+  }, [lineLinkSignature, requiresExactOriginLink, selectedReferenceDetail])
+
+  const totals = useMemo(() => {
+    return lineItems.reduce(
+      (acc, item) => {
+        const subtotal = item.cantidad * item.precioUnitario * (1 - item.descuento / 100)
+        const iva = subtotal * (item.alicuotaIvaPct / 100)
+        return {
+          subtotal: acc.subtotal + subtotal,
+          iva: acc.iva + iva,
+          total: acc.total + subtotal + iva,
+        }
+      },
+      { subtotal: 0, iva: 0, total: 0 }
+    )
+  }, [lineItems])
+
+  const originLinkStats = useMemo(
+    () =>
+      lineItems.reduce(
+        (acc, item) => {
+          acc[item.originMatchState] += 1
+          return acc
+        },
+        {
+          none: 0,
+          linked: 0,
+          ambiguous: 0,
+          missing: 0,
+        } as Record<NoteFormItem["originMatchState"], number>
+      ),
+    [lineItems]
+  )
 
   const formWarnings = useMemo(() => {
     const warnings: string[] = []
+    const requiresOriginDocument =
+      kind === "debito" && selectedMotivoDebito?.requiereDocumentoOrigen
 
     if (!form.terceroId) warnings.push("Falta seleccionar el cliente de la nota.")
     if (!form.sucursalId) warnings.push("Falta seleccionar la sucursal emisora.")
     if (lineItems.length === 0) warnings.push("Agregá al menos un renglón antes de emitir.")
-    if (alcance === "parcial" && !selectedReference) {
+    if (requiresOriginDocument && !selectedReference) {
+      warnings.push("El motivo de débito seleccionado requiere comprobante origen.")
+    } else if (alcance === "parcial" && !selectedReference) {
       warnings.push("Para un ajuste parcial conviene vincular un comprobante de referencia.")
     }
     if (!detalleOperativo.trim()) {
       warnings.push(
         "Conviene describir el motivo operativo para facilitar auditoría y seguimiento."
       )
+    }
+    if (kind === "debito" && totals.total <= 0) {
+      warnings.push("El importe a debitar debe ser mayor a 0 antes de emitir.")
+    }
+    if (requiresExactOriginLink && loadingReferenceDetail) {
+      warnings.push(
+        "Se está validando el comprobante base para vincular exactamente los renglones."
+      )
+    }
+    if (requiresExactOriginLink && referenceDetailError) {
+      warnings.push(referenceDetailError)
+    }
+    if (requiresExactOriginLink && !loadingReferenceDetail && !referenceDetailError) {
+      if (originLinkStats.ambiguous > 0) {
+        warnings.push(
+          "Hay renglones con coincidencias múltiples en el comprobante base; resolvé un producto inequívoco para aplicar el ajuste parcial."
+        )
+      }
+      if (originLinkStats.missing > 0) {
+        warnings.push(
+          "Hay renglones del ajuste parcial que no existen en el comprobante base seleccionado."
+        )
+      }
     }
     if (kind === "debito" && !motivoDebitoId && motivosDebito.length > 0) {
       warnings.push("Seleccioná el motivo de débito informado por backend.")
@@ -433,10 +800,17 @@ function CreditDebitNoteForm({
     inheritReferenceDueDate,
     kind,
     lineItems.length,
+    loadingReferenceDetail,
     motivoDebitoId,
     motivosDebito.length,
+    originLinkStats.ambiguous,
+    originLinkStats.missing,
+    referenceDetailError,
+    requiresExactOriginLink,
+    selectedMotivoDebito?.requiereDocumentoOrigen,
     selectedCustomer?.email,
     selectedReference,
+    totals.total,
   ])
 
   const debitMotiveOptions = useMemo(() => {
@@ -472,6 +846,11 @@ function CreditDebitNoteForm({
         descuento: 0,
         alicuotaIvaId: item.alicuotaIvaId,
         alicuotaIvaPct: item.alicuotaIvaPorcentaje ?? 21,
+        comprobanteItemOrigenId: null,
+        cantidadDocumentoOrigen: null,
+        precioDocumentoOrigen: null,
+        originMatchState: "none",
+        originMatchLabel: null,
       },
     ])
   }
@@ -484,21 +863,6 @@ function CreditDebitNoteForm({
     setLineItems((prev) => prev.filter((item) => item.id !== id))
   }
 
-  const totals = useMemo(() => {
-    return lineItems.reduce(
-      (acc, item) => {
-        const subtotal = item.cantidad * item.precioUnitario * (1 - item.descuento / 100)
-        const iva = subtotal * (item.alicuotaIvaPct / 100)
-        return {
-          subtotal: acc.subtotal + subtotal,
-          iva: acc.iva + iva,
-          total: acc.total + subtotal + iva,
-        }
-      },
-      { subtotal: 0, iva: 0, total: 0 }
-    )
-  }, [lineItems])
-
   const handleSave = async () => {
     if (!form.sucursalId || !form.terceroId || !form.tipoComprobanteId || lineItems.length === 0) {
       setError("Sucursal, cliente, tipo de nota e ítems son obligatorios")
@@ -508,9 +872,31 @@ function CreditDebitNoteForm({
       setError("No hay un motivo de débito válido seleccionado")
       return
     }
+    if (kind === "debito" && selectedMotivoDebito?.requiereDocumentoOrigen && !selectedReference) {
+      setError("El motivo de débito seleccionado requiere comprobante origen.")
+      return
+    }
+    if (requiresExactOriginLink && loadingReferenceDetail) {
+      setError("Todavía se está cargando el detalle del comprobante base.")
+      return
+    }
+    if (requiresExactOriginLink && referenceDetailError) {
+      setError(referenceDetailError)
+      return
+    }
+    if (requiresExactOriginLink && lineItems.some((item) => item.originMatchState !== "linked")) {
+      setError(
+        "Cada renglón del ajuste parcial debe vincularse con un renglón del comprobante base."
+      )
+      return
+    }
+    if (kind === "debito" && totals.total <= 0) {
+      setError("El importe a debitar debe ser mayor a 0.")
+      return
+    }
 
     const observationParts = [
-      `Motivo: ${motivo}`,
+      `Motivo: ${displayMotivo}`,
       `Alcance: ${alcance}`,
       selectedReference
         ? `Comprobante referencia: ${selectedReference.nroComprobante ?? `#${selectedReference.id}`}`
@@ -553,14 +939,14 @@ function CreditDebitNoteForm({
       observacionRenglon: null,
       precioListaOriginal: item.precioUnitario,
       comisionVendedorRenglon: null,
-      comprobanteItemOrigenId: null,
-      cantidadDocumentoOrigen: null,
-      precioDocumentoOrigen: null,
+      comprobanteItemOrigenId: item.comprobanteItemOrigenId,
+      cantidadDocumentoOrigen: item.cantidadDocumentoOrigen,
+      precioDocumentoOrigen: item.precioDocumentoOrigen,
     }))
 
     const ok =
-      kind === "debito" && crearNotaDebito
-        ? await crearNotaDebito({
+      kind === "credito" && crearNotaCredito
+        ? await crearNotaCredito({
             sucursalId: form.sucursalId,
             puntoFacturacionId: null,
             tipoComprobanteId: form.tipoComprobanteId,
@@ -572,29 +958,49 @@ function CreditDebitNoteForm({
             percepciones: 0,
             observacion: normalizedObservation,
             comprobanteOrigenId: selectedReference?.id ?? null,
-            motivoDebitoId: Number(resolvedMotivoDebitoId || 0),
-            motivoDebitoObservacion: detalleOperativo.trim() || null,
             items: normalizedItems,
-            listaPreciosId: null,
-            vendedorId: selectedCustomer?.vendedorId ?? null,
-            canalVentaId: null,
-            condicionPagoId: null,
-            plazoDias: null,
-            emitir: true,
+            reingresaStock: false,
+            acreditaCuentaCorriente: true,
+            motivoDevolucion: mapCreditMotiveToDevolucion(motivo),
+            observacionDevolucion: detalleOperativo.trim() || null,
+            autorizadorDevolucionId: null,
           })
-        : await emitir({
-            ...form,
-            items: lineItems.map((item) => ({
-              itemId: item.itemId,
-              descripcion: item.descripcion,
-              cantidad: item.cantidad,
-              precioUnitario: item.precioUnitario,
-              descuento: item.descuento,
-              alicuotaIvaId: item.alicuotaIvaId,
-            })),
-            observacion: normalizedObservation,
-            fechaVto: form.fechaVto || null,
-          })
+        : kind === "debito" && crearNotaDebito
+          ? await crearNotaDebito({
+              sucursalId: form.sucursalId,
+              puntoFacturacionId: null,
+              tipoComprobanteId: form.tipoComprobanteId,
+              fecha: form.fecha,
+              fechaVencimiento: form.fechaVto || null,
+              terceroId: form.terceroId,
+              monedaId: selectedCustomer?.monedaId ?? 1,
+              cotizacion: 1,
+              percepciones: 0,
+              observacion: normalizedObservation,
+              comprobanteOrigenId: selectedReference?.id ?? null,
+              motivoDebitoId: Number(resolvedMotivoDebitoId || 0),
+              motivoDebitoObservacion: detalleOperativo.trim() || null,
+              items: normalizedItems,
+              listaPreciosId: null,
+              vendedorId: selectedCustomer?.vendedorId ?? null,
+              canalVentaId: null,
+              condicionPagoId: null,
+              plazoDias: null,
+              emitir: true,
+            })
+          : await emitir({
+              ...form,
+              items: lineItems.map((item) => ({
+                itemId: item.itemId,
+                descripcion: item.descripcion,
+                cantidad: item.cantidad,
+                precioUnitario: item.precioUnitario,
+                descuento: item.descuento,
+                alicuotaIvaId: item.alicuotaIvaId,
+              })),
+              observacion: normalizedObservation,
+              fechaVto: form.fechaVto || null,
+            })
 
     setSaving(false)
 
@@ -997,7 +1403,7 @@ function CreditDebitNoteForm({
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                     Motivo
                   </p>
-                  <p className="mt-1 font-medium capitalize">{motivo}</p>
+                  <p className="mt-1 font-medium wrap-break-word">{displayMotivo}</p>
                 </div>
               </CardContent>
             </Card>
@@ -1067,6 +1473,30 @@ function CreditDebitNoteForm({
         </TabsContent>
 
         <TabsContent value="items" className="mt-4 space-y-4">
+          {requiresExactOriginLink ? (
+            <Alert
+              className={
+                loadingReferenceDetail
+                  ? "border-sky-200 bg-sky-50/70"
+                  : referenceDetailError ||
+                      originLinkStats.ambiguous > 0 ||
+                      originLinkStats.missing > 0
+                    ? "border-amber-200 bg-amber-50/70"
+                    : "border-emerald-200 bg-emerald-50/70"
+              }
+            >
+              <AlertDescription>
+                {loadingReferenceDetail
+                  ? "Validando el comprobante base para vincular cada renglón del ajuste parcial."
+                  : referenceDetailError
+                    ? referenceDetailError
+                    : originLinkStats.ambiguous > 0 || originLinkStats.missing > 0
+                      ? "El ajuste parcial sólo se emite cuando todos los renglones quedan vinculados exactamente con el comprobante base."
+                      : `${originLinkStats.linked} renglón(es) quedaron vinculados con ${selectedReference?.nroComprobante ?? "el comprobante base"}.`}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <div className="space-y-1.5">
             <Label>Agregar concepto</Label>
             <Select value="__none__" onValueChange={addItem}>
@@ -1093,13 +1523,17 @@ function CreditDebitNoteForm({
                   <TableHead className="text-right">Precio</TableHead>
                   <TableHead className="text-right">Desc. %</TableHead>
                   <TableHead className="text-right">IVA %</TableHead>
+                  {requiresExactOriginLink ? <TableHead>Vínculo base</TableHead> : null}
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {lineItems.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={requiresExactOriginLink ? 7 : 6}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       {kindConfig.emptyItemsLabel}
                     </TableCell>
                   </TableRow>
@@ -1158,6 +1592,52 @@ function CreditDebitNoteForm({
                       <TableCell className="text-right">
                         {item.alicuotaIvaPct.toFixed(2)}%
                       </TableCell>
+                      {requiresExactOriginLink ? (
+                        <TableCell className="max-w-60 align-top text-xs">
+                          {loadingReferenceDetail ? (
+                            <span className="text-muted-foreground">
+                              Validando comprobante base...
+                            </span>
+                          ) : item.originMatchState === "linked" ? (
+                            <div className="space-y-1">
+                              <Badge
+                                variant="outline"
+                                className="border-emerald-200 text-emerald-700"
+                              >
+                                Vínculo exacto
+                              </Badge>
+                              <p className="text-muted-foreground wrap-break-word">
+                                {item.originMatchLabel}
+                              </p>
+                            </div>
+                          ) : item.originMatchState === "ambiguous" ? (
+                            <div className="space-y-1">
+                              <Badge variant="outline" className="border-amber-200 text-amber-700">
+                                Coincidencia múltiple
+                              </Badge>
+                              <p className="text-muted-foreground wrap-break-word">
+                                {item.originMatchLabel}
+                              </p>
+                            </div>
+                          ) : item.originMatchState === "missing" ? (
+                            <div className="space-y-1">
+                              <Badge
+                                variant="outline"
+                                className="border-destructive/30 text-destructive"
+                              >
+                                Sin vínculo
+                              </Badge>
+                              <p className="text-muted-foreground wrap-break-word">
+                                {item.originMatchLabel}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              Seleccioná un comprobante base para validar el renglón.
+                            </span>
+                          )}
+                        </TableCell>
+                      ) : null}
                       <TableCell className="text-right">
                         <Button variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}>
                           <Ban className="h-4 w-4 text-destructive" />
@@ -1246,7 +1726,7 @@ function NoteDetail({
     { label: "Sucursal", value: sucursalName },
     { label: "Fecha", value: formatDate(note.fecha) },
     { label: "Vencimiento", value: formatDate(note.fechaVto) },
-    { label: "Estado", value: STATUS_CONFIG[note.estado]?.label ?? note.estado },
+    { label: "Estado", value: getStatusConfig(kind, note.estado).label },
     { label: "Observación", value: note.observacion ?? "-" },
   ]
 
@@ -1260,8 +1740,10 @@ function NoteDetail({
   ]
 
   const circuitFields = [
-    { label: "Estado documental", value: getNoteDocumentStatus(note) },
+    { label: "Estado documental", value: getNoteDocumentStatus(note, kind) },
     { label: kindConfig.applicationLabel, value: getApplicationStatus(note, kind) },
+    { label: "Cuenta corriente", value: getCuentaCorrienteMovimiento(note) },
+    { label: "Saldo consolidado", value: getCuentaCorrienteSaldo(note) },
     { label: "Motivo", value: operationalContext.motivo },
     { label: "Alcance", value: operationalContext.alcance },
     { label: "Referencia", value: operationalContext.referencia },
@@ -1301,6 +1783,12 @@ function NoteDetail({
     },
     { label: "Facturable", value: customer ? (customer.facturable ? "Sí" : "No") : "-" },
   ]
+  const showsOriginLineData = note.items.some(
+    (item) =>
+      item.comprobanteItemOrigenId ||
+      item.cantidadDocumentoOrigen !== null ||
+      item.precioDocumentoOrigen !== null
+  )
 
   return (
     <Tabs defaultValue="principal" className="w-full">
@@ -1344,12 +1832,16 @@ function NoteDetail({
               <TableHead className="text-right">Descuento</TableHead>
               <TableHead className="text-right">IVA</TableHead>
               <TableHead className="text-right">Subtotal</TableHead>
+              {showsOriginLineData ? <TableHead>Renglón base</TableHead> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
             {note.items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={showsOriginLineData ? 7 : 6}
+                  className="py-8 text-center text-muted-foreground"
+                >
                   Este documento no devolvió detalle de ítems.
                 </TableCell>
               </TableRow>
@@ -1366,6 +1858,25 @@ function NoteDetail({
                   <TableCell className="text-right font-semibold">
                     {formatMoney(item.subtotal)}
                   </TableCell>
+                  {showsOriginLineData ? (
+                    <TableCell className="text-sm text-muted-foreground">
+                      {item.comprobanteItemOrigenId ? (
+                        <div className="space-y-1">
+                          <Badge variant="outline" className="border-emerald-200 text-emerald-700">
+                            #{item.comprobanteItemOrigenId}
+                          </Badge>
+                          <p className="wrap-break-word">
+                            {item.cantidadDocumentoOrigen ?? "-"} x{" "}
+                            {typeof item.precioDocumentoOrigen === "number"
+                              ? formatMoney(item.precioDocumentoOrigen)
+                              : "-"}
+                          </p>
+                        </div>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))
             )}
@@ -1409,13 +1920,14 @@ function NoteDetail({
           </CardHeader>
           <CardContent className="grid gap-4 text-sm text-muted-foreground md:grid-cols-2">
             <div className="rounded-lg border p-4">
-              Esta etapa ya deja visible motivo, alcance, referencia operativa y saldo; la
-              autorización formal, la relación exacta con factura original y el control por renglón
-              siguen reservados.
+              {kind === "debito"
+                ? "Esta etapa ya deja visible motivo, alcance, referencia operativa y saldo; además registra el vínculo exacto por renglón cuando el ajuste parcial parte de un comprobante base."
+                : "Esta etapa ya deja visible motivo, alcance, referencia operativa, aplicación contra comprobante origen y vínculo exacto por renglón cuando el ajuste parcial parte de un comprobante base; la autorización formal queda reservada."}
             </div>
             <div className="rounded-lg border p-4">
-              Ajustes fiscales, motivo AFIP y reimpresión documental específica de notas quedan
-              reservados para la integración siguiente.
+              {kind === "debito"
+                ? "La aplicación automática sobre saldo origen, los ajustes fiscales y el motivo AFIP específico siguen reservados para la integración siguiente."
+                : "Ajustes fiscales, motivo AFIP y reimpresión documental específica de notas quedan reservados para la integración siguiente."}
             </div>
           </CardContent>
         </Card>
@@ -1427,21 +1939,11 @@ function NoteDetail({
 export function VentasNotasPage({
   defaultKind = "credito",
   pageTitle = "Notas de Crédito / Débito",
-  pageDescription = "Ajustes documentales sobre ventas con emisión real, detalle completo y preparación para la vinculación formal contra comprobantes origen.",
+  pageDescription = "Ajustes documentales sobre ventas con emisión real, detalle completo y vinculación formal contra comprobantes origen.",
 }: VentasNotasPageProps) {
-  const {
-    comprobantes,
-    loading,
-    error,
-    totalPages,
-    page,
-    setPage,
-    emitir,
-    anular,
-    getById,
-    refetch,
-  } = useComprobantes({ esVenta: true })
-  const { crearNotaDebito, error: ventasError } = useVentasDocumentos()
+  const { comprobantes, loading, error, totalPages, page, setPage, emitir, anular, refetch } =
+    useComprobantes({ esVenta: true })
+  const { crearNotaCredito, crearNotaDebito, error: ventasError } = useVentasDocumentos()
   const { motivos: motivosDebito } = useMotivosDebito()
   const { tipos } = useComprobantesConfig()
   const { terceros: clientes } = useTerceros()
@@ -1454,6 +1956,32 @@ export function VentasNotasPage({
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null)
   const [detailNote, setDetailNote] = useState<ComprobanteDetalle | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [detailLoadError, setDetailLoadError] = useState<string | null>(null)
+  const detailRequestIdRef = useRef(0)
+
+  const updateActiveKind = useCallback(
+    (kind: NoteKind) => {
+      setPage(1)
+      setActiveKind(kind)
+    },
+    [setPage]
+  )
+
+  const updateSearchTerm = useCallback(
+    (value: string) => {
+      setPage(1)
+      setSearchTerm(value)
+    },
+    [setPage]
+  )
+
+  const updateStatusFilter = useCallback(
+    (value: string) => {
+      setPage(1)
+      setStatusFilter(value)
+    },
+    [setPage]
+  )
 
   const creditTypes = useMemo(
     () => tipos.filter((tipo) => tipo.esVenta && isCreditType(tipo)),
@@ -1467,6 +1995,8 @@ export function VentasNotasPage({
     () => new Set([...creditTypes, ...debitTypes].map((tipo) => tipo.id)),
     [creditTypes, debitTypes]
   )
+  const creditTypeIds = useMemo(() => new Set(creditTypes.map((tipo) => tipo.id)), [creditTypes])
+  const debitTypeIds = useMemo(() => new Set(debitTypes.map((tipo) => tipo.id)), [debitTypes])
   const notes = useMemo(
     () => comprobantes.filter((item) => noteTypeIds.has(item.tipoComprobanteId)),
     [comprobantes, noteTypeIds]
@@ -1501,6 +2031,7 @@ export function VentasNotasPage({
       return matchesSearch && matchesStatus
     })
   }, [visibleNotes, searchTerm, statusFilter, clientes, tipos])
+  const hasActiveFilters = searchTerm.trim() !== "" || statusFilter !== "todos"
 
   const kpis = useMemo(
     () => ({
@@ -1521,13 +2052,12 @@ export function VentasNotasPage({
   const activeConfig = getKindConfig(activeKind)
   const activeStats = useMemo(
     () => ({
-      total: visibleNotes.length,
-      emitted: visibleNotes.filter((item) => item.estado === "EMITIDO").length,
-      draft: visibleNotes.filter((item) => item.estado === "BORRADOR").length,
-      withBalance: visibleNotes.filter((item) => item.saldo > 0 && item.estado !== "ANULADO")
-        .length,
+      total: filtered.length,
+      emitted: filtered.filter((item) => isIssuedActiveStatus(item.estado)).length,
+      draft: filtered.filter((item) => item.estado === "BORRADOR").length,
+      withBalance: filtered.filter((item) => hasIssuedVisibleBalance(item)).length,
     }),
-    [visibleNotes]
+    [filtered]
   )
 
   const getCustomerName = useCallback(
@@ -1550,13 +2080,31 @@ export function VentasNotasPage({
     [sucursales]
   )
 
+  const loadDetail = useCallback(async (note: Comprobante) => {
+    const requestId = detailRequestIdRef.current + 1
+    detailRequestIdRef.current = requestId
+    setLoadingDetail(true)
+    setDetailLoadError(null)
+    try {
+      const detail = await apiGet<ComprobanteDetalle>(`/api/comprobantes/${note.id}`)
+      if (detailRequestIdRef.current !== requestId) return
+      setDetailNote(detail)
+    } catch (e) {
+      if (detailRequestIdRef.current !== requestId) return
+      setDetailLoadError(
+        e instanceof Error ? e.message : "No se pudo cargar el detalle completo del documento."
+      )
+      setDetailNote(buildFallbackNoteDetail(note))
+    } finally {
+      if (detailRequestIdRef.current !== requestId) return
+      setLoadingDetail(false)
+    }
+  }, [])
+
   const openDetail = async (note: Comprobante) => {
     setSelectedNoteId(note.id)
     setIsDetailOpen(true)
-    setLoadingDetail(true)
-    const detail = await getById(note.id)
-    setDetailNote(detail)
-    setLoadingDetail(false)
+    await loadDetail(note)
   }
 
   const handleSaved = async () => {
@@ -1569,8 +2117,11 @@ export function VentasNotasPage({
     await anular(note.id, true)
     await refetch()
     if (selectedNoteId === note.id) {
-      const detail = await getById(note.id)
-      setDetailNote(detail)
+      await loadDetail({
+        ...note,
+        estado: "ANULADO",
+        saldo: 0,
+      })
     }
   }
 
@@ -1578,6 +2129,13 @@ export function VentasNotasPage({
     () => comprobantes.find((note) => note.id === selectedNoteId) ?? null,
     [comprobantes, selectedNoteId]
   )
+  const detailContextNote = detailNote ?? selectedNote
+  const detailKind = useMemo(() => {
+    if (!detailContextNote) return activeKind
+    if (debitTypeIds.has(detailContextNote.tipoComprobanteId)) return "debito"
+    if (creditTypeIds.has(detailContextNote.tipoComprobanteId)) return "credito"
+    return inferNoteKindFromTypeLabel(detailContextNote.tipoComprobanteDescripcion) ?? activeKind
+  }, [activeKind, creditTypeIds, debitTypeIds, detailContextNote])
 
   const highlightedNote =
     selectedNote && filtered.some((note) => note.id === selectedNote.id)
@@ -1612,6 +2170,17 @@ export function VentasNotasPage({
         },
       ]
     : []
+  const visibleBalanceSummary = `${activeStats.withBalance} ${getCountLabel(activeStats.withBalance, activeConfig.singular, activeConfig.plural)} ${getPreserveVerb(activeStats.withBalance)} ${getBalanceSummaryLabel(activeKind, activeStats.withBalance)} visible en pantalla.`
+  const documentarySummary = hasActiveFilters
+    ? `${activeStats.total} ${getCountLabel(activeStats.total, activeConfig.singular, activeConfig.plural)} visibles con los filtros actuales.`
+    : `${activeStats.total} ${getCountLabel(activeStats.total, activeConfig.singular, activeConfig.plural)} ${getDetectionVerb(activeStats.total)} en el motor documental actual con tipos reales expuestos por backend para el circuito activo.`
+  const operationalSummary = hasActiveFilters
+    ? activeKind === "debito"
+      ? `Con los filtros actuales, ${visibleBalanceSummary} Motivo, alcance, referencia, vínculo exacto por renglón e impacto en cuenta corriente siguen visibles para los documentos listados.`
+      : `Con los filtros actuales, ${visibleBalanceSummary} Motivo, alcance y referencia siguen visibles para los documentos listados.`
+    : activeKind === "debito"
+      ? `Motivo, alcance, referencia, vínculo exacto por renglón e impacto en cuenta corriente ya quedan visibles en el circuito operativo; ${visibleBalanceSummary}`
+      : `Motivo, alcance y referencia ya se leen desde la observación operativa; ${visibleBalanceSummary}`
 
   return (
     <div className="space-y-6 pb-6">
@@ -1625,7 +2194,7 @@ export function VentasNotasPage({
             variant="outline"
             className="bg-transparent"
             onClick={() => {
-              setActiveKind("debito")
+              updateActiveKind("debito")
               setIsFormOpen(true)
             }}
             disabled={debitTypes.length === 0}
@@ -1635,7 +2204,7 @@ export function VentasNotasPage({
           </Button>
           <Button
             onClick={() => {
-              setActiveKind("credito")
+              updateActiveKind("credito")
               setIsFormOpen(true)
             }}
             disabled={creditTypes.length === 0}
@@ -1674,7 +2243,7 @@ export function VentasNotasPage({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Emitidas</CardTitle>
+            <CardTitle className="text-sm font-medium">Emitidas activas</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-600">{activeStats.emitted}</div>
@@ -1723,14 +2292,14 @@ export function VentasNotasPage({
             <div className="flex flex-wrap gap-2">
               <Badge
                 variant={
-                  (STATUS_CONFIG[highlightedNote.estado]?.variant ?? "outline") as
+                  getStatusConfig(activeKind, highlightedNote.estado).variant as
                     | "default"
                     | "secondary"
                     | "outline"
                     | "destructive"
                 }
               >
-                {STATUS_CONFIG[highlightedNote.estado]?.label ?? highlightedNote.estado}
+                {getStatusConfig(activeKind, highlightedNote.estado).label}
               </Badge>
               <Badge variant="outline">{highlightedContext?.motivo ?? "Sin motivo"}</Badge>
             </div>
@@ -1753,10 +2322,10 @@ export function VentasNotasPage({
                 className="pl-10"
                 placeholder="Buscar por comprobante, cliente o tipo..."
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
+                onChange={(event) => updateSearchTerm(event.target.value)}
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={updateStatusFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
@@ -1764,8 +2333,12 @@ export function VentasNotasPage({
                 <SelectItem value="todos">Todos</SelectItem>
                 <SelectItem value="BORRADOR">Borrador</SelectItem>
                 <SelectItem value="EMITIDO">Emitido</SelectItem>
-                <SelectItem value="PAGADO">Aplicado</SelectItem>
-                <SelectItem value="PAGADO_PARCIAL">Aplicación parcial</SelectItem>
+                <SelectItem value="PAGADO">
+                  {getStatusConfig(activeKind, "PAGADO").label}
+                </SelectItem>
+                <SelectItem value="PAGADO_PARCIAL">
+                  {getStatusConfig(activeKind, "PAGADO_PARCIAL").label}
+                </SelectItem>
                 <SelectItem value="ANULADO">Anulado</SelectItem>
               </SelectContent>
             </Select>
@@ -1777,7 +2350,10 @@ export function VentasNotasPage({
         </CardContent>
       </Card>
 
-      <Tabs value={activeKind} onValueChange={(value: string) => setActiveKind(value as NoteKind)}>
+      <Tabs
+        value={activeKind}
+        onValueChange={(value: string) => updateActiveKind(value as NoteKind)}
+      >
         <SalesTabsList>
           <TabsTrigger value="credito">Notas de Crédito ({kpis.creditos})</TabsTrigger>
           <TabsTrigger value="debito">Notas de Débito ({kpis.debitos})</TabsTrigger>
@@ -1795,6 +2371,7 @@ export function VentasNotasPage({
             </CardHeader>
             <CardContent className="p-0">
               <NoteTable
+                kind="credito"
                 notes={activeKind === "credito" ? filtered : []}
                 loading={loading}
                 onOpen={openDetail}
@@ -1821,6 +2398,7 @@ export function VentasNotasPage({
             </CardHeader>
             <CardContent className="p-0">
               <NoteTable
+                kind="debito"
                 notes={activeKind === "debito" ? filtered : []}
                 loading={loading}
                 onOpen={openDetail}
@@ -1870,10 +2448,7 @@ export function VentasNotasPage({
               <ReceiptText className="h-4 w-4" /> Emisión documental
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {activeStats.total} {activeConfig.plural} detectadas en el motor documental actual con
-            tipos reales expuestos por backend para el circuito activo.
-          </CardContent>
+          <CardContent className="text-sm text-muted-foreground">{documentarySummary}</CardContent>
         </Card>
         <Card>
           <CardHeader>
@@ -1881,11 +2456,7 @@ export function VentasNotasPage({
               <FileText className="h-4 w-4" /> Contexto operativo
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Motivo, alcance y referencia ya se leen desde la observación operativa;{" "}
-            {activeStats.withBalance} {activeConfig.plural} conservan{" "}
-            {activeConfig.balanceLabel.toLowerCase()} visible en pantalla.
-          </CardContent>
+          <CardContent className="text-sm text-muted-foreground">{operationalSummary}</CardContent>
         </Card>
         <Card>
           <CardHeader>
@@ -1894,9 +2465,9 @@ export function VentasNotasPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            La emisión ya separa crédito y débito con identidad propia; sigue pendiente la
-            aplicación exacta contra factura origen, imputación por renglón y motivo fiscal
-            específico.
+            {activeKind === "debito"
+              ? "La emisión ya separa crédito y débito con identidad propia y registra el vínculo exacto por renglón cuando el ajuste parcial nace desde un comprobante base. Siguen pendientes la aplicación automática sobre saldo origen y el motivo fiscal específico."
+              : "La emisión ya separa crédito y débito con identidad propia, registra el vínculo exacto por renglón cuando el ajuste parcial nace desde un comprobante base y aplica automáticamente contra saldo origen cuando corresponde. Siguen pendientes el motivo fiscal específico, los ajustes fiscales complementarios y la reimpresión documental específica."}
           </CardContent>
         </Card>
       </div>
@@ -1920,6 +2491,7 @@ export function VentasNotasPage({
             onClose={() => setIsFormOpen(false)}
             onSaved={handleSaved}
             emitir={emitir}
+            crearNotaCredito={crearNotaCredito}
             crearNotaDebito={crearNotaDebito}
             motivosDebito={motivosDebito}
           />
@@ -1931,8 +2503,11 @@ export function VentasNotasPage({
         onOpenChange={(open: boolean) => {
           setIsDetailOpen(open)
           if (!open) {
+            detailRequestIdRef.current += 1
             setSelectedNoteId(null)
             setDetailNote(null)
+            setDetailLoadError(null)
+            setLoadingDetail(false)
           }
         }}
       >
@@ -1940,10 +2515,10 @@ export function VentasNotasPage({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
-              {selectedNote?.nroComprobante ?? "Detalle del documento"}
+              {detailContextNote?.nroComprobante ?? "Detalle del documento"}
             </DialogTitle>
             <DialogDescription>
-              {selectedNote ? getCustomerName(selectedNote.terceroId) : "Cargando..."}
+              {detailContextNote ? getCustomerName(detailContextNote.terceroId) : "Cargando..."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1952,18 +2527,30 @@ export function VentasNotasPage({
               <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
               Cargando detalle...
             </div>
-          ) : detailNote && selectedNote ? (
-            <NoteDetail
-              note={detailNote}
-              kind={activeKind}
-              customerName={getCustomerName(selectedNote.terceroId)}
-              customer={getCustomer(selectedNote.terceroId)}
-              typeName={getTypeName(
-                selectedNote.tipoComprobanteId,
-                selectedNote.tipoComprobanteDescripcion
-              )}
-              sucursalName={getSucursalName(selectedNote.sucursalId)}
-            />
+          ) : detailNote && detailContextNote ? (
+            <div className="space-y-4">
+              {detailLoadError ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    No se pudo cargar el detalle completo desde backend. Se muestra una ficha
+                    resumida con la cabecera disponible mientras persiste ese fallo.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+
+              <NoteDetail
+                note={detailNote}
+                kind={detailKind}
+                customerName={getCustomerName(detailContextNote.terceroId)}
+                customer={getCustomer(detailContextNote.terceroId)}
+                typeName={getTypeName(
+                  detailContextNote.tipoComprobanteId,
+                  detailContextNote.tipoComprobanteDescripcion
+                )}
+                sucursalName={getSucursalName(detailContextNote.sucursalId)}
+              />
+            </div>
           ) : (
             <p className="py-8 text-center text-muted-foreground">
               No se pudo cargar el detalle del documento.
@@ -1978,8 +2565,8 @@ export function VentasNotasPage({
             >
               Cerrar
             </Button>
-            {selectedNote && selectedNote.estado !== "ANULADO" && (
-              <Button variant="destructive" onClick={() => handleAnnul(selectedNote)}>
+            {detailContextNote && detailContextNote.estado !== "ANULADO" && (
+              <Button variant="destructive" onClick={() => handleAnnul(detailContextNote)}>
                 <Ban className="mr-2 h-4 w-4" />
                 Anular
               </Button>
@@ -2002,6 +2589,7 @@ export default function NotasCreditoPage() {
 }
 
 function NoteTable({
+  kind,
   notes,
   loading,
   onOpen,
@@ -2011,6 +2599,7 @@ function NoteTable({
   getTypeName,
   getApplicationStatus,
 }: {
+  kind: NoteKind
   notes: Comprobante[]
   loading: boolean
   onOpen: (note: Comprobante) => void
@@ -2051,10 +2640,7 @@ function NoteTable({
             </TableRow>
           ) : (
             notes.map((note) => {
-              const status = STATUS_CONFIG[note.estado] ?? {
-                label: note.estado,
-                variant: "outline" as const,
-              }
+              const status = getStatusConfig(kind, note.estado)
 
               return (
                 <TableRow

@@ -19,7 +19,7 @@ import { useConteosStock } from "@/lib/hooks/useConteosStock"
 import { useDepositos } from "@/lib/hooks/useDepositos"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
 import { useRegiones } from "@/lib/hooks/useRegiones"
-import { useStockMovimientos, useStockResumen } from "@/lib/hooks/useStock"
+import { useStockResumen } from "@/lib/hooks/useStock"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 import { useZonas } from "@/lib/hooks/useZonas"
 import { isOrdenCompraRecepcionAbierta, isOrdenCompraRecepcionParcial } from "@/lib/utils"
@@ -29,18 +29,25 @@ export default function ReportesAlmacenesPage() {
   const { depositos } = useDepositos(sucursalId)
   const { ordenes } = useOrdenesCompra()
   const { bajoMinimo, resumen, loading: stockLoading } = useStockResumen(sucursalId)
-  const { movimientos, loading: movimientosLoading } = useStockMovimientos()
   const { conteos, loading: conteosLoading } = useConteosStock()
   const { zonas, loading: zonasLoading } = useZonas("all")
   const { regiones, loading: regionesLoading } = useRegiones()
 
   const movementByDeposit = useMemo(() => {
+    if (resumen?.movimientosPorDeposito?.length) {
+      return resumen.movimientosPorDeposito.map((deposito) => ({
+        deposito: deposito.descripcion,
+        movimientos: deposito.movimientos,
+        alertas: deposito.alertasBajoMinimo,
+      }))
+    }
+
     return depositos.map((deposito) => ({
       deposito: deposito.descripcion,
-      movimientos: movimientos.filter((row) => row.depositoId === deposito.id).length,
+      movimientos: 0,
       alertas: bajoMinimo.filter((row) => row.depositoId === deposito.id).length,
     }))
-  }, [bajoMinimo, depositos, movimientos])
+  }, [bajoMinimo, depositos, resumen])
 
   const conteosByEstado = useMemo(
     () => [
@@ -76,8 +83,7 @@ export default function ReportesAlmacenesPage() {
     [recepcionesAbiertas]
   )
 
-  const loading =
-    stockLoading || movimientosLoading || conteosLoading || zonasLoading || regionesLoading
+  const loading = stockLoading || conteosLoading || zonasLoading || regionesLoading
 
   return (
     <div className="space-y-6">
@@ -123,7 +129,7 @@ export default function ReportesAlmacenesPage() {
               <div className="rounded-xl border border-sky-200 bg-white/80 p-4">
                 <p className="text-xs uppercase tracking-wide text-sky-900/70">Movimientos</p>
                 <p className="mt-2 text-sm font-semibold text-sky-950">
-                  {movimientos.length} registros en consulta
+                  {resumen?.movimientosTotales ?? 0} registros consolidados
                 </p>
               </div>
             </div>
@@ -282,8 +288,10 @@ export default function ReportesAlmacenesPage() {
               <p className="mt-2 text-xl font-semibold">{bajoMinimo.length}</p>
             </div>
             <div className="rounded-lg border p-4">
-              <p className="text-muted-foreground">Movimientos visibles</p>
-              <p className="mt-2 text-xl font-semibold">{loading ? "..." : movimientos.length}</p>
+              <p className="text-muted-foreground">Movimientos consolidados</p>
+              <p className="mt-2 text-xl font-semibold">
+                {loading ? "..." : (resumen?.movimientosTotales ?? 0)}
+              </p>
             </div>
             <div className="rounded-lg border p-4">
               <p className="text-muted-foreground">Regiones integradoras</p>

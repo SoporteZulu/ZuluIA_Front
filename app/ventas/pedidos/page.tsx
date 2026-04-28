@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   AlertCircle,
   CalendarClock,
@@ -253,6 +253,29 @@ function SalesOrderForm({
   const [domicilioEntrega, setDomicilioEntrega] = useState("")
   const [observacionEntrega, setObservacionEntrega] = useState("")
   const [detalleOperativo, setDetalleOperativo] = useState("")
+
+  useEffect(() => {
+    setForm((current) => {
+      const nextSucursalId = current.sucursalId || defaultSucursalId || 0
+      const hasCurrentType = availableTypes.some((tipo) => tipo.id === current.tipoComprobanteId)
+      const nextTipoComprobanteId = hasCurrentType
+        ? current.tipoComprobanteId
+        : (availableTypes[0]?.id ?? 0)
+
+      if (
+        nextSucursalId === current.sucursalId &&
+        nextTipoComprobanteId === current.tipoComprobanteId
+      ) {
+        return current
+      }
+
+      return {
+        ...current,
+        sucursalId: nextSucursalId,
+        tipoComprobanteId: nextTipoComprobanteId,
+      }
+    })
+  }, [availableTypes, defaultSucursalId])
 
   const selectedCustomer = useMemo(
     () => clientes.find((cliente) => cliente.id === form.terceroId) ?? null,
@@ -1076,7 +1099,7 @@ export default function PedidosPage() {
   const { terceros: clientes } = useTerceros()
   const { sucursales } = useSucursales()
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("todos")
+  const [statusFilter, setStatusFilter] = useState("vigentes")
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null)
@@ -1092,6 +1115,7 @@ export default function PedidosPage() {
     () => comprobantes.filter((item) => orderTypeIds.has(item.tipoComprobanteId)),
     [comprobantes, orderTypeIds]
   )
+  const activeOrders = useMemo(() => orders.filter((order) => order.estado !== "ANULADO"), [orders])
 
   const getCustomerName = useCallback(
     (terceroId: number) =>
@@ -1124,22 +1148,26 @@ export default function PedidosPage() {
           .toLowerCase()
           .includes(term)
 
-      const matchesStatus = statusFilter === "todos" || order.estado === statusFilter
+      const matchesStatus =
+        statusFilter === "vigentes"
+          ? order.estado !== "ANULADO"
+          : statusFilter === "todos"
+            ? true
+            : order.estado === statusFilter
       return matchesSearch && matchesStatus
     })
   }, [orders, searchTerm, statusFilter, getCustomerName, getTypeName])
 
   const kpis = useMemo(
     () => ({
-      total: orders.length,
-      borradores: orders.filter((order) => order.estado === "BORRADOR").length,
-      confirmados: orders.filter((order) => order.estado === "EMITIDO").length,
-      cerrados: orders.filter((order) => order.estado === "PAGADO").length,
-      conCompromiso: orders.filter((order) => Boolean(order.fechaVto)).length,
-      conSaldoPendiente: orders.filter((order) => order.saldo > 0 && order.estado !== "ANULADO")
-        .length,
+      total: activeOrders.length,
+      borradores: activeOrders.filter((order) => order.estado === "BORRADOR").length,
+      confirmados: activeOrders.filter((order) => order.estado === "EMITIDO").length,
+      cerrados: activeOrders.filter((order) => order.estado === "PAGADO").length,
+      conCompromiso: activeOrders.filter((order) => Boolean(order.fechaVto)).length,
+      conSaldoPendiente: activeOrders.filter((order) => order.saldo > 0).length,
     }),
-    [orders]
+    [activeOrders]
   )
 
   const selectedOrder = useMemo(
@@ -1340,6 +1368,7 @@ export default function PedidosPage() {
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="vigentes">Activos</SelectItem>
                 <SelectItem value="todos">Todos</SelectItem>
                 <SelectItem value="BORRADOR">Borrador</SelectItem>
                 <SelectItem value="EMITIDO">Confirmado</SelectItem>

@@ -31,10 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useFormulasProduccion } from "@/lib/hooks/useFormulasProduccion"
-import type {
-  FormulaProduccion,
-  FormulaProduccionHistorial,
-} from "@/lib/types/formulas-produccion"
+import type { FormulaProduccion, FormulaProduccionHistorial } from "@/lib/types/formulas-produccion"
 import { AlertCircle, Eye, Pencil, Plus, RefreshCcw, Search } from "lucide-react"
 
 type ComponentDraft = {
@@ -148,15 +145,23 @@ export default function FormulasProduccionPage() {
     [formulas, searchTerm]
   )
 
-  const activas = formulas.filter((formula) => formula.activa).length
-  const totalComponentes = formulas.reduce(
-    (sum, formula) => sum + (formula.componentes?.length ?? 0),
-    0
-  )
-  const promedioComponentes =
-    formulas.length > 0 ? (totalComponentes / formulas.length).toFixed(1) : "0.0"
-  const conCodigo = formulas.filter((formula) => Boolean(formula.codigo)).length
-  const extendidas = formulas.filter((formula) => (formula.componentes?.length ?? 0) >= 3).length
+  const visibleStats = useMemo(() => {
+    const activas = filtered.filter((formula) => formula.activa).length
+    const totalComponentes = filtered.reduce(
+      (sum, formula) => sum + (formula.componentes?.length ?? 0),
+      0
+    )
+
+    return {
+      total: filtered.length,
+      activas,
+      totalComponentes,
+      promedioComponentes:
+        filtered.length > 0 ? (totalComponentes / filtered.length).toFixed(1) : "0.0",
+      conCodigo: filtered.filter((formula) => Boolean(formula.codigo)).length,
+      extendidas: filtered.filter((formula) => (formula.componentes?.length ?? 0) >= 3).length,
+    }
+  }, [filtered])
 
   const selected = useMemo(
     () => filtered.find((formula) => formula.id === selectedId) ?? null,
@@ -418,25 +423,23 @@ export default function FormulasProduccionPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="Total fórmulas"
-          value={String(formulas.length)}
-          description={
-            soloActivas ? "Vista sólo de fórmulas activas." : "Incluye activas e inactivas."
-          }
+          title="Fórmulas visibles"
+          value={String(visibleStats.total)}
+          description={`Vista actual sobre ${formulas.length} fórmulas cargadas en la consulta.`}
         />
         <SummaryCard
           title="Activas"
-          value={String(activas)}
-          description="Disponibles para planificar órdenes de trabajo."
+          value={String(visibleStats.activas)}
+          description="Fórmulas visibles disponibles para planificar órdenes de trabajo."
         />
         <SummaryCard
           title="Componentes totales"
-          value={String(totalComponentes)}
+          value={String(visibleStats.totalComponentes)}
           description="Relaciones componente-producto cargadas en la vista actual."
         />
         <SummaryCard
           title="Promedio de componentes"
-          value={promedioComponentes}
+          value={visibleStats.promedioComponentes}
           description="Cantidad media de insumos por fórmula visible."
         />
       </div>
@@ -444,12 +447,12 @@ export default function FormulasProduccionPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Con codigo"
-          value={String(conCodigo)}
-          description="Formulas con identificacion visible del legado tecnico."
+          value={String(visibleStats.conCodigo)}
+          description="Formulas visibles con identificacion del legado tecnico."
         />
         <SummaryCard
           title="Extendidas"
-          value={String(extendidas)}
+          value={String(visibleStats.extendidas)}
           description="Formulas con tres o mas componentes visibles."
         />
         <SummaryCard
@@ -581,8 +584,8 @@ export default function FormulasProduccionPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline">{filtered.length} visibles</Badge>
-              <Badge variant="outline">{extendidas} extendidas</Badge>
-              <Badge variant="outline">{conCodigo} con código</Badge>
+              <Badge variant="outline">{visibleStats.extendidas} extendidas</Badge>
+              <Badge variant="outline">{visibleStats.conCodigo} con código</Badge>
             </div>
           </div>
           <div className="flex items-center gap-3 rounded-lg border p-3">
@@ -901,7 +904,8 @@ export default function FormulasProduccionPage() {
                             Versión {entry.version} · {entry.descripcion || "Sin descripción"}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {entry.motivo ?? "Sin motivo informado"} · {formatHistoryTimestamp(entry.createdAt)}
+                            {entry.motivo ?? "Sin motivo informado"} ·{" "}
+                            {formatHistoryTimestamp(entry.createdAt)}
                           </p>
                         </div>
                         <Badge variant="outline">{entry.cantidadResultado}</Badge>
@@ -950,59 +954,55 @@ export default function FormulasProduccionPage() {
           }
         }}
       >
-          <WmsDialogContent size="md">
-            <DialogHeader>
-              <DialogTitle>Editar datos base de la fórmula</DialogTitle>
-              <DialogDescription>
-                El backend hoy permite ajustar descripción, cantidad producida y observación. La
-                composición de componentes sigue en solo lectura en esta iteración.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-descripcion">Descripción</Label>
-                <Input
-                  id="edit-descripcion"
-                  value={editDraft.descripcion}
-                  onChange={(e) =>
-                    setEditDraft((prev) => ({ ...prev, descripcion: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-cantidad">Cantidad producida</Label>
-                <Input
-                  id="edit-cantidad"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editDraft.cantidadProducida}
-                  onChange={(e) =>
-                    setEditDraft((prev) => ({ ...prev, cantidadProducida: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-observacion">Observación</Label>
-                <Textarea
-                  id="edit-observacion"
-                  value={editDraft.observacion}
-                  onChange={(e) =>
-                    setEditDraft((prev) => ({ ...prev, observacion: e.target.value }))
-                  }
-                  placeholder="Contexto técnico u operativo visible para esta versión"
-                />
-              </div>
+        <WmsDialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>Editar datos base de la fórmula</DialogTitle>
+            <DialogDescription>
+              El backend hoy permite ajustar descripción, cantidad producida y observación. La
+              composición de componentes sigue en solo lectura en esta iteración.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-descripcion">Descripción</Label>
+              <Input
+                id="edit-descripcion"
+                value={editDraft.descripcion}
+                onChange={(e) => setEditDraft((prev) => ({ ...prev, descripcion: e.target.value }))}
+              />
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditOpen(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={() => void handleEdit()} disabled={editSaving}>
-                {editSaving ? "Guardando..." : "Guardar cambios"}
-              </Button>
-            </DialogFooter>
-          </WmsDialogContent>
+            <div className="space-y-2">
+              <Label htmlFor="edit-cantidad">Cantidad producida</Label>
+              <Input
+                id="edit-cantidad"
+                type="number"
+                min="0"
+                step="0.01"
+                value={editDraft.cantidadProducida}
+                onChange={(e) =>
+                  setEditDraft((prev) => ({ ...prev, cantidadProducida: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-observacion">Observación</Label>
+              <Textarea
+                id="edit-observacion"
+                value={editDraft.observacion}
+                onChange={(e) => setEditDraft((prev) => ({ ...prev, observacion: e.target.value }))}
+                placeholder="Contexto técnico u operativo visible para esta versión"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void handleEdit()} disabled={editSaving}>
+              {editSaving ? "Guardando..." : "Guardar cambios"}
+            </Button>
+          </DialogFooter>
+        </WmsDialogContent>
       </Dialog>
 
       <Dialog

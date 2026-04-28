@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import {
   AlertCircle,
@@ -116,6 +116,94 @@ function getInteractionLabel(type: string) {
   return labels[type] ?? type
 }
 
+function humanizeEnum(value?: string | null) {
+  if (!value) return "-"
+
+  return value
+    .split("_")
+    .map((part) => {
+      if (part.toLowerCase() === "pyme") return "PYME"
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+    })
+    .join(" ")
+}
+
+function getClientTypeLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    prospecto: "Prospecto",
+    activo: "Activo",
+    inactivo: "Inactivo",
+    perdido: "Perdido",
+  }
+  return value ? (labels[value] ?? humanizeEnum(value)) : "-"
+}
+
+function getSegmentLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    pyme: "PYME",
+    corporativo: "Corporativo",
+    gobierno: "Gobierno",
+    startup: "Startup",
+    otro: "Otro",
+  }
+  return value ? (labels[value] ?? humanizeEnum(value)) : "-"
+}
+
+function getRelationshipLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    nuevo: "Nuevo",
+    en_negociacion: "En Negociación",
+    en_riesgo: "En Riesgo",
+    fidelizado: "Fidelizado",
+  }
+  return value ? (labels[value] ?? humanizeEnum(value)) : "-"
+}
+
+function getOriginLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    campana: "Campaña",
+    referido: "Referido",
+    web: "Web",
+    llamada: "Llamada",
+    evento: "Evento",
+    otro: "Otro",
+  }
+  return value ? (labels[value] ?? humanizeEnum(value)) : "-"
+}
+
+function getOpportunityStageLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    lead: "Lead",
+    calificacion: "Calificación",
+    propuesta: "Propuesta",
+    negociacion: "Negociación",
+    cerrado_ganado: "Cerrado ganado",
+    cerrado_perdido: "Cerrado perdido",
+  }
+  return value ? (labels[value] ?? humanizeEnum(value)) : "-"
+}
+
+function getInteractionChannelLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    telefono: "Teléfono",
+    email: "Email",
+    whatsapp: "WhatsApp",
+    presencial: "Presencial",
+    videollamada: "Videollamada",
+  }
+  return value ? (labels[value] ?? humanizeEnum(value)) : "-"
+}
+
+function getInteractionResultLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    exitosa: "Exitosa",
+    sin_respuesta: "Sin respuesta",
+    reprogramada: "Reprogramada",
+    cancelada: "Cancelada",
+  }
+  return value ? (labels[value] ?? humanizeEnum(value)) : "-"
+}
+
 export default function ClienteDetallePage() {
   const params = useParams()
   const router = useRouter()
@@ -199,10 +287,12 @@ export default function ClienteDetallePage() {
     return { abiertas, cierresProximos }
   }, [oportunidades, todayTimestamp])
 
-  const highlightedOpportunity = opportunitySummary.abiertas.sort(
-    (left, right) =>
-      right.probabilidad - left.probabilidad || right.montoEstimado - left.montoEstimado
-  )[0]
+  const highlightedOpportunity = useMemo(() => {
+    return [...opportunitySummary.abiertas].sort(
+      (left, right) =>
+        right.probabilidad - left.probabilidad || right.montoEstimado - left.montoEstimado
+    )[0]
+  }, [opportunitySummary.abiertas])
 
   const highlightedContact = activeContacts[0] ?? contactos[0] ?? null
 
@@ -224,14 +314,16 @@ export default function ClienteDetallePage() {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-3xl font-bold tracking-tight">{client.nombre}</h1>
-              <Badge variant={getTipoBadgeVariant(client.tipoCliente)}>{client.tipoCliente}</Badge>
+              <Badge variant={getTipoBadgeVariant(client.tipoCliente)}>
+                {getClientTypeLabel(client.tipoCliente)}
+              </Badge>
               <Badge variant={getEstadoRelacionBadgeVariant(client.estadoRelacion)}>
-                {client.estadoRelacion.replace("_", " ")}
+                {getRelationshipLabel(client.estadoRelacion)}
               </Badge>
             </div>
             <p className="mt-1 text-muted-foreground">
-              {client.segmento} · {client.industria ?? "Industria no informada"} · alta{" "}
-              {formatDate(client.fechaAlta)}
+              {getSegmentLabel(client.segmento)} · {client.industria ?? "Industria no informada"} ·
+              alta {formatDate(client.fechaAlta)}
             </p>
           </div>
         </div>
@@ -335,7 +427,9 @@ export default function ClienteDetallePage() {
                 <Building2 className="h-4 w-4 text-muted-foreground" />
                 Cobertura comercial
               </div>
-              <p className="text-sm text-muted-foreground">Origen: {client.origenCliente}</p>
+              <p className="text-sm text-muted-foreground">
+                Origen: {getOriginLabel(client.origenCliente)}
+              </p>
               <p className="text-sm text-muted-foreground">
                 Pipeline visible: {formatPipelineByCurrency(pipelineByCurrency)}
               </p>
@@ -376,7 +470,7 @@ export default function ClienteDetallePage() {
                   {highlightedOpportunity.titulo}
                 </h3>
                 <p className="text-sm text-sky-900/80">
-                  {highlightedOpportunity.etapa.replace("_", " ")} ·{" "}
+                  {getOpportunityStageLabel(highlightedOpportunity.etapa)} ·{" "}
                   {highlightedOpportunity.probabilidad}%
                 </p>
                 <p className="mt-2 text-sm font-medium text-sky-950">
@@ -393,7 +487,7 @@ export default function ClienteDetallePage() {
                 </h3>
                 <p className="text-sm text-amber-900/80">
                   {highlightedContact.cargo ?? "Sin cargo informado"} ·{" "}
-                  {highlightedContact.canalPreferido}
+                  {getInteractionChannelLabel(highlightedContact.canalPreferido)}
                 </p>
                 <p className="mt-2 text-sm text-amber-950">
                   {highlightedContact.email ??
@@ -479,8 +573,8 @@ export default function ClienteDetallePage() {
                           {contact.nombre} {contact.apellido}
                         </TableCell>
                         <TableCell>{contact.cargo ?? "-"}</TableCell>
-                        <TableCell>{contact.canalPreferido}</TableCell>
-                        <TableCell>{contact.estadoContacto}</TableCell>
+                        <TableCell>{getInteractionChannelLabel(contact.canalPreferido)}</TableCell>
+                        <TableCell>{humanizeEnum(contact.estadoContacto)}</TableCell>
                         <TableCell>{contact.email ?? contact.telefono ?? "-"}</TableCell>
                       </TableRow>
                     ))
@@ -529,7 +623,7 @@ export default function ClienteDetallePage() {
                     oportunidades.map((opportunity) => (
                       <TableRow key={opportunity.id}>
                         <TableCell className="font-medium">{opportunity.titulo}</TableCell>
-                        <TableCell>{opportunity.etapa.replace("_", " ")}</TableCell>
+                        <TableCell>{getOpportunityStageLabel(opportunity.etapa)}</TableCell>
                         <TableCell>
                           {formatMoney(opportunity.montoEstimado, opportunity.moneda)}
                         </TableCell>
@@ -575,13 +669,16 @@ export default function ClienteDetallePage() {
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="font-medium">
-                            {getInteractionLabel(interaction.tipoInteraccion)} · {interaction.canal}
+                            {getInteractionLabel(interaction.tipoInteraccion)} ·{" "}
+                            {getInteractionChannelLabel(interaction.canal)}
                           </p>
                           <p className="text-sm text-muted-foreground">
                             {interaction.descripcion ?? "Sin detalle adicional"}
                           </p>
                         </div>
-                        <Badge variant="outline">{interaction.resultado}</Badge>
+                        <Badge variant="outline">
+                          {getInteractionResultLabel(interaction.resultado)}
+                        </Badge>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
                         <span>{formatDateTime(interaction.fechaHora)}</span>
@@ -637,7 +734,7 @@ export default function ClienteDetallePage() {
                       return (
                         <TableRow key={task.id}>
                           <TableCell className="font-medium">{task.titulo}</TableCell>
-                          <TableCell>{task.tipoTarea.replace("_", " ")}</TableCell>
+                          <TableCell>{humanizeEnum(task.tipoTarea)}</TableCell>
                           <TableCell>
                             {owner ? `${owner.nombre} ${owner.apellido}` : "Sin responsable"}
                           </TableCell>

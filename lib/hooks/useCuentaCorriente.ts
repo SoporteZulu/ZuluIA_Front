@@ -1,13 +1,15 @@
-'use client'
+"use client"
 
-import { useState, useEffect, useCallback } from 'react'
-import { apiGet } from '@/lib/api'
+import { useState, useEffect, useCallback } from "react"
+import { apiGet } from "@/lib/api"
 import type {
   SaldoCuentaCorriente,
   MovimientoCuentaCorriente,
   Deudor,
-} from '@/lib/types/cuenta-corriente'
-import type { PagedResult } from '@/lib/types/items'
+} from "@/lib/types/cuenta-corriente"
+import type { PagedResult } from "@/lib/types/items"
+
+const cuentaCorrienteApiPath = "/api/CuentaCorriente"
 
 export function useCuentaCorriente(terceroId?: number, sucursalId?: number) {
   const [saldos, setSaldos] = useState<SaldoCuentaCorriente[]>([])
@@ -20,18 +22,20 @@ export function useCuentaCorriente(terceroId?: number, sucursalId?: number) {
     setError(null)
     try {
       const url = sucursalId
-        ? `/api/cuenta-corriente/${terceroId}?sucursalId=${sucursalId}`
-        : `/api/cuenta-corriente/${terceroId}`
+        ? `${cuentaCorrienteApiPath}/${terceroId}?sucursalId=${sucursalId}`
+        : `${cuentaCorrienteApiPath}/${terceroId}`
       const result = await apiGet<SaldoCuentaCorriente[]>(url)
       setSaldos(Array.isArray(result) ? result : [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar cuenta corriente')
+      setError(e instanceof Error ? e.message : "Error al cargar cuenta corriente")
     } finally {
       setLoading(false)
     }
   }, [terceroId, sucursalId])
 
-  useEffect(() => { fetchSaldos() }, [fetchSaldos])
+  useEffect(() => {
+    fetchSaldos()
+  }, [fetchSaldos])
 
   return { saldos, loading, error, refetch: fetchSaldos }
 }
@@ -45,27 +49,27 @@ export function useMovimientosCuentaCorriente(terceroId?: number) {
   const [page, setPage] = useState(1)
   const [sucursalId, setSucursalId] = useState<number | undefined>()
   const [monedaId, setMonedaId] = useState<number | undefined>()
-  const [desde, setDesde] = useState('')
-  const [hasta, setHasta] = useState('')
+  const [desde, setDesde] = useState("")
+  const [hasta, setHasta] = useState("")
 
   const fetchMovimientos = useCallback(async () => {
     if (!terceroId) return
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ page: String(page), pageSize: '30' })
-      if (sucursalId) params.set('sucursalId', String(sucursalId))
-      if (monedaId) params.set('monedaId', String(monedaId))
-      if (desde) params.set('desde', desde)
-      if (hasta) params.set('hasta', hasta)
+      const params = new URLSearchParams({ page: String(page), pageSize: "30" })
+      if (sucursalId) params.set("sucursalId", String(sucursalId))
+      if (monedaId) params.set("monedaId", String(monedaId))
+      if (desde) params.set("desde", desde)
+      if (hasta) params.set("hasta", hasta)
 
       const result = await apiGet<PagedResult<MovimientoCuentaCorriente>>(
-        `/api/cuenta-corriente/${terceroId}/movimientos?${params.toString()}`
+        `${cuentaCorrienteApiPath}/${terceroId}/movimientos?${params.toString()}`
       )
-      const items = (Array.isArray(result) ? result : result.items ?? []).map(
+      const items = (Array.isArray(result) ? result : (result.items ?? [])).map(
         (m: MovimientoCuentaCorriente) => ({
           ...m,
-          debe:  Number(m.debe  ?? 0),
+          debe: Number(m.debe ?? 0),
           haber: Number(m.haber ?? 0),
           saldo: Number(m.saldo ?? 0),
         })
@@ -74,13 +78,15 @@ export function useMovimientosCuentaCorriente(terceroId?: number) {
       setTotalCount(Array.isArray(result) ? items.length : (result.totalCount ?? items.length))
       setTotalPages(Array.isArray(result) ? 1 : (result.totalPages ?? 1))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar movimientos')
+      setError(e instanceof Error ? e.message : "Error al cargar movimientos")
     } finally {
       setLoading(false)
     }
   }, [terceroId, page, sucursalId, monedaId, desde, hasta])
 
-  useEffect(() => { fetchMovimientos() }, [fetchMovimientos])
+  useEffect(() => {
+    fetchMovimientos()
+  }, [fetchMovimientos])
 
   return {
     movimientos,
@@ -112,20 +118,24 @@ export function useDeudores(sucursalId?: number, monedaId?: number, soloDeudores
     setError(null)
     try {
       const params = new URLSearchParams({ soloDeudores: String(soloDeudores) })
-      if (sucursalId) params.set('sucursalId', String(sucursalId))
-      if (monedaId) params.set('monedaId', String(monedaId))
+      if (sucursalId) params.set("sucursalId", String(sucursalId))
+      if (monedaId) params.set("monedaId", String(monedaId))
 
-      const result = await apiGet<Deudor[]>(`/api/cuenta-corriente/deudores?${params.toString()}`)
+      const result = await apiGet<Deudor[]>(
+        `${cuentaCorrienteApiPath}/deudores?${params.toString()}`
+      )
       const arr = Array.isArray(result) ? result : []
       setDeudores(arr.map((d: Deudor) => ({ ...d, saldo: Number(d.saldo ?? 0) })))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar deudores')
+      setError(e instanceof Error ? e.message : "Error al cargar deudores")
     } finally {
       setLoading(false)
     }
   }, [sucursalId, monedaId, soloDeudores])
 
-  useEffect(() => { fetchDeudores() }, [fetchDeudores])
+  useEffect(() => {
+    fetchDeudores()
+  }, [fetchDeudores])
 
   return { deudores, loading, error, refetch: fetchDeudores }
 }

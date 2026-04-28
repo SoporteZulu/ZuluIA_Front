@@ -137,11 +137,29 @@ export default function PlantasPage() {
     })
   }, [depositos, estadoFiltro, search])
 
-  const activos = depositos.filter((deposito) => deposito.activo).length
-  const inactivos = depositos.filter((deposito) => !deposito.activo).length
+  const visibleStats = useMemo(() => {
+    const activos = filteredDepositos.filter((deposito) => deposito.activo).length
+    const inactivos = filteredDepositos.filter((deposito) => !deposito.activo).length
+    const defaults = filteredDepositos.filter((deposito) => deposito.esDefault).length
+    const defaultActivo = filteredDepositos.find(
+      (deposito) => deposito.esDefault && deposito.activo
+    )
+    const defaultsInactivos = filteredDepositos.filter(
+      (deposito) => deposito.esDefault && !deposito.activo
+    )
+
+    return {
+      total: filteredDepositos.length,
+      activos,
+      inactivos,
+      defaults,
+      defaultActivo,
+      defaultsInactivos,
+    }
+  }, [filteredDepositos])
+
   const defaults = depositos.filter((deposito) => deposito.esDefault).length
   const defaultActivo = depositos.find((deposito) => deposito.esDefault && deposito.activo)
-  const defaultsInactivos = depositos.filter((deposito) => deposito.esDefault && !deposito.activo)
   const sinDefault = defaults === 0
   const multiplesDefaults = defaults > 1
 
@@ -157,12 +175,24 @@ export default function PlantasPage() {
       .map(([description, quantity]) => ({ description, quantity }))
   }, [depositos])
 
+  const visibleDescripcionesDuplicadas = useMemo(() => {
+    const counter = filteredDepositos.reduce<Record<string, number>>((accumulator, deposito) => {
+      const key = deposito.descripcion.trim().toLowerCase()
+      accumulator[key] = (accumulator[key] ?? 0) + 1
+      return accumulator
+    }, {})
+
+    return Object.entries(counter)
+      .filter(([, quantity]) => quantity > 1)
+      .map(([description, quantity]) => ({ description, quantity }))
+  }, [filteredDepositos])
+
   const depositoDestacado = useMemo(() => {
-    if (depositos.length === 0) {
+    if (filteredDepositos.length === 0) {
       return null
     }
 
-    return [...depositos].sort((left, right) => {
+    return [...filteredDepositos].sort((left, right) => {
       const leftScore = Number(left.activo) * 4 + Number(left.esDefault) * 6
       const rightScore = Number(right.activo) * 4 + Number(right.esDefault) * 6
 
@@ -172,33 +202,33 @@ export default function PlantasPage() {
 
       return left.descripcion.localeCompare(right.descripcion)
     })[0]
-  }, [depositos])
+  }, [filteredDepositos])
 
   const radarOperativo = [
     {
       title: "Cobertura activa",
-      value: `${activos}/${depositos.length || 0}`,
-      description: "Depósitos habilitados hoy para operar en la sucursal visible.",
+      value: `${visibleStats.activos}/${visibleStats.total || 0}`,
+      description: "Depósitos habilitados hoy para operar en la vista actual.",
       icon: <Warehouse className="h-4 w-4 text-sky-700" />,
     },
     {
       title: "Default operativo",
-      value: defaultActivo ? defaultActivo.descripcion : "Sin definir",
-      description: defaultActivo
-        ? "Es el depósito principal actualmente disponible."
-        : "No hay depósito activo marcado como referencia.",
+      value: visibleStats.defaultActivo ? visibleStats.defaultActivo.descripcion : "Sin definir",
+      description: visibleStats.defaultActivo
+        ? "Es el depósito principal actualmente disponible en la vista."
+        : "No hay depósito activo marcado como referencia en la vista.",
       icon: <MapPin className="h-4 w-4 text-emerald-700" />,
     },
     {
       title: "Defaults conflictivos",
-      value: defaultsInactivos.length,
-      description: "Depósitos por defecto dados de baja o fuera de uso.",
+      value: visibleStats.defaultsInactivos.length,
+      description: "Depósitos por defecto visibles dados de baja o fuera de uso.",
       icon: <OctagonAlert className="h-4 w-4 text-amber-600" />,
     },
     {
       title: "Duplicados nominales",
-      value: descripcionesDuplicadas.length,
-      description: "Descripciones repetidas que pueden confundir la operación.",
+      value: visibleDescripcionesDuplicadas.length,
+      description: "Descripciones repetidas dentro de la vista actual.",
       icon: <ArrowRightLeft className="h-4 w-4 text-rose-600" />,
     },
   ]
@@ -360,29 +390,29 @@ export default function PlantasPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Depósitos visibles"
-          value={depositos.length}
-          description={`Sucursal operativa ${sucursalId}`}
+          value={visibleStats.total}
+          description={`Vista actual sobre la sucursal operativa ${sucursalId}`}
           icon={<Warehouse className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Activos"
-          value={activos}
-          description="Disponibles para operación"
+          value={visibleStats.activos}
+          description="Depósitos visibles disponibles para operación"
           icon={<CheckCircle2 className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Inactivos"
-          value={inactivos}
-          description="Dados de baja o fuera de uso"
+          value={visibleStats.inactivos}
+          description="Depósitos visibles dados de baja o fuera de uso"
           icon={<XCircle className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Por defecto"
-          value={defaults}
+          value={visibleStats.defaults}
           description={
-            defaultActivo
-              ? `Principal activo: ${defaultActivo.descripcion}`
-              : "Sin principal activo"
+            visibleStats.defaultActivo
+              ? `Principal activo visible: ${visibleStats.defaultActivo.descripcion}`
+              : "Sin principal activo visible"
           }
           icon={<MapPin className="h-4 w-4 text-muted-foreground" />}
         />

@@ -1,8 +1,34 @@
-'use client'
+"use client"
 
-import { useState, useEffect, useCallback } from 'react'
-import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api'
-import type { Sucursal, CreateSucursalDto } from '@/lib/types/sucursales'
+import { useState, useEffect, useCallback } from "react"
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api"
+import type { Sucursal, CreateSucursalDto } from "@/lib/types/sucursales"
+
+type SucursalApi = Partial<Sucursal> & {
+  id: number
+  nombreFantasia?: string | null
+  activa?: boolean | null
+}
+
+function normalizeSucursal(sucursal: SucursalApi): Sucursal {
+  const descripcion =
+    sucursal.descripcion?.trim() ||
+    sucursal.nombreFantasia?.trim() ||
+    sucursal.razonSocial?.trim() ||
+    `Sucursal ${sucursal.id}`
+
+  return {
+    id: sucursal.id,
+    descripcion,
+    activo: sucursal.activo ?? sucursal.activa ?? true,
+    direccion: sucursal.direccion ?? null,
+    cuit: sucursal.cuit ?? null,
+    codigoPostal: sucursal.codigoPostal ?? null,
+    telefono: sucursal.telefono ?? null,
+    email: sucursal.email ?? null,
+    razonSocial: sucursal.razonSocial?.trim() || descripcion,
+  }
+}
 
 export function useSucursales(soloActivas = true) {
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
@@ -13,26 +39,26 @@ export function useSucursales(soloActivas = true) {
     setLoading(true)
     setError(null)
     try {
-      const result = await apiGet<Sucursal[]>(
-        `/api/sucursales?soloActivas=${soloActivas}`
-      )
-      setSucursales(Array.isArray(result) ? result : [])
+      const result = await apiGet<SucursalApi[]>(`/api/sucursales?soloActivas=${soloActivas}`)
+      setSucursales((Array.isArray(result) ? result : []).map(normalizeSucursal))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar sucursales')
+      setError(e instanceof Error ? e.message : "Error al cargar sucursales")
     } finally {
       setLoading(false)
     }
   }, [soloActivas])
 
-  useEffect(() => { fetchSucursales() }, [fetchSucursales])
+  useEffect(() => {
+    fetchSucursales()
+  }, [fetchSucursales])
 
   const crear = async (dto: CreateSucursalDto): Promise<boolean> => {
     try {
-      await apiPost<{ id: number }>('/api/sucursales', dto)
+      await apiPost<{ id: number }>("/api/sucursales", dto)
       await fetchSucursales()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al crear sucursal')
+      setError(e instanceof Error ? e.message : "Error al crear sucursal")
       return false
     }
   }
@@ -43,7 +69,7 @@ export function useSucursales(soloActivas = true) {
       await fetchSucursales()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al actualizar sucursal')
+      setError(e instanceof Error ? e.message : "Error al actualizar sucursal")
       return false
     }
   }
@@ -54,7 +80,7 @@ export function useSucursales(soloActivas = true) {
       await fetchSucursales()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al desactivar sucursal')
+      setError(e instanceof Error ? e.message : "Error al desactivar sucursal")
       return false
     }
   }

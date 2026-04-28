@@ -150,17 +150,19 @@ export default function TransportistasPage() {
     [searchTerm, transportistas]
   )
 
-  const activos = transportistas.filter((transportista) => transportista.activo).length
-  const withPatent = transportistas.filter((transportista) => transportista.patente).length
-  const withOwnCuit = transportistas.filter(
-    (transportista) => transportista.nroCuitTransportista
-  ).length
-  const withDomicilio = transportistas.filter(
-    (transportista) => transportista.domicilioPartida
-  ).length
-  const withVehicleProfile = transportistas.filter(
-    (transportista) => transportista.patente || transportista.marcaVehiculo
-  ).length
+  const visibleStats = useMemo(
+    () => ({
+      total: filtered.length,
+      activos: filtered.filter((transportista) => transportista.activo).length,
+      withPatent: filtered.filter((transportista) => transportista.patente).length,
+      withOwnCuit: filtered.filter((transportista) => transportista.nroCuitTransportista).length,
+      withDomicilio: filtered.filter((transportista) => transportista.domicilioPartida).length,
+      withVehicleProfile: filtered.filter(
+        (transportista) => transportista.patente || transportista.marcaVehiculo
+      ).length,
+    }),
+    [filtered]
+  )
 
   const resolvedSelectedId = useMemo(() => {
     if (!filtered.length) return null
@@ -308,37 +310,41 @@ export default function TransportistasPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="Total transportistas"
-          value={String(transportistas.length)}
-          description={soloActivos ? "Vista limitada a activos." : "Incluye activos e inactivos."}
+          title="Transportistas visibles"
+          value={String(visibleStats.total)}
+          description={
+            soloActivos
+              ? "Coinciden con la búsqueda dentro de los legajos activos."
+              : "Coinciden con la búsqueda dentro de la vista actual."
+          }
         />
         <SummaryCard
           title="Activos"
-          value={String(activos)}
-          description="Legajos disponibles para documentos de traslado y carta porte."
+          value={String(visibleStats.activos)}
+          description="Legajos visibles disponibles para documentos de traslado y carta porte."
         />
         <SummaryCard
           title="Con patente"
-          value={String(withPatent)}
-          description="Registros que ya informan dominio del vehículo."
+          value={String(visibleStats.withPatent)}
+          description="Registros visibles que ya informan dominio del vehículo."
         />
         <SummaryCard
           title="CUIT propio informado"
-          value={String(withOwnCuit)}
-          description="Transportistas con CUIT operativo específico cargado."
+          value={String(visibleStats.withOwnCuit)}
+          description="Transportistas visibles con CUIT operativo específico cargado."
         />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Con partida"
-          value={String(withDomicilio)}
-          description="Legajos con domicilio de partida visible para logística."
+          value={String(visibleStats.withDomicilio)}
+          description="Legajos visibles con domicilio de partida cargado para logística."
         />
         <SummaryCard
           title="Perfil vehicular"
-          value={String(withVehicleProfile)}
-          description="Transportistas con patente o marca de unidad informada."
+          value={String(visibleStats.withVehicleProfile)}
+          description="Transportistas visibles con patente o marca de unidad informada."
         />
         <SummaryCard
           title="Trazabilidad"
@@ -420,7 +426,9 @@ export default function TransportistasPage() {
                   filtered.map((transportista) => (
                     <TableRow
                       key={transportista.id}
-                      className={transportista.id === resolvedSelectedId ? "bg-accent/40" : undefined}
+                      className={
+                        transportista.id === resolvedSelectedId ? "bg-accent/40" : undefined
+                      }
                       onClick={() => setSelectedId(transportista.id)}
                     >
                       <TableCell className="font-medium">

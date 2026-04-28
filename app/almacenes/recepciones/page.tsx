@@ -316,18 +316,25 @@ export default function RecepcionesPage() {
     })
   }, [comprobanteById, ordenes, proveedorById, search])
 
-  const pendientes = ordenes.filter((order) => order.estadoOc === "PENDIENTE").length
-  const parciales = ordenes.filter((order) => order.recepcionParcial).length
-  const recibidas = ordenes.filter((order) => order.estadoOc === "RECIBIDA").length
-  const canceladas = ordenes.filter((order) => order.estadoOc === "CANCELADA").length
-  const vencidas = ordenes.filter((order) => {
-    const daysOffset = getDaysOffset(order.fechaEntregaReq)
-    return order.estadoOc === "PENDIENTE" && daysOffset !== null && daysOffset < 0
-  }).length
-  const conCondiciones = ordenes.filter((order) => Boolean(order.condicionesEntrega?.trim())).length
-  const conDocumentoVisible = ordenes.filter((order) =>
-    Boolean(getComprobante(order.comprobanteId))
-  ).length
+  const visibleStats = useMemo(
+    () => ({
+      total: filteredOrders.length,
+      pendientes: filteredOrders.filter((order) => order.estadoOc === "PENDIENTE").length,
+      parciales: filteredOrders.filter((order) => order.recepcionParcial).length,
+      recibidas: filteredOrders.filter((order) => order.estadoOc === "RECIBIDA").length,
+      canceladas: filteredOrders.filter((order) => order.estadoOc === "CANCELADA").length,
+      vencidas: filteredOrders.filter((order) => {
+        const daysOffset = getDaysOffset(order.fechaEntregaReq)
+        return order.estadoOc === "PENDIENTE" && daysOffset !== null && daysOffset < 0
+      }).length,
+      conCondiciones: filteredOrders.filter((order) => Boolean(order.condicionesEntrega?.trim()))
+        .length,
+      conDocumentoVisible: filteredOrders.filter((order) =>
+        Boolean(comprobanteById.get(order.comprobanteId))
+      ).length,
+    }),
+    [comprobanteById, filteredOrders]
+  )
 
   const selectedProveedor = selectedOrder ? getProveedor(selectedOrder.proveedorId) : null
   const selectedComprobante = selectedOrder ? getComprobante(selectedOrder.comprobanteId) : null
@@ -497,38 +504,38 @@ export default function RecepcionesPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Órdenes visibles"
-          value={ordenes.length}
-          description="Resultado del filtro backend por estado"
+          value={visibleStats.total}
+          description="Resultado del filtro backend y la búsqueda actual"
           icon={<Truck className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Pendientes"
-          value={pendientes}
-          description="Listas para recepción"
+          value={visibleStats.pendientes}
+          description="Listas para recepción dentro de la selección actual"
           icon={<PackageCheck className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Parciales"
-          value={parciales}
-          description="Con recepción iniciada y saldo pendiente"
+          value={visibleStats.parciales}
+          description="Con recepción iniciada y saldo pendiente en la vista actual"
           icon={<ClipboardList className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Recibidas"
-          value={recibidas}
-          description="Procesadas correctamente"
+          value={visibleStats.recibidas}
+          description="Procesadas correctamente dentro de la vista actual"
           icon={<CheckCircle2 className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Canceladas"
-          value={canceladas}
-          description="Fuera de circuito operativo"
+          value={visibleStats.canceladas}
+          description="Fuera de circuito operativo dentro de la vista actual"
           icon={<XCircle className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Pendientes vencidas"
-          value={vencidas}
-          description="Requieren seguimiento de entrega"
+          value={visibleStats.vencidas}
+          description="Requieren seguimiento de entrega dentro de la vista actual"
           icon={<CalendarClock className="h-4 w-4 text-muted-foreground" />}
         />
       </div>
@@ -541,9 +548,10 @@ export default function RecepcionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {pendientes} órdenes siguen abiertas para ingreso, {parciales} ya tienen recepción
-            parcial y {conDocumentoVisible} ya pueden leerse con documento base visible dentro del
-            frontend actual.
+            {visibleStats.pendientes} órdenes visibles siguen abiertas para ingreso,{" "}
+            {visibleStats.parciales} ya tienen recepción parcial y{" "}
+            {visibleStats.conDocumentoVisible} ya pueden leerse con documento base visible dentro
+            del frontend actual.
           </CardContent>
         </Card>
         <Card>
@@ -553,8 +561,9 @@ export default function RecepcionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {conCondiciones} órdenes informan condiciones de entrega. Eso permite recuperar parte
-            del contexto logístico que en el sistema viejo se veía junto al remito de compra.
+            {visibleStats.conCondiciones} órdenes visibles informan condiciones de entrega. Eso
+            permite recuperar parte del contexto logístico que en el sistema viejo se veía junto al
+            remito de compra.
           </CardContent>
         </Card>
         <Card>

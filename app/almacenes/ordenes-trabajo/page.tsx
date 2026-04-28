@@ -184,18 +184,24 @@ export default function OrdenesTrabajPage() {
     [ordenes, searchTerm]
   )
 
-  const pendientes = ordenes.filter((orden) => orden.estado === "PENDIENTE").length
-  const enProceso = ordenes.filter((orden) => orden.estado === "EN_PROCESO").length
-  const completados = ordenes.filter((orden) => orden.estado === "COMPLETADO").length
-  const conCircuitoCompleto = ordenes.filter((orden) =>
-    Boolean(orden.depositoOrigenId && orden.depositoDestinoId)
-  ).length
-  const conObservacion = ordenes.filter((orden) => Boolean(orden.observacion)).length
-  const vencidas = ordenes.filter(
-    (orden) =>
-      ["PENDIENTE", "EN_PROCESO"].includes(orden.estado) &&
-      (getDaysOffset(orden.fechaFinPrevista) ?? 1) < 0
-  ).length
+  const visibleStats = useMemo(
+    () => ({
+      total: filtered.length,
+      pendientes: filtered.filter((orden) => orden.estado === "PENDIENTE").length,
+      enProceso: filtered.filter((orden) => orden.estado === "EN_PROCESO").length,
+      completados: filtered.filter((orden) => orden.estado === "COMPLETADO").length,
+      conCircuitoCompleto: filtered.filter((orden) =>
+        Boolean(orden.depositoOrigenId && orden.depositoDestinoId)
+      ).length,
+      conObservacion: filtered.filter((orden) => Boolean(orden.observacion)).length,
+      vencidas: filtered.filter(
+        (orden) =>
+          ["PENDIENTE", "EN_PROCESO"].includes(orden.estado) &&
+          (getDaysOffset(orden.fechaFinPrevista) ?? 1) < 0
+      ).length,
+    }),
+    [filtered]
+  )
 
   const selected = useMemo(
     () => filtered.find((orden) => orden.id === selectedId) ?? filtered[0] ?? null,
@@ -358,42 +364,42 @@ export default function OrdenesTrabajPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="Totales"
-          value={String(totalCount)}
-          description={`Sucursal ${defaultSucursalId} con filtros aplicados.`}
+          title="Órdenes visibles"
+          value={String(visibleStats.total)}
+          description={`Vista actual sobre ${totalCount} órdenes consultadas en backend.`}
         />
         <SummaryCard
           title="Pendientes"
-          value={String(pendientes)}
-          description="Órdenes esperando inicio de producción."
+          value={String(visibleStats.pendientes)}
+          description="Órdenes visibles esperando inicio de producción."
         />
         <SummaryCard
           title="En proceso"
-          value={String(enProceso)}
-          description="Órdenes actualmente en ejecución."
+          value={String(visibleStats.enProceso)}
+          description="Órdenes visibles actualmente en ejecución."
         />
         <SummaryCard
           title="Completadas"
-          value={String(completados)}
-          description="Órdenes ya finalizadas o cerradas."
+          value={String(visibleStats.completados)}
+          description="Órdenes visibles ya finalizadas o cerradas."
         />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Circuito completo"
-          value={String(conCircuitoCompleto)}
-          description="Órdenes con depósito origen y destino visibles."
+          value={String(visibleStats.conCircuitoCompleto)}
+          description="Órdenes visibles con depósito origen y destino definidos."
         />
         <SummaryCard
           title="Con observación"
-          value={String(conObservacion)}
-          description="Órdenes con contexto operativo registrado."
+          value={String(visibleStats.conObservacion)}
+          description="Órdenes visibles con contexto operativo registrado."
         />
         <SummaryCard
           title="Vencidas"
-          value={String(vencidas)}
-          description="Pendientes o en proceso con fin previsto vencido."
+          value={String(visibleStats.vencidas)}
+          description="Pendientes o en proceso visibles con fin previsto vencido."
         />
         <SummaryCard
           title="Estado seleccionado"

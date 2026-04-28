@@ -16,17 +16,18 @@ export function useImputacionesHistorial(comprobanteIds: number[]) {
   const [imputaciones, setImputaciones] = useState<ImputacionDto[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const comprobanteIdsSignature = JSON.stringify(comprobanteIds)
 
   const stableIds = useMemo(
     () => [
       ...new Set(comprobanteIds.filter((value) => Number.isFinite(value)).sort((a, b) => a - b)),
     ],
-    [comprobanteIds]
+    [comprobanteIdsSignature]
   )
 
   const fetchHistorial = useCallback(async () => {
     if (stableIds.length === 0) {
-      setImputaciones([])
+      setImputaciones((prev) => (prev.length === 0 ? prev : []))
       return
     }
 

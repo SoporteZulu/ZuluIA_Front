@@ -86,6 +86,25 @@ const estadoLabels: Record<CRMContact["estadoContacto"], string> = {
   inactivo: "Inactivo",
 }
 
+function getCatalogLabel<T extends string>(
+  option: { id: string; nombre: string },
+  labels: Record<T, string>
+) {
+  const fallbackLabel = labels[option.id as T]
+  const normalizedName = option.nombre.trim()
+
+  if (!fallbackLabel) {
+    return normalizedName || option.id
+  }
+
+  if (!normalizedName) {
+    return fallbackLabel
+  }
+
+  const normalizedKey = normalizedName.toLowerCase().replace(/\s+/g, "_")
+  return normalizedKey === option.id ? fallbackLabel : normalizedName
+}
+
 const formatDateTime = (value?: Date | string | null) => {
   if (!value) return "Sin interacción"
 
@@ -116,6 +135,30 @@ const getDaysSince = (value?: Date | string | null, referenceDate?: Date) => {
   targetDate.setHours(0, 0, 0, 0)
 
   return Math.round((baseDate.getTime() - targetDate.getTime()) / 86400000)
+}
+
+function buildEmptyForm(clienteId?: string | null): Partial<CRMContact> {
+  return {
+    clienteId: clienteId || "",
+    nombre: "",
+    apellido: "",
+    cargo: "",
+    email: "",
+    telefono: "",
+    canalPreferido: "email",
+    estadoContacto: "activo",
+    notas: "",
+  }
+}
+
+function normalizeContactForm(contact: CRMContact): Partial<CRMContact> {
+  return {
+    ...contact,
+    cargo: contact.cargo ?? "",
+    email: contact.email ?? "",
+    telefono: contact.telefono ?? "",
+    notas: contact.notas ?? "",
+  }
 }
 
 function ContactosContent() {
@@ -151,7 +194,10 @@ function ContactosContent() {
   const canalOptions = useMemo(
     () =>
       catalogos.canalesContacto.length > 0
-        ? catalogos.canalesContacto
+        ? catalogos.canalesContacto.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, canalLabels),
+          }))
         : Object.entries(canalLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.canalesContacto]
   )
@@ -159,7 +205,10 @@ function ContactosContent() {
   const estadoOptions = useMemo(
     () =>
       catalogos.estadosContacto.length > 0
-        ? catalogos.estadosContacto
+        ? catalogos.estadosContacto.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, estadoLabels),
+          }))
         : Object.entries(estadoLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.estadosContacto]
   )
@@ -172,19 +221,11 @@ function ContactosContent() {
     [catalogos.clientes, crmClients]
   )
 
-  const emptyForm: Partial<CRMContact> = {
-    clienteId: clienteIdParam || "",
-    nombre: "",
-    apellido: "",
-    cargo: "",
-    email: "",
-    telefono: "",
-    canalPreferido: "email",
-    estadoContacto: "activo",
-    notas: "",
-  }
+  const emptyForm = useMemo(() => buildEmptyForm(clienteIdParam), [clienteIdParam])
 
-  const [formData, setFormData] = useState<Partial<CRMContact>>(emptyForm)
+  const [formData, setFormData] = useState<Partial<CRMContact>>(() =>
+    buildEmptyForm(clienteIdParam)
+  )
 
   const filteredContacts = contactos.filter((contact) => {
     const matchesSearch =
@@ -358,7 +399,7 @@ function ContactosContent() {
 
   const handleEdit = (contact: CRMContact) => {
     setSelectedContact(contact)
-    setFormData({ ...contact })
+    setFormData(normalizeContactForm(contact))
     setIsFormOpen(true)
   }
 
@@ -819,7 +860,7 @@ function ContactosContent() {
                 <div className="space-y-2">
                   <Label>Nombre *</Label>
                   <Input
-                    value={formData.nombre}
+                    value={formData.nombre ?? ""}
                     onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
                     required
                   />
@@ -827,7 +868,7 @@ function ContactosContent() {
                 <div className="space-y-2">
                   <Label>Apellido *</Label>
                   <Input
-                    value={formData.apellido}
+                    value={formData.apellido ?? ""}
                     onChange={(e) => setFormData({ ...formData, apellido: e.target.value })}
                     required
                   />
@@ -836,7 +877,7 @@ function ContactosContent() {
               <div className="space-y-2">
                 <Label>Cargo</Label>
                 <Input
-                  value={formData.cargo}
+                  value={formData.cargo ?? ""}
                   onChange={(e) => setFormData({ ...formData, cargo: e.target.value })}
                 />
               </div>
@@ -845,14 +886,14 @@ function ContactosContent() {
                   <Label>Email</Label>
                   <Input
                     type="email"
-                    value={formData.email}
+                    value={formData.email ?? ""}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>Teléfono</Label>
                   <Input
-                    value={formData.telefono}
+                    value={formData.telefono ?? ""}
                     onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
                   />
                 </div>
@@ -908,7 +949,7 @@ function ContactosContent() {
               <div className="space-y-2">
                 <Label>Notas</Label>
                 <Textarea
-                  value={formData.notas}
+                  value={formData.notas ?? ""}
                   onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
                   rows={2}
                 />

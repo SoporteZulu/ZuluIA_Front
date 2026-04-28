@@ -111,6 +111,25 @@ const estadoRelacionLabels: Record<CRMClient["estadoRelacion"], string> = {
   fidelizado: "Fidelizado",
 }
 
+function getCatalogLabel<T extends string>(
+  option: { id: string; nombre: string },
+  labels: Record<T, string>
+) {
+  const fallbackLabel = labels[option.id as T]
+  const normalizedName = option.nombre.trim()
+
+  if (!fallbackLabel) {
+    return normalizedName || option.id
+  }
+
+  if (!normalizedName) {
+    return fallbackLabel
+  }
+
+  const normalizedKey = normalizedName.toLowerCase().replace(/\s+/g, "_")
+  return normalizedKey === option.id ? fallbackLabel : normalizedName
+}
+
 const formatDate = (value?: Date | string | null) => {
   if (!value) return "Sin gestión"
 
@@ -183,7 +202,10 @@ function ClientesContent() {
   const tipoClienteOptions = useMemo(
     () =>
       catalogos.tiposCliente.length > 0
-        ? catalogos.tiposCliente
+        ? catalogos.tiposCliente.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, tipoClienteLabels),
+          }))
         : Object.entries(tipoClienteLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.tiposCliente]
   )
@@ -191,7 +213,10 @@ function ClientesContent() {
   const segmentoOptions = useMemo(
     () =>
       catalogos.segmentosCliente.length > 0
-        ? catalogos.segmentosCliente
+        ? catalogos.segmentosCliente.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, segmentoLabels),
+          }))
         : Object.entries(segmentoLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.segmentosCliente]
   )
@@ -199,7 +224,10 @@ function ClientesContent() {
   const origenOptions = useMemo(
     () =>
       catalogos.origenesCliente.length > 0
-        ? catalogos.origenesCliente
+        ? catalogos.origenesCliente.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, origenLabels),
+          }))
         : Object.entries(origenLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.origenesCliente]
   )
@@ -207,12 +235,15 @@ function ClientesContent() {
   const estadoRelacionOptions = useMemo(
     () =>
       catalogos.estadosRelacion.length > 0
-        ? catalogos.estadosRelacion
+        ? catalogos.estadosRelacion.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, estadoRelacionLabels),
+          }))
         : Object.entries(estadoRelacionLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.estadosRelacion]
   )
 
-  const responsableOptions = useMemo(() => {
+  const responsableBaseOptions = useMemo(() => {
     if (catalogos.usuarios.length > 0) {
       return catalogos.usuarios.filter(
         (user) => user.rol === "comercial" || user.rol === "administrador"
@@ -314,7 +345,47 @@ function ClientesContent() {
     notasGenerales: "",
   }
 
+  const mapClientToForm = (client: CRMClient): Partial<CRMClient> => ({
+    ...client,
+    industria: client.industria ?? "",
+    cuit: client.cuit ?? "",
+    pais: client.pais ?? "Argentina",
+    provincia: client.provincia ?? "",
+    ciudad: client.ciudad ?? "",
+    direccion: client.direccion ?? "",
+    telefonoPrincipal: client.telefonoPrincipal ?? "",
+    emailPrincipal: client.emailPrincipal ?? "",
+    sitioWeb: client.sitioWeb ?? "",
+    responsableId: client.responsableId ?? "",
+    notasGenerales: client.notasGenerales ?? "",
+  })
+
   const [formData, setFormData] = useState<Partial<CRMClient>>(emptyForm)
+
+  const responsableSelectOptions = useMemo(() => {
+    if (!formData.responsableId) {
+      return responsableBaseOptions
+    }
+
+    const currentOption = responsableBaseOptions.find((user) => user.id === formData.responsableId)
+    if (currentOption) {
+      return responsableBaseOptions
+    }
+
+    const currentUser = usersById.get(formData.responsableId)
+    if (!currentUser) {
+      return responsableBaseOptions
+    }
+
+    return [
+      ...responsableBaseOptions,
+      {
+        id: currentUser.id,
+        nombre: `${currentUser.nombre} ${currentUser.apellido} (actual)`,
+        rol: currentUser.rol,
+      },
+    ]
+  }, [formData.responsableId, responsableBaseOptions, usersById])
 
   const filteredClients = clients.filter((client) => {
     const matchesSearch =
@@ -417,27 +488,49 @@ function ClientesContent() {
   }, [clientRows])
 
   const ownerCoverage = useMemo(() => {
-    return crmUsers
-      .filter((user) => user.rol === "comercial" || user.rol === "administrador")
-      .map((user) => {
-        const cartera = clientRows.filter((row) => row.client.responsableId === user.id)
-        return {
-          id: user.id,
-          nombre: `${user.nombre} ${user.apellido}`,
-          cartera: cartera.length,
-          riesgo: cartera.filter((row) => row.client.estadoRelacion === "en_riesgo").length,
-          seguimientoVencido: cartera.filter(
-            (row) => row.daysWithoutTouch === null || row.daysWithoutTouch > 30
-          ).length,
-          oportunidades: cartera.reduce((sum, row) => sum + row.openOpportunities.length, 0),
-        }
-      })
-      .filter((row) => row.cartera > 0)
+    const grouped = new Map<
+      string,
+      {
+        id: string
+        nombre: string
+        cartera: number
+        riesgo: number
+        seguimientoVencido: number
+        oportunidades: number
+      }
+    >()
+
+    clientRows.forEach((row) => {
+      if (!row.client.responsableId) {
+        return
+      }
+
+      const existing = grouped.get(row.client.responsableId) ?? {
+        id: row.client.responsableId,
+        nombre: row.responsable
+          ? `${row.responsable.nombre} ${row.responsable.apellido}`
+          : "Responsable asignado",
+        cartera: 0,
+        riesgo: 0,
+        seguimientoVencido: 0,
+        oportunidades: 0,
+      }
+
+      existing.cartera += 1
+      existing.riesgo += row.client.estadoRelacion === "en_riesgo" ? 1 : 0
+      existing.seguimientoVencido +=
+        row.daysWithoutTouch === null || row.daysWithoutTouch > 30 ? 1 : 0
+      existing.oportunidades += row.openOpportunities.length
+
+      grouped.set(row.client.responsableId, existing)
+    })
+
+    return Array.from(grouped.values())
       .sort(
         (left, right) => right.cartera - left.cartera || right.oportunidades - left.oportunidades
       )
       .slice(0, 4)
-  }, [clientRows, crmUsers])
+  }, [clientRows])
 
   const alerts = useMemo(() => {
     const items: Array<{ title: string; detail: string }> = []
@@ -531,7 +624,7 @@ function ClientesContent() {
 
   const handleEdit = (client: CRMClient) => {
     setSelectedClient(client)
-    setFormData({ ...client })
+    setFormData(mapClientToForm(client))
     setIsFormOpen(true)
   }
 
@@ -889,7 +982,7 @@ function ClientesContent() {
           <CardHeader>
             <CardTitle>Responsables con carga</CardTitle>
             <CardDescription>
-              Distribución operativa de la cartera filtrada entre comerciales visibles.
+              Distribución operativa de la cartera filtrada entre responsables visibles.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -913,7 +1006,7 @@ function ClientesContent() {
             ))}
             {ownerCoverage.length === 0 && (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                Ningún responsable comercial aparece asociado a la cartera filtrada.
+                No hay responsables asignados dentro de la cartera filtrada.
               </div>
             )}
           </CardContent>
@@ -1308,14 +1401,20 @@ function ClientesContent() {
                 <div className="space-y-2">
                   <Label htmlFor="responsableId">Responsable</Label>
                   <Select
-                    value={formData.responsableId || ""}
-                    onValueChange={(value) => setFormData({ ...formData, responsableId: value })}
+                    value={formData.responsableId || "__none__"}
+                    onValueChange={(value) =>
+                      setFormData({
+                        ...formData,
+                        responsableId: value === "__none__" ? "" : value,
+                      })
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar responsable" />
                     </SelectTrigger>
                     <SelectContent>
-                      {responsableOptions.map((user) => (
+                      <SelectItem value="__none__">Sin responsable</SelectItem>
+                      {responsableSelectOptions.map((user) => (
                         <SelectItem key={user.id} value={user.id}>
                           {user.nombre}
                         </SelectItem>

@@ -31,6 +31,90 @@ import { useCrmReportes } from "@/lib/hooks/useCrm"
 
 const COLORS = ["#38bdf8", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"]
 
+const etapaLabels: Record<string, string> = {
+  lead: "Lead",
+  calificado: "Calificado",
+  propuesta: "Propuesta",
+  negociacion: "Negociación",
+  cerrado_ganado: "Cerrado Ganado",
+  cerrado_perdido: "Cerrado Perdido",
+}
+
+const segmentoLabels: Record<string, string> = {
+  pyme: "PYME",
+  corporativo: "Corporativo",
+  gobierno: "Gobierno",
+  startup: "Startup",
+  otro: "Otro",
+}
+
+const estadoRelacionLabels: Record<string, string> = {
+  nuevo: "Nuevo",
+  en_negociacion: "En Negociación",
+  en_riesgo: "En Riesgo",
+  fidelizado: "Fidelizado",
+}
+
+const tipoCampanaLabels: Record<string, string> = {
+  email: "Email",
+  evento: "Evento",
+  llamadas: "Llamadas",
+  redes_sociales: "Redes sociales",
+  publicidad: "Publicidad",
+}
+
+const objetivoCampanaLabels: Record<string, string> = {
+  generacion_leads: "Generación de leads",
+  upselling: "Upselling",
+  fidelizacion: "Fidelización",
+  recuperacion: "Recuperación",
+  branding: "Branding",
+}
+
+const tipoInteraccionLabels: Record<string, string> = {
+  llamada: "Llamada",
+  email: "Email",
+  reunion: "Reunión",
+  visita: "Visita",
+  ticket: "Ticket",
+  mensaje: "Mensaje",
+}
+
+const canalLabels: Record<string, string> = {
+  telefono: "Teléfono",
+  email: "Email",
+  whatsapp: "WhatsApp",
+  presencial: "Presencial",
+  videollamada: "Videollamada",
+}
+
+const resultadoLabels: Record<string, string> = {
+  exitosa: "Exitosa",
+  sin_respuesta: "Sin Respuesta",
+  reprogramada: "Reprogramada",
+  cancelada: "Cancelada",
+}
+
+function humanizeIdentifier(value?: string) {
+  if (!value) return "-"
+
+  return value
+    .split("_")
+    .map((part) => {
+      if (part.toLowerCase() === "pyme") {
+        return "PYME"
+      }
+
+      return part.charAt(0).toUpperCase() + part.slice(1)
+    })
+    .join(" ")
+}
+
+function getLabel(value: string | undefined, labels: Record<string, string>) {
+  if (!value) return "-"
+  return labels[value] ?? humanizeIdentifier(value)
+}
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -61,7 +145,7 @@ export default function ReportesPage() {
   const pipelineChart = useMemo(
     () =>
       reportes.pipelinePorEtapa.map((item) => ({
-        etapa: item.etapa.replaceAll("_", " "),
+        etapa: getLabel(item.etapa, etapaLabels),
         cantidad: item.cantidad,
         monto: item.monto,
       })),
@@ -75,7 +159,11 @@ export default function ReportesPage() {
   )
 
   const segmentChart = useMemo(
-    () => reportes.clientesPorSegmento.map((item) => ({ name: item.nombre, value: item.cantidad })),
+    () =>
+      reportes.clientesPorSegmento.map((item) => ({
+        name: getLabel(item.nombre, segmentoLabels),
+        value: item.cantidad,
+      })),
     [reportes.clientesPorSegmento]
   )
 
@@ -273,7 +361,7 @@ export default function ReportesPage() {
                     <div>
                       <p className="font-medium">{item.nombre}</p>
                       <p className="text-sm text-muted-foreground">
-                        {item.segmento} · {item.responsable}
+                        {getLabel(item.segmento, segmentoLabels)} · {item.responsable}
                       </p>
                     </div>
                     <Badge variant={getRiesgoVariant(item.criticidad)}>
@@ -282,7 +370,7 @@ export default function ReportesPage() {
                   </div>
                   <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
                     <span>Pipeline {formatCurrency(item.pipeline)}</span>
-                    <span>Estado {item.estadoRelacion.replaceAll("_", " ")}</span>
+                    <span>Estado {getLabel(item.estadoRelacion, estadoRelacionLabels)}</span>
                     <span>Última gestión {formatDate(item.ultimaGestion)}</span>
                   </div>
                 </div>
@@ -357,7 +445,9 @@ export default function ReportesPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="font-medium">{item.nombre}</p>
-                        <p className="text-sm text-muted-foreground">{item.tipoCampana}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {getLabel(item.tipoCampana, tipoCampanaLabels)}
+                        </p>
                       </div>
                       <Badge variant="outline">{item.oportunidadesGeneradas} oportunidades</Badge>
                     </div>
@@ -395,7 +485,7 @@ export default function ReportesPage() {
                   {reportes.radarCampanas.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell>{item.nombre}</TableCell>
-                      <TableCell>{item.objetivo.replaceAll("_", " ")}</TableCell>
+                      <TableCell>{getLabel(item.objetivo, objetivoCampanaLabels)}</TableCell>
                       <TableCell>{item.responsable}</TableCell>
                       <TableCell>
                         {formatDate(item.fechaInicio)} - {formatDate(item.fechaFin)}
@@ -479,10 +569,11 @@ export default function ReportesPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-medium">
-                        {item.tipoInteraccion} · {item.cliente}
+                        {getLabel(item.tipoInteraccion, tipoInteraccionLabels)} · {item.cliente}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {item.usuario} · {item.canal} · {item.resultado}
+                        {item.usuario} · {getLabel(item.canal, canalLabels)} ·{" "}
+                        {getLabel(item.resultado, resultadoLabels)}
                       </p>
                     </div>
                     <Badge variant="outline">{formatDate(item.fechaHora)}</Badge>

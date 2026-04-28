@@ -109,6 +109,10 @@ function buildSupplierScore(orderStats: {
   return clamp(3 + deliveredRatio * 2 - delayedRatio * 1.5 - cancelledRatio, 1, 5)
 }
 
+function formatSupplierScore(score: number | null) {
+  return score === null ? "Sin score operativo" : `Score ${score.toFixed(1)}/5`
+}
+
 function formatLoadableValue(value: string, loading: boolean) {
   return loading ? "Cargando..." : value
 }
@@ -235,12 +239,15 @@ export default function ComprasDashboard() {
     return Array.from(grouped.entries())
       .map(([proveedorId, stats]) => {
         const prov = terceros.find((t) => t.id === proveedorId)
-        const score = buildSupplierScore({
-          total: stats.ordenes,
-          retrasadas: stats.retrasadas,
-          canceladas: stats.canceladas,
-          recibidas: stats.recibidas,
-        })
+        const score =
+          stats.ordenes > 0
+            ? buildSupplierScore({
+                total: stats.ordenes,
+                retrasadas: stats.retrasadas,
+                canceladas: stats.canceladas,
+                recibidas: stats.recibidas,
+              })
+            : null
 
         return {
           proveedorId,
@@ -249,22 +256,28 @@ export default function ComprasDashboard() {
           volumen: stats.volumen,
           saldoAbierto: stats.saldoAbierto,
           score,
+          hasOrderHistory: stats.ordenes > 0,
           retrasadas: stats.retrasadas,
           recibidas: stats.recibidas,
         }
       })
-      .sort((a, b) => b.volumen - a.volumen || b.score - a.score || b.ordenes - a.ordenes)
+      .sort(
+        (a, b) =>
+          b.volumen - a.volumen ||
+          (b.score ?? Number.NEGATIVE_INFINITY) - (a.score ?? Number.NEGATIVE_INFINITY) ||
+          b.ordenes - a.ordenes
+      )
       .slice(0, 5)
   }, [comprasActivas, ordenes, terceros])
 
   const supplierRating = useMemo(() => {
-    const withOrders = topProveedores.filter((provider) => provider.ordenes > 0)
+    const withOrders = topProveedores.filter((provider) => provider.score !== null)
     if (withOrders.length === 0) return 0
-    return withOrders.reduce((sum, provider) => sum + provider.score, 0) / withOrders.length
+    return withOrders.reduce((sum, provider) => sum + (provider.score ?? 0), 0) / withOrders.length
   }, [topProveedores])
 
   const cumplimientoOrdenes = useMemo(() => {
-    if (ordenes.length === 0) return 0
+    if (ordenes.length === 0) return null
     const recibidas = ordenes.filter((order) => order.estadoOc === "RECIBIDA").length
     return (recibidas / ordenes.length) * 100
   }, [ordenes])
@@ -363,6 +376,9 @@ export default function ComprasDashboard() {
     const proveedoresConActividad = topProveedores.filter(
       (provider) => provider.ordenes > 0 || provider.volumen > 0
     ).length
+    const proveedoresConOrdenes = topProveedores.filter(
+      (provider) => provider.hasOrderHistory
+    ).length
     return {
       ordenesActivas,
       recepcionesPendientes,
@@ -374,6 +390,7 @@ export default function ComprasDashboard() {
       ratingPromedioProveedores: supplierRating,
       cumplimientoOrdenes,
       proveedoresConActividad,
+      proveedoresConOrdenes,
       productosStockBajo,
     }
   }, [
@@ -541,14 +558,18 @@ export default function ComprasDashboard() {
             <CardContent>
               <div className="text-2xl font-bold">
                 {formatLoadableValue(
-                  `${kpis.cumplimientoOrdenes.toFixed(1)}%`,
+                  kpis.cumplimientoOrdenes === null
+                    ? "Sin OCs"
+                    : `${kpis.cumplimientoOrdenes.toFixed(1)}%`,
                   ordenesLoading || facturasLoading || proveedoresLoading
                 )}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {ordenesLoading || facturasLoading || proveedoresLoading
                   ? "Calculando performance de proveedores..."
-                  : `Score promedio ${kpis.ratingPromedioProveedores.toFixed(1)}/5 con ${kpis.proveedoresConActividad} proveedores activos`}
+                  : kpis.proveedoresConOrdenes > 0
+                    ? `Score promedio ${kpis.ratingPromedioProveedores.toFixed(1)}/5 con ${kpis.proveedoresConOrdenes} proveedores con OCs visibles`
+                    : `${kpis.proveedoresConActividad} proveedores con actividad documental, sin OCs visibles para estimar cumplimiento`}
               </p>
             </CardContent>
           </Card>
@@ -777,8 +798,9 @@ export default function ComprasDashboard() {
                   <div>
                     <p className="font-medium">{prov.proveedor}</p>
                     <p className="text-sm text-muted-foreground">
-                      {prov.ordenes} órdenes, {prov.recibidas} recibidas, {prov.retrasadas}{" "}
-                      retrasadas
+                      {prov.hasOrderHistory
+                        ? `${prov.ordenes} órdenes, ${prov.recibidas} recibidas, ${prov.retrasadas} retrasadas`
+                        : "Sin órdenes visibles, actividad sólo por comprobantes"}
                     </p>
                   </div>
                 </div>
@@ -787,7 +809,7 @@ export default function ComprasDashboard() {
                   <p className="text-sm text-muted-foreground">
                     Abierto {formatMoney(prov.saldoAbierto)}
                   </p>
-                  <p className="text-xs text-muted-foreground">Score {prov.score.toFixed(1)}/5</p>
+                  <p className="text-xs text-muted-foreground">{formatSupplierScore(prov.score)}</p>
                 </div>
               </div>
             ))}
@@ -828,7 +850,9 @@ export default function ComprasDashboard() {
                       <div className="space-y-1">
                         <div className="font-medium">{provider.proveedor}</div>
                         <div className="text-xs text-muted-foreground">
-                          Score {provider.score.toFixed(1)}/5 · {provider.recibidas} recibidas
+                          {provider.hasOrderHistory
+                            ? `${formatSupplierScore(provider.score)} · ${provider.recibidas} recibidas`
+                            : "Sin órdenes visibles para estimar cumplimiento"}
                         </div>
                       </div>
                     </TableCell>

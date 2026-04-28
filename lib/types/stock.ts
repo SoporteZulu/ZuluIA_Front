@@ -20,6 +20,17 @@ export interface StockResumenSucursal {
   itemsBajoMinimo: number
   itemsSinStock: number
   totalDepositos: number
+  movimientosTotales?: number
+  movimientosPorDeposito?: Array<{
+    id: number
+    descripcion: string
+    movimientos: number
+    alertasBajoMinimo: number
+  }>
+  conteosPorEstado?: Array<{
+    estado: string
+    total: number
+  }>
 }
 
 export interface StockBajoMinimo {

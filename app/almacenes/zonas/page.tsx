@@ -77,6 +77,15 @@ export default function ZonasAlmacenPage() {
     })
   }, [search, zonas])
 
+  const visibleStats = useMemo(
+    () => ({
+      total: filtered.length,
+      activas: filtered.filter((row) => row.activo).length,
+      inactivas: filtered.filter((row) => !row.activo).length,
+    }),
+    [filtered]
+  )
+
   const selected = filtered.find((row) => row.id === selectedId) ?? filtered[0] ?? null
 
   const openCreate = () => {
@@ -154,18 +163,18 @@ export default function ZonasAlmacenPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Zonas visibles"
-          value={loading ? "..." : String(filtered.length)}
+          value={loading ? "..." : String(visibleStats.total)}
           description="Maestro disponible con datos reales del backend."
         />
         <SummaryCard
           title="Activas"
-          value={loading ? "..." : String(zonas.filter((row) => row.activo).length)}
-          description="Zonas habilitadas para operación actual."
+          value={loading ? "..." : String(visibleStats.activas)}
+          description="Zonas visibles habilitadas para operación actual."
         />
         <SummaryCard
           title="Inactivas"
-          value={loading ? "..." : String(zonas.filter((row) => !row.activo).length)}
-          description="Zonas dadas de baja lógica, aún visibles para auditoría."
+          value={loading ? "..." : String(visibleStats.inactivas)}
+          description="Zonas visibles dadas de baja lógica, aún visibles para auditoría."
         />
         <SummaryCard
           title="Depósitos reales"

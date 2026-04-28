@@ -241,6 +241,15 @@ export default function CartaPortePage() {
     [transportistas]
   )
 
+  const getTransportistaCuit = useCallback(
+    (transportistaId?: number) => {
+      if (!transportistaId) return ""
+      const transportista = transportistaById.get(transportistaId)
+      return transportista?.nroCuitTransportista ?? transportista?.terceroCuit ?? ""
+    },
+    [transportistaById]
+  )
+
   const transportistaName = useCallback(
     (transportistaId?: number) => {
       if (!transportistaId) return "Sin transportista"
@@ -1073,16 +1082,32 @@ export default function CartaPortePage() {
               <Select
                 value={createDraft.transportistaId}
                 onValueChange={(value) => {
-                  const transportista =
-                    value === "none" ? null : transportistaById.get(Number(value))
-                  setCreateDraft((current) => ({
-                    ...current,
-                    transportistaId: value,
-                    cuitTransportista:
-                      transportista?.nroCuitTransportista ??
-                      transportista?.terceroCuit ??
-                      current.cuitTransportista,
-                  }))
+                  setCreateDraft((current) => {
+                    if (value === "none") {
+                      const previousTransportistaId =
+                        current.transportistaId === "none"
+                          ? undefined
+                          : Number(current.transportistaId)
+                      const previousAutoFilledCuit = getTransportistaCuit(previousTransportistaId)
+
+                      return {
+                        ...current,
+                        transportistaId: value,
+                        cuitTransportista:
+                          current.cuitTransportista === previousAutoFilledCuit
+                            ? ""
+                            : current.cuitTransportista,
+                      }
+                    }
+
+                    const autoFilledCuit = getTransportistaCuit(Number(value))
+
+                    return {
+                      ...current,
+                      transportistaId: value,
+                      cuitTransportista: autoFilledCuit || current.cuitTransportista,
+                    }
+                  })
                 }}
               >
                 <SelectTrigger>

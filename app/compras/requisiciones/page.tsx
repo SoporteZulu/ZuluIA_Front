@@ -66,6 +66,15 @@ type LocalRequisitionTracker = {
   buyer: string
   nextStep: string
   updatedAt: string
+  statusSnapshot?: string
+  manualStage?: boolean
+  manualNextStep?: boolean
+}
+
+type RequisitionEmployeeOption = {
+  id: number
+  razonSocial?: string
+  sucursalId: number
 }
 
 type DraftRequisitionItem = {
@@ -128,6 +137,12 @@ function getStatusMeta(status: string) {
   }
 }
 
+function getOperationalStatus(
+  requisition: Pick<RequisicionCompraListItem, "estado" | "estadoLegacy">
+) {
+  return (requisition.estado || requisition.estadoLegacy || "").toUpperCase()
+}
+
 function matchesTerm(requisition: RequisicionCompraListItem, term: string) {
   if (term === "") return true
 
@@ -147,11 +162,14 @@ function matchesTerm(requisition: RequisicionCompraListItem, term: string) {
 }
 
 function buildDefaultTracker(requisition: RequisicionCompraListItem): LocalRequisitionTracker {
-  const status = (requisition.estadoLegacy || requisition.estado || "").toUpperCase()
+  const status = getOperationalStatus(requisition)
+  const isProcessed = status === "PROCESADA"
+
   return {
     requisitionId: requisition.id,
-    stage:
-      status === "APROBADA"
+    stage: isProcessed
+      ? "derivada"
+      : status === "APROBADA"
         ? "lista_para_cotizar"
         : status === "ENVIADA"
           ? "en_preparacion"
@@ -159,8 +177,9 @@ function buildDefaultTracker(requisition: RequisicionCompraListItem): LocalRequi
             ? "derivada"
             : "sin_revisar",
     buyer: "Compras",
-    nextStep:
-      status === "APROBADA"
+    nextStep: isProcessed
+      ? "La continuidad ya quedó fuera del tramo inicial. Revisar su avance en cotizaciones."
+      : status === "APROBADA"
         ? "Tomar la requisición aprobada y abrir la cotización correspondiente."
         : status === "ENVIADA"
           ? "Completar la revisión interna y decidir aprobación o rechazo."
@@ -168,6 +187,31 @@ function buildDefaultTracker(requisition: RequisicionCompraListItem): LocalRequi
             ? "Caso cerrado. Revisar si requiere nueva solicitud origen."
             : "Validar alcance, prioridad y asignación antes de enviarla.",
     updatedAt: requisition.createdAt,
+    statusSnapshot: status,
+    manualStage: false,
+    manualNextStep: false,
+  }
+}
+
+function mergeTrackerWithRequisition(
+  requisition: RequisicionCompraListItem,
+  tracker?: LocalRequisitionTracker | null
+) {
+  const defaultTracker = buildDefaultTracker(requisition)
+  if (!tracker) return defaultTracker
+
+  const statusChanged = (tracker.statusSnapshot ?? "") !== defaultTracker.statusSnapshot
+
+  return {
+    ...defaultTracker,
+    ...tracker,
+    stage: statusChanged || !tracker.manualStage ? defaultTracker.stage : tracker.stage,
+    nextStep: tracker.manualNextStep && !statusChanged ? tracker.nextStep : defaultTracker.nextStep,
+    buyer: tracker.buyer || defaultTracker.buyer,
+    updatedAt: tracker.updatedAt || defaultTracker.updatedAt,
+    statusSnapshot: defaultTracker.statusSnapshot,
+    manualStage: statusChanged ? false : (tracker.manualStage ?? false),
+    manualNextStep: tracker.manualNextStep ?? false,
   }
 }
 
@@ -250,13 +294,11 @@ export default function RequisicionesCompraPage() {
     () =>
       requisiciones.map((requisition) => ({
         ...requisition,
-        displayStatus: (requisition.estadoLegacy || requisition.estado || "").toUpperCase(),
-        tracker:
-          trackerMap.get(requisition.id) ??
-          defaultTrackers.find((row) => row.requisitionId === requisition.id)!,
+        displayStatus: getOperationalStatus(requisition),
+        tracker: mergeTrackerWithRequisition(requisition, trackerMap.get(requisition.id)),
         ageInDays: getDaysFromCreated(requisition.fecha || requisition.createdAt),
       })),
-    [defaultTrackers, requisiciones, trackerMap]
+    [requisiciones, trackerMap]
   )
 
   const filtered = useMemo(() => {
@@ -269,7 +311,7 @@ export default function RequisicionesCompraPage() {
     })
   }, [requisitionRows, search, stageFilter, statusFilter])
 
-  const selectedBase = requisitionRows.find((row) => row.id === selectedId) ?? filtered[0] ?? null
+  const selectedBase = requisitionRows.find((row) => row.id === selectedId) ?? null
 
   useEffect(() => {
     if (!selectedId) {
@@ -298,7 +340,10 @@ export default function RequisicionesCompraPage() {
     const sent = requisitionRows.filter((row) => row.displayStatus === "ENVIADA").length
     const approved = requisitionRows.filter((row) => row.displayStatus === "APROBADA").length
     const active = requisitionRows.filter(
-      (row) => row.displayStatus !== "RECHAZADA" && row.displayStatus !== "CANCELADA"
+      (row) =>
+        row.displayStatus !== "RECHAZADA" &&
+        row.displayStatus !== "CANCELADA" &&
+        row.displayStatus !== "PROCESADA"
     ).length
     return { ready, sent, approved, active }
   }, [requisitionRows])
@@ -321,14 +366,36 @@ export default function RequisicionesCompraPage() {
       .slice(0, 5)
   }, [filtered])
 
-  const employeeOptions = useMemo(
-    () =>
-      empleados.filter(
-        (empleado) =>
-          !createForm.sucursalId || empleado.sucursalId === Number(createForm.sucursalId)
-      ),
-    [createForm.sucursalId, empleados]
-  )
+  const employeeOptions = useMemo<RequisitionEmployeeOption[]>(() => {
+    const selectedSucursalId = createForm.sucursalId ? Number(createForm.sucursalId) : null
+    const matchesSucursal = (sucursalId: number) =>
+      selectedSucursalId === null || sucursalId === selectedSucursalId
+
+    const liveEmployees = empleados.filter((empleado) => matchesSucursal(empleado.sucursalId))
+    if (liveEmployees.length > 0) return liveEmployees
+
+    return Array.from(
+      new Map(
+        requisiciones
+          .filter((requisition) => matchesSucursal(requisition.sucursalId))
+          .map((requisition) => [
+            requisition.solicitanteId,
+            {
+              id: requisition.solicitanteId,
+              razonSocial:
+                requisition.solicitanteNombre ||
+                requisition.solicitante ||
+                `Solicitante ${requisition.solicitanteId}`,
+              sucursalId: requisition.sucursalId,
+            },
+          ])
+      ).values()
+    )
+  }, [createForm.sucursalId, empleados, requisiciones])
+
+  const usingEmployeeFallback = empleados.length === 0 && employeeOptions.length > 0
+  const createSolicitanteValue =
+    createForm.solicitanteId || (employeeOptions[0] ? String(employeeOptions[0].id) : "")
 
   const itemOptions = useMemo(() => items.filter((item) => item.activo), [items])
 
@@ -336,12 +403,20 @@ export default function RequisicionesCompraPage() {
     (requisitionId: number, patch: Partial<LocalRequisitionTracker>) => {
       setTrackers((current) => {
         const index = current.findIndex((row) => row.requisitionId === requisitionId)
-        const nextRow = {
-          ...(index >= 0
+        const requisition = requisiciones.find((row) => row.id === requisitionId)
+        const fallbackTracker = requisition
+          ? mergeTrackerWithRequisition(requisition, current[index] ?? null)
+          : index >= 0
             ? current[index]
-            : defaultTrackers.find((row) => row.requisitionId === requisitionId)!),
+            : defaultTrackers.find((row) => row.requisitionId === requisitionId)!
+        const nextRow = {
+          ...fallbackTracker,
           ...patch,
           updatedAt: new Date().toISOString(),
+          manualStage: patch.stage !== undefined ? true : (fallbackTracker.manualStage ?? false),
+          manualNextStep:
+            patch.nextStep !== undefined ? true : (fallbackTracker.manualNextStep ?? false),
+          statusSnapshot: fallbackTracker.statusSnapshot,
         }
 
         if (index >= 0) {
@@ -351,7 +426,7 @@ export default function RequisicionesCompraPage() {
         return [...current, nextRow]
       })
     },
-    [defaultTrackers, setTrackers]
+    [defaultTrackers, requisiciones, setTrackers]
   )
 
   const openDetail = useCallback((id: number) => {
@@ -453,7 +528,7 @@ export default function RequisicionesCompraPage() {
         (item) => item.descripcion !== "" && Number.isFinite(item.cantidad) && item.cantidad > 0
       )
 
-    if (!createForm.sucursalId || !createForm.solicitanteId || !createForm.descripcion.trim()) {
+    if (!createSucursalValue || !createSolicitanteValue || !createForm.descripcion.trim()) {
       setCreateError("Complete sucursal, solicitante y descripción general.")
       return
     }
@@ -466,7 +541,7 @@ export default function RequisicionesCompraPage() {
     setCreateLoading(true)
     const ok = await crear({
       sucursalId: Number(createSucursalValue),
-      solicitanteId: Number(createForm.solicitanteId),
+      solicitanteId: Number(createSolicitanteValue),
       fecha: createForm.fecha,
       descripcion: createForm.descripcion.trim(),
       observacion: createForm.observacion.trim() || null,
@@ -482,7 +557,7 @@ export default function RequisicionesCompraPage() {
     } else {
       setCreateError("No se pudo crear la requisición. Revise los datos e intente nuevamente.")
     }
-  }, [crear, createForm, createSucursalValue, refetch, resetCreateForm])
+  }, [crear, createForm, createSolicitanteValue, createSucursalValue, refetch, resetCreateForm])
 
   return (
     <div className="space-y-6 pb-6">
@@ -1059,7 +1134,7 @@ export default function RequisicionesCompraPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium">Solicitante</label>
               <Select
-                value={createForm.solicitanteId}
+                value={createSolicitanteValue}
                 onValueChange={(value) =>
                   setCreateForm((current) => ({ ...current, solicitanteId: value }))
                 }
@@ -1075,6 +1150,12 @@ export default function RequisicionesCompraPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {usingEmployeeFallback ? (
+                <p className="text-xs text-muted-foreground">
+                  Sin empleados publicados en el maestro local; se ofrecen solicitantes detectados
+                  en requisiciones reales para destrabar el alta.
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-2">

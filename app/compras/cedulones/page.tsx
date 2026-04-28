@@ -143,7 +143,7 @@ function CedulonForm({
   onClose: () => void
   onSaved: () => void
 }) {
-  const { proveedores } = useProveedores()
+  const { terceros: proveedores } = useProveedores()
   const { sucursales } = useSucursales()
   const { crear } = useCedulones()
   const [form, setForm] = useState<CreateCedulonDto>(() =>
@@ -388,7 +388,7 @@ export default function CedulonesPage() {
   const [searchText, setSearchText] = useState("")
   const { cedulones, loading, error, page, setPage, totalCount, totalPages, refetch } =
     useCedulones({ estado: filterEstado || undefined })
-  const { proveedores } = useProveedores()
+  const { terceros: proveedores } = useProveedores()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isCreateOpen, setIsCreateOpen] = useState(false)

@@ -91,6 +91,8 @@ type AdjustmentCase = {
 }
 
 const LEGACY_ADJUSTMENT_SEED_IDS = new Set(["adj-001", "adj-002"])
+const DEBIT_AFIP_TYPES = new Set(["2", "7"])
+const CREDIT_AFIP_TYPES = new Set(["3", "8"])
 
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", {
@@ -128,11 +130,17 @@ function formatCustomerAddress(customer?: Tercero | null) {
 }
 
 function isCreditType(tipo: TipoComprobante) {
+  const afipType = String(tipo.tipoAfip ?? "").trim()
+  if (CREDIT_AFIP_TYPES.has(afipType)) return true
+
   const text = `${normalizeText(tipo.codigo)} ${normalizeText(tipo.descripcion)}`
   return text.includes("credito") || /(^|\W)nc($|\W)/.test(text)
 }
 
 function isDebitType(tipo: TipoComprobante) {
+  const afipType = String(tipo.tipoAfip ?? "").trim()
+  if (DEBIT_AFIP_TYPES.has(afipType)) return true
+
   const text = `${normalizeText(tipo.codigo)} ${normalizeText(tipo.descripcion)}`
   return text.includes("debito") || /(^|\W)nd($|\W)/.test(text)
 }
@@ -736,6 +744,46 @@ export default function VentasAjustesPage() {
   const [isNewDialogOpen, setIsNewDialogOpen] = useState(false)
   const [formalizationError, setFormalizationError] = useState<string | null>(null)
 
+  const clearSelection = useCallback(() => {
+    setSelectedId(null)
+  }, [])
+
+  const updateSearchTerm = useCallback(
+    (value: string) => {
+      setPage(1)
+      clearSelection()
+      setSearchTerm(value)
+    },
+    [clearSelection, setPage]
+  )
+
+  const updateStatusFilter = useCallback(
+    (value: string) => {
+      setPage(1)
+      clearSelection()
+      setStatusFilter(value)
+    },
+    [clearSelection, setPage]
+  )
+
+  const updateKindFilter = useCallback(
+    (value: string) => {
+      setPage(1)
+      clearSelection()
+      setKindFilter(value)
+    },
+    [clearSelection, setPage]
+  )
+
+  const updateSourceFilter = useCallback(
+    (value: string) => {
+      setPage(1)
+      clearSelection()
+      setSourceFilter(value)
+    },
+    [clearSelection, setPage]
+  )
+
   useEffect(() => {
     if (localCases.some((row) => LEGACY_ADJUSTMENT_SEED_IDS.has(row.id))) {
       setLocalCases((prev) => prev.filter((row) => !LEGACY_ADJUSTMENT_SEED_IDS.has(row.id)))
@@ -867,6 +915,12 @@ export default function VentasAjustesPage() {
     })
   }, [cases, getProfile, kindFilter, searchTerm, sourceFilter, statusFilter])
 
+  const hasActiveFilters =
+    searchTerm.trim() !== "" ||
+    statusFilter !== "todos" ||
+    kindFilter !== "todos" ||
+    sourceFilter !== "todos"
+
   const highlighted = useMemo(
     () =>
       filtered.find((row) => row.status === "BORRADOR" || row.status === "EMITIDO") ??
@@ -879,16 +933,20 @@ export default function VentasAjustesPage() {
     ? (customerMap.get(highlighted.customerId) ?? null)
     : null
 
-  const totals = {
-    backend: liveCases.length,
-    local: localWorkbenchCases.length,
-    amount: filtered.reduce((sum, row) => sum + row.amount, 0),
-    pending: filtered.filter((row) => row.status === "BORRADOR" || row.status === "EMITIDO").length,
-    approvals: cases.filter((row) => getProfile(row).requiereAprobacion).length,
-    conciliated: cases.filter((row) => getProfile(row).conciliado).length,
-  }
+  const totals = useMemo(
+    () => ({
+      backend: filtered.filter((row) => row.source === "backend").length,
+      local: filtered.filter((row) => row.source === "local").length,
+      amount: filtered.reduce((sum, row) => sum + row.amount, 0),
+      pending: filtered.filter((row) => row.status === "BORRADOR" || row.status === "EMITIDO")
+        .length,
+      approvals: filtered.filter((row) => getProfile(row).requiereAprobacion).length,
+      conciliated: filtered.filter((row) => getProfile(row).conciliado).length,
+    }),
+    [filtered, getProfile]
+  )
 
-  const selected = selectedId ? (cases.find((row) => row.id === selectedId) ?? null) : null
+  const selected = selectedId ? (filtered.find((row) => row.id === selectedId) ?? null) : null
   const selectedProfile = selected ? getProfile(selected) : null
   const editingLocalCase = editingId
     ? (activeLocalCases.find((row) => row.id === editingId) ?? null)
@@ -1109,17 +1167,29 @@ export default function VentasAjustesPage() {
         <MetricCard
           title="Casos backend"
           value={totals.backend}
-          description="Notas de crédito y débito reales detectadas en ventas."
+          description={
+            hasActiveFilters
+              ? "Notas reales visibles dentro de la vista filtrada."
+              : "Notas de crédito y débito reales detectadas en ventas."
+          }
         />
         <MetricCard
           title="Workbench local"
           value={totals.local}
-          description="Casos pendientes de formalizar en documentación real."
+          description={
+            hasActiveFilters
+              ? "Casos locales visibles dentro de la vista filtrada."
+              : "Casos pendientes de formalizar en documentación real."
+          }
         />
         <MetricCard
           title="Pendientes"
           value={totals.pending}
-          description="Ajustes en borrador o emitidos sin cierre completo."
+          description={
+            hasActiveFilters
+              ? "Ajustes pendientes dentro de la vista filtrada."
+              : "Ajustes en borrador o emitidos sin cierre completo."
+          }
         />
         <MetricCard
           title="Monto visible"
@@ -1132,17 +1202,25 @@ export default function VentasAjustesPage() {
         <MetricCard
           title="Requieren aprobación"
           value={totals.approvals}
-          description="Casos con validación comercial/fiscal todavía abierta."
+          description={
+            hasActiveFilters
+              ? "Casos filtrados con validación comercial o fiscal abierta."
+              : "Casos con validación comercial/fiscal todavía abierta."
+          }
         />
         <MetricCard
           title="Conciliados"
           value={totals.conciliated}
-          description="Ajustes con cierre operativo ya marcado en la mesa."
+          description={
+            hasActiveFilters
+              ? "Casos filtrados con cierre operativo marcado."
+              : "Ajustes con cierre operativo ya marcado en la mesa."
+          }
         />
         <MetricCard
-          title="Comprobantes ventas"
-          value={comprobantes.filter((row) => row.estado !== "ANULADO").length}
-          description="Contexto documental disponible para soporte del ajuste."
+          title="Notas reales disponibles"
+          value={liveCases.length}
+          description="Notas de crédito y débito reales disponibles para respaldar ajustes."
         />
         <MetricCard
           title="Sucursal operativa"
@@ -1254,11 +1332,11 @@ export default function VentasAjustesPage() {
               <Input
                 placeholder="Buscar por cliente, motivo, origen, canal o documento..."
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
+                onChange={(event) => updateSearchTerm(event.target.value)}
                 className="pl-10"
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={updateStatusFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
@@ -1270,7 +1348,7 @@ export default function VentasAjustesPage() {
                 <SelectItem value="ANULADO">Anulado</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={kindFilter} onValueChange={setKindFilter}>
+            <Select value={kindFilter} onValueChange={updateKindFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="Tipo" />
               </SelectTrigger>
@@ -1280,7 +1358,7 @@ export default function VentasAjustesPage() {
                 <SelectItem value="Débito">Débito</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <Select value={sourceFilter} onValueChange={updateSourceFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="Origen datos" />
               </SelectTrigger>
@@ -1416,7 +1494,10 @@ export default function VentasAjustesPage() {
         </div>
       ) : null}
 
-      <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelectedId(null)}>
+      <Dialog
+        open={selectedId !== null && selected !== null}
+        onOpenChange={(open) => !open && clearSelection()}
+      >
         <SalesDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{selected?.code ?? "Detalle de ajuste"}</DialogTitle>

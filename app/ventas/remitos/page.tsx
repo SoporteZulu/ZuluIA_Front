@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import {
   AlertCircle,
   Ban,
@@ -75,6 +75,16 @@ function formatDate(value?: string | null) {
 
 function formatDateTime(value?: string | null) {
   return value ? new Date(value).toLocaleString("es-AR") : "-"
+}
+
+function normalizeText(value?: string | null) {
+  return (value ?? "").trim().toLowerCase()
+}
+
+function isDeliveryNoteType(tipo: TipoComprobante) {
+  const code = normalizeText(tipo.codigo)
+  const description = normalizeText(tipo.descripcion)
+  return description.includes("remito") || code.startsWith("rem")
 }
 
 function getDaysOffset(value?: string | null) {
@@ -929,7 +939,7 @@ function DeliveryNoteForm({
             <div className="rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">
               {loadingItems
                 ? "Cargando catálogo de productos..."
-                : `${items.length} productos disponibles para consolidar el remito en esta sesión.`}
+                : `${items.length} productos disponibles para consolidar el remito en esta sesión. La disponibilidad operativa final se valida al emitir.`}
             </div>
           </div>
 
@@ -938,7 +948,7 @@ function DeliveryNoteForm({
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[320px]">Descripción</TableHead>
-                  <TableHead className="text-right">Stock</TableHead>
+                  <TableHead className="text-right">Stock ref.</TableHead>
                   <TableHead className="text-right">Cantidad</TableHead>
                   <TableHead className="text-right">Precio</TableHead>
                   <TableHead className="text-right">Desc. %</TableHead>
@@ -965,7 +975,9 @@ function DeliveryNoteForm({
                           {item.descripcion}
                         </TableCell>
                         <TableCell className="text-right">
-                          {item.stockDisponible === null ? "-" : item.stockDisponible}
+                          {item.stockDisponible === null
+                            ? "Se valida al emitir"
+                            : `Ref. ${item.stockDisponible}`}
                         </TableCell>
                         <TableCell className="text-right">
                           <Input
@@ -1353,10 +1365,43 @@ export default function RemitosPage() {
   const [detailRemito, setDetailRemito] = useState<ComprobanteDetalle | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const detailRequestIdRef = useRef(0)
+
+  const updateSearchTerm = useCallback(
+    (value: string) => {
+      setPage(1)
+      setSearchTerm(value)
+    },
+    [setPage]
+  )
+
+  const updateTypeFilter = useCallback(
+    (value: string) => {
+      setPage(1)
+      setTypeFilter(value)
+    },
+    [setPage]
+  )
+
+  const updateStatusFilter = useCallback(
+    (value: string) => {
+      setPage(1)
+      setStatusFilter(value)
+    },
+    [setPage]
+  )
+
+  const updateSucursalFilter = useCallback(
+    (value: string) => {
+      setPage(1)
+      setSucursalFilter(value)
+    },
+    [setPage]
+  )
 
   const clientes = useMemo(() => terceros.filter((tercero) => tercero.esCliente), [terceros])
   const remitoTypes = useMemo(
-    () => tipos.filter((tipo) => tipo.esVenta && tipo.afectaStock),
+    () => tipos.filter((tipo) => tipo.esVenta && tipo.afectaStock && isDeliveryNoteType(tipo)),
     [tipos]
   )
   const validTypeIds = useMemo(() => new Set(remitoTypes.map((tipo) => tipo.id)), [remitoTypes])
@@ -1461,6 +1506,7 @@ export default function RemitosPage() {
     () => visibleRemitos.find((remito) => remito.id === selectedRemitoId) ?? null,
     [selectedRemitoId, visibleRemitos]
   )
+  const detailContextRemito = detailRemito ?? selectedRemito
   const highlightedRemito =
     selectedRemito && filtered.some((remito) => remito.id === selectedRemito.id)
       ? selectedRemito
@@ -1473,14 +1519,20 @@ export default function RemitosPage() {
     ? (logisticsByRemito.get(highlightedRemito.id)?.logistics ?? EMPTY_LOGISTICS)
     : EMPTY_LOGISTICS
 
-  const loadDetail = async (remito: Comprobante) => {
-    setSelectedRemitoId(remito.id)
-    setIsDetailOpen(true)
-    setLoadingDetail(true)
-    const detail = await getById(remito.id)
-    setDetailRemito(detail)
-    setLoadingDetail(false)
-  }
+  const loadDetail = useCallback(
+    async (remito: Comprobante) => {
+      const requestId = detailRequestIdRef.current + 1
+      detailRequestIdRef.current = requestId
+      setSelectedRemitoId(remito.id)
+      setIsDetailOpen(true)
+      setLoadingDetail(true)
+      const detail = await getById(remito.id)
+      if (detailRequestIdRef.current !== requestId) return
+      setDetailRemito(detail)
+      setLoadingDetail(false)
+    },
+    [getById]
+  )
 
   const handleSaved = async () => {
     setIsFormOpen(false)
@@ -1494,8 +1546,7 @@ export default function RemitosPage() {
     await refetch()
 
     if (selectedRemitoId === remito.id) {
-      const detail = await getById(remito.id)
-      setDetailRemito(detail)
+      await loadDetail(remito)
     }
   }
 
@@ -1647,11 +1698,11 @@ export default function RemitosPage() {
                 className="pl-10"
                 placeholder="Buscar por remito, cliente, COT, depósito, legajo o transportista..."
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
+                onChange={(event) => updateSearchTerm(event.target.value)}
               />
             </div>
 
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <Select value={typeFilter} onValueChange={updateTypeFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="Tipo" />
               </SelectTrigger>
@@ -1665,7 +1716,7 @@ export default function RemitosPage() {
               </SelectContent>
             </Select>
 
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={updateStatusFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
@@ -1679,7 +1730,7 @@ export default function RemitosPage() {
               </SelectContent>
             </Select>
 
-            <Select value={sucursalFilter} onValueChange={setSucursalFilter}>
+            <Select value={sucursalFilter} onValueChange={updateSucursalFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="Sucursal" />
               </SelectTrigger>
@@ -1893,8 +1944,10 @@ export default function RemitosPage() {
         onOpenChange={(open) => {
           setIsDetailOpen(open)
           if (!open) {
+            detailRequestIdRef.current += 1
             setSelectedRemitoId(null)
             setDetailRemito(null)
+            setLoadingDetail(false)
           }
         }}
       >
@@ -1902,10 +1955,12 @@ export default function RemitosPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
-              {selectedRemito?.nroComprobante ?? "Detalle de remito"}
+              {detailContextRemito?.nroComprobante ?? "Detalle de remito"}
             </DialogTitle>
             <DialogDescription>
-              {selectedRemito ? getCustomerName(selectedRemito.terceroId) : "Cargando detalle..."}
+              {detailContextRemito
+                ? getCustomerName(detailContextRemito.terceroId)
+                : "Cargando detalle..."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1914,16 +1969,16 @@ export default function RemitosPage() {
               <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
               Cargando detalle...
             </div>
-          ) : detailRemito && selectedRemito ? (
+          ) : detailRemito && detailContextRemito ? (
             <DeliveryNoteDetail
               remito={detailRemito}
-              customer={getCustomer(selectedRemito.terceroId)}
-              customerName={getCustomerName(selectedRemito.terceroId)}
+              customer={getCustomer(detailContextRemito.terceroId)}
+              customerName={getCustomerName(detailContextRemito.terceroId)}
               typeName={getTypeName(
-                selectedRemito.tipoComprobanteId,
-                selectedRemito.tipoComprobanteDescripcion
+                detailContextRemito.tipoComprobanteId,
+                detailContextRemito.tipoComprobanteDescripcion
               )}
-              sucursalName={getSucursalName(selectedRemito.sucursalId)}
+              sucursalName={getSucursalName(detailContextRemito.sucursalId)}
             />
           ) : (
             <p className="py-8 text-center text-muted-foreground">
@@ -1939,8 +1994,8 @@ export default function RemitosPage() {
             >
               Cerrar
             </Button>
-            {selectedRemito && selectedRemito.estado !== "ANULADO" ? (
-              <Button variant="destructive" onClick={() => handleAnnul(selectedRemito)}>
+            {detailContextRemito && detailContextRemito.estado !== "ANULADO" ? (
+              <Button variant="destructive" onClick={() => handleAnnul(detailContextRemito)}>
                 <Ban className="mr-2 h-4 w-4" />
                 Anular
               </Button>

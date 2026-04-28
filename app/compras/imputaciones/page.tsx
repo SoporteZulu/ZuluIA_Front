@@ -467,8 +467,10 @@ export default function ImputacionesCompraPage() {
           <AlertDescription>
             Llegaste con foco sobre la imputación del comprobante{" "}
             {routeFocusedAllocation.comprobante}
-            {focusProviderId ? ` del proveedor #${focusProviderId}` : ""}. La fila quedó priorizada
-            para revisión.
+            {focusProviderId
+              ? ` del proveedor ${routeFocusedAllocation.proveedor || `#${focusProviderId}`}`
+              : ""}
+            . La fila quedó priorizada para revisión.
           </AlertDescription>
         </Alert>
       )}
