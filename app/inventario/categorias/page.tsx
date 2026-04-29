@@ -1,13 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import {
   AlertCircle,
   Boxes,
+  CheckCircle2,
   FolderTree,
   Pencil,
   Plus,
-  RefreshCcw,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -46,31 +46,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
-import { apiGet } from "@/lib/api"
-import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
-import { useItemsConfig } from "@/lib/hooks/useItems"
-import type { CategoriaItem, Item, PagedResult } from "@/lib/types/items"
-
-const CATEGORIES_STORAGE_KEY = "inventory-categories-local-overlay"
-
-type CategoryStatus = "activa" | "revision" | "inactiva"
-
-type LocalCategoryRow = {
-  id: string
-  backendId: number | null
-  codigo: string
-  descripcion: string
-  parentId: string | null
-  estado: CategoryStatus
-  observacion: string
-  source: "backend" | "overlay"
-}
+import { useCategoriasItems, useItemsCatalogSnapshot } from "@/lib/hooks/useInventarioMaestros"
+import type { CategoriaItem, Item } from "@/lib/types/items"
 
 type CategoryFormState = {
   codigo: string
   descripcion: string
   parentId: string
-  estado: CategoryStatus
+  ordenNivel: string
   observacion: string
 }
 
@@ -99,48 +82,29 @@ function SummaryCard({
   )
 }
 
-function buildRowsFromBackend(categorias: CategoriaItem[]): LocalCategoryRow[] {
-  return categorias
-    .map((categoria) => ({
-      id: `backend-${categoria.id}`,
-      backendId: categoria.id,
-      codigo: categoria.codigo,
-      descripcion: categoria.descripcion,
-      parentId: null,
-      estado: "activa" as const,
-      observacion: "Sin observación adicional.",
-      source: "backend" as const,
-    }))
-    .sort((left, right) => left.codigo.localeCompare(right.codigo))
-}
-
 function emptyForm(): CategoryFormState {
   return {
     codigo: "",
     descripcion: "",
     parentId: "__none__",
-    estado: "activa",
+    ordenNivel: "",
     observacion: "",
   }
 }
 
-function formFromRow(row: LocalCategoryRow): CategoryFormState {
+function formFromCategoria(categoria: CategoriaItem): CategoryFormState {
   return {
-    codigo: row.codigo,
-    descripcion: row.descripcion,
-    parentId: row.parentId ?? "__none__",
-    estado: row.estado,
-    observacion: row.observacion,
+    codigo: categoria.codigo,
+    descripcion: categoria.descripcion,
+    parentId: categoria.parentId ? String(categoria.parentId) : "__none__",
+    ordenNivel: categoria.ordenNivel ?? "",
+    observacion: "",
   }
 }
 
-function getStatusBadge(status: CategoryStatus) {
-  if (status === "activa") {
+function getStatusBadge(activo: boolean) {
+  if (activo) {
     return <Badge>Activa</Badge>
-  }
-
-  if (status === "revision") {
-    return <Badge variant="secondary">En revisión</Badge>
   }
 
   return <Badge variant="outline">Inactiva</Badge>
@@ -167,58 +131,41 @@ function getOperationalBadge(linkedItems: Item[], sinStock: number) {
 }
 
 export default function CategoriasPage() {
-  const { categorias, loading: loadingCategorias, error } = useItemsConfig()
-  const [itemsCatalogo, setItemsCatalogo] = useState<Item[]>([])
-  const [itemsLoading, setItemsLoading] = useState(true)
-  const [itemsError, setItemsError] = useState<string | null>(null)
+  const {
+    categorias,
+    loading: loadingCategorias,
+    saving,
+    error,
+    crear,
+    actualizar,
+    eliminar,
+    activar,
+    refetch,
+  } = useCategoriasItems()
+  const {
+    items: itemsCatalogo,
+    loading: itemsLoading,
+    error: itemsError,
+  } = useItemsCatalogSnapshot()
+
   const [search, setSearch] = useState("")
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [deleteId, setDeleteId] = useState<number | null>(null)
   const [form, setForm] = useState<CategoryFormState>(emptyForm())
   const [formError, setFormError] = useState<string | null>(null)
-  const [hasOverlayKey, setHasOverlayKey] = useState<boolean>(() => {
-    if (typeof window === "undefined") {
-      return true
-    }
+  const [savingForm, setSavingForm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
-    return window.localStorage.getItem(CATEGORIES_STORAGE_KEY) !== null
-  })
-  const { rows, setRows } = useLegacyLocalCollection<LocalCategoryRow>(CATEGORIES_STORAGE_KEY, [])
-
-  const fetchItemsCatalogo = async () => {
-    setItemsLoading(true)
-    setItemsError(null)
-    try {
-      const response = await apiGet<PagedResult<Item>>(
-        "/api/items?soloActivos=true&page=1&pageSize=500"
-      )
-      setItemsCatalogo(response.items ?? [])
-    } catch (fetchError) {
-      setItemsError(
-        fetchError instanceof Error ? fetchError.message : "No se pudo cargar el catálogo activo."
-      )
-      setItemsCatalogo([])
-    } finally {
-      setItemsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void fetchItemsCatalogo()
-  }, [])
-
-  useEffect(() => {
-    if (loadingCategorias || hasOverlayKey || categorias.length === 0) {
-      return
-    }
-
-    setRows(buildRowsFromBackend(categorias))
-    setHasOverlayKey(true)
-  }, [categorias, hasOverlayKey, loadingCategorias, setRows])
+  const categoryMap = useMemo(
+    () => new Map(categorias.map((categoria) => [categoria.id, categoria])),
+    [categorias]
+  )
 
   const usageByCategoria = useMemo(() => {
     const usage = new Map<number, Item[]>()
+
     itemsCatalogo.forEach((item) => {
       if (!item.categoriaId) {
         return
@@ -228,13 +175,14 @@ export default function CategoriasPage() {
       existing.push(item)
       usage.set(item.categoriaId, existing)
     })
+
     return usage
   }, [itemsCatalogo])
 
   const rowsWithMetrics = useMemo(() => {
-    return rows
-      .map((row) => {
-        const linkedItems = row.backendId ? (usageByCategoria.get(row.backendId) ?? []) : []
+    return categorias
+      .map((categoria) => {
+        const linkedItems = usageByCategoria.get(categoria.id) ?? []
         const productos = linkedItems.filter((item) => item.esProducto).length
         const servicios = linkedItems.filter((item) => item.esServicio).length
         const financieros = linkedItems.filter((item) => item.esFinanciero).length
@@ -242,22 +190,20 @@ export default function CategoriasPage() {
         const sinStock = linkedItems.filter((item) => Number(item.stock ?? 0) <= 0).length
 
         return {
-          row,
+          categoria,
           linkedItems,
           productos,
           servicios,
           financieros,
           conStockControl,
           sinStock,
+          parentLabel: categoria.parentId
+            ? (categoryMap.get(categoria.parentId)?.descripcion ?? "Raíz no encontrada")
+            : "Categoría raíz",
         }
       })
-      .sort((left, right) => left.row.codigo.localeCompare(right.row.codigo))
-  }, [rows, usageByCategoria])
-
-  const rowMap = useMemo(
-    () => new Map(rowsWithMetrics.map((entry) => [entry.row.id, entry])),
-    [rowsWithMetrics]
-  )
+      .sort((left, right) => left.categoria.codigo.localeCompare(right.categoria.codigo))
+  }, [categorias, categoryMap, usageByCategoria])
 
   const visibleCategorias = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -266,44 +212,40 @@ export default function CategoriasPage() {
     }
 
     return rowsWithMetrics.filter((entry) => {
-      const parentLabel = entry.row.parentId
-        ? (rowMap.get(entry.row.parentId)?.row.descripcion ?? "")
-        : ""
-
       return (
-        entry.row.codigo.toLowerCase().includes(term) ||
-        entry.row.descripcion.toLowerCase().includes(term) ||
-        entry.row.observacion.toLowerCase().includes(term) ||
-        parentLabel.toLowerCase().includes(term) ||
+        entry.categoria.codigo.toLowerCase().includes(term) ||
+        entry.categoria.descripcion.toLowerCase().includes(term) ||
+        entry.parentLabel.toLowerCase().includes(term) ||
         entry.linkedItems.some(
           (item) =>
             item.codigo.toLowerCase().includes(term) ||
-            item.descripcion.toLowerCase().includes(term)
+            item.descripcion.toLowerCase().includes(term) ||
+            (item.marcaDescripcion ?? "").toLowerCase().includes(term)
         )
       )
     })
-  }, [rowMap, rowsWithMetrics, search])
+  }, [rowsWithMetrics, search])
 
-  useEffect(() => {
-    if (!selectedId && visibleCategorias[0]) {
-      setSelectedId(visibleCategorias[0].row.id)
-      return
-    }
+  const effectiveSelectedId = visibleCategorias.some((entry) => entry.categoria.id === selectedId)
+    ? selectedId
+    : (visibleCategorias[0]?.categoria.id ?? null)
 
-    if (selectedId && !visibleCategorias.some((entry) => entry.row.id === selectedId)) {
-      setSelectedId(visibleCategorias[0]?.row.id ?? null)
-    }
-  }, [selectedId, visibleCategorias])
+  const highlighted =
+    visibleCategorias.find((entry) => entry.categoria.id === effectiveSelectedId) ??
+    visibleCategorias[0] ??
+    null
 
-  const highlighted = visibleCategorias.find((entry) => entry.row.id === selectedId) ?? null
+  const categoriaToDelete = deleteId ? (categoryMap.get(deleteId) ?? null) : null
   const itemsSinCategoria = itemsCatalogo.filter((item) => !item.categoriaId)
-  const categoriasConItems = rowsWithMetrics.filter((entry) => entry.linkedItems.length > 0).length
-  const categoriasSinItems = rowsWithMetrics.length - categoriasConItems
-  const categoriasSinStockControl = rowsWithMetrics.filter(
+  const categoriasConItems = visibleCategorias.filter(
+    (entry) => entry.linkedItems.length > 0
+  ).length
+  const categoriasSinItems = visibleCategorias.length - categoriasConItems
+  const categoriasSinStockControl = visibleCategorias.filter(
     (entry) => entry.linkedItems.length > 0 && entry.conStockControl === 0
   ).length
-  const overlaysLocales = rowsWithMetrics.filter((entry) => entry.row.source === "overlay").length
-  const categoriaMayorUso = rowsWithMetrics.reduce<(typeof rowsWithMetrics)[number] | null>(
+  const categoriasInactivas = visibleCategorias.filter((entry) => !entry.categoria.activo).length
+  const categoriaMayorUso = visibleCategorias.reduce<(typeof visibleCategorias)[number] | null>(
     (top, entry) => {
       if (!top) {
         return entry
@@ -314,32 +256,8 @@ export default function CategoriasPage() {
     null
   )
 
-  const radarCatalogo = [
-    {
-      title: "Ítems sin categoría",
-      value: itemsSinCategoria.length,
-      description: "Productos activos que siguen fuera del maestro operativo visible.",
-      icon: <ShieldAlert className="h-4 w-4 text-amber-600" />,
-    },
-    {
-      title: "Sin stock control",
-      value: categoriasSinStockControl,
-      description: "Categorías con artículos activos que hoy no usan circuito de stock.",
-      icon: <Wrench className="h-4 w-4 text-sky-700" />,
-    },
-    {
-      title: "Cobertura del catálogo",
-      value: `${categoriasConItems}/${rowsWithMetrics.length || 0}`,
-      description: "Categorías visibles con al menos un producto activo vinculado.",
-      icon: <Boxes className="h-4 w-4 text-emerald-700" />,
-    },
-    {
-      title: "Overlay local",
-      value: overlaysLocales,
-      description: "Altas locales agregadas mientras la API siga sin ABM de categorías.",
-      icon: <Tag className="h-4 w-4 text-rose-600" />,
-    },
-  ]
+  const pageLoading = loadingCategorias || itemsLoading
+  const pageError = error ?? itemsError
 
   const openCreate = () => {
     setEditingId(null)
@@ -348,99 +266,104 @@ export default function CategoriasPage() {
     setDialogOpen(true)
   }
 
-  const openEdit = (row: LocalCategoryRow) => {
-    setEditingId(row.id)
-    setForm(formFromRow(row))
+  const openEdit = (categoria: CategoriaItem) => {
+    setSelectedId(categoria.id)
+    setEditingId(categoria.id)
+    setForm(formFromCategoria(categoria))
     setFormError(null)
     setDialogOpen(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.codigo.trim() || !form.descripcion.trim()) {
       setFormError("Completá código y descripción para guardar la categoría.")
       return
     }
 
-    const duplicate = rows.find(
-      (row) =>
-        row.id !== editingId && row.codigo.trim().toLowerCase() === form.codigo.trim().toLowerCase()
+    const duplicate = categorias.find(
+      (categoria) =>
+        categoria.id !== editingId &&
+        categoria.codigo.trim().toLowerCase() === form.codigo.trim().toLowerCase()
     )
+
     if (duplicate) {
-      setFormError("Ya existe otra categoría con el mismo código dentro del overlay actual.")
+      setFormError("Ya existe otra categoría con el mismo código.")
       return
     }
 
-    const previous = editingId ? (rows.find((row) => row.id === editingId) ?? null) : null
-    const nextRow: LocalCategoryRow = {
-      id: editingId ?? `category-local-${Date.now()}`,
-      backendId: previous?.backendId ?? null,
-      codigo: form.codigo.trim(),
-      descripcion: form.descripcion.trim(),
-      parentId: form.parentId === "__none__" ? null : form.parentId,
-      estado: form.estado,
-      observacion: form.observacion.trim() || "Sin observación adicional.",
-      source: previous?.source ?? "overlay",
+    setSavingForm(true)
+    setFormError(null)
+
+    const parentId = form.parentId === "__none__" ? null : Number(form.parentId)
+    const parent = parentId ? (categoryMap.get(parentId) ?? null) : null
+    const ordenNivel = form.ordenNivel.trim() || null
+
+    const ok = editingId
+      ? await actualizar(editingId, {
+          codigo: form.codigo.trim(),
+          descripcion: form.descripcion.trim(),
+          ordenNivel,
+        })
+      : await crear({
+          parentId,
+          codigo: form.codigo.trim(),
+          descripcion: form.descripcion.trim(),
+          nivel: parent ? Number(parent.nivel ?? 1) + 1 : 1,
+          ordenNivel,
+        })
+
+    if (!ok) {
+      setFormError(
+        editingId ? "No se pudo actualizar la categoría." : "No se pudo crear la categoría."
+      )
+      setSavingForm(false)
+      return
     }
 
-    setRows((current) => {
-      const rest = current.filter((row) => row.id !== nextRow.id)
-      return [...rest, nextRow].sort((left, right) => left.codigo.localeCompare(right.codigo))
-    })
-    setSelectedId(nextRow.id)
+    await refetch()
+    setSavingForm(false)
     setDialogOpen(false)
+    setEditingId(null)
+    setForm(emptyForm())
   }
 
-  const handleDelete = (row: LocalCategoryRow) => {
-    setRows((current) =>
-      current
-        .filter((entry) => entry.id !== row.id)
-        .map((entry) =>
-          entry.parentId === row.id
-            ? {
-                ...entry,
-                parentId: null,
-              }
-            : entry
-        )
-    )
+  const handleDelete = async () => {
+    if (!categoriaToDelete) return
 
-    if (selectedId === row.id) {
-      setSelectedId(null)
+    setDeleting(true)
+    const ok = await eliminar(categoriaToDelete.id)
+
+    if (!ok) {
+      setDeleting(false)
+      return
     }
+
+    await refetch()
+    setDeleting(false)
+    setDeleteId(null)
   }
 
-  const handleReset = () => {
-    const next = buildRowsFromBackend(categorias)
-    setRows(next)
-    setSelectedId(next[0]?.id ?? null)
-    setHasOverlayKey(true)
+  const handleActivate = async (categoria: CategoriaItem) => {
+    await activar(categoria.id)
   }
 
-  const parentOptions = rows.filter((row) => row.id !== editingId)
+  const parentOptions = categorias.filter(
+    (categoria) => categoria.id !== editingId && categoria.activo
+  )
 
   return (
     <div className="space-y-6 pb-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Categorías</h1>
           <p className="mt-1 text-muted-foreground">
-            Consola híbrida entre el catálogo real del backend y un overlay local operativo. La API
-            actual sigue sin publicar altas, edición ni jerarquías, así que la cobertura de ABM se
-            mantiene en frontend sin inventar contratos nuevos.
+            Maestro de clasificación comercial sobre backend real, con lectura de uso y cobertura
+            operativa del catálogo activo.
           </p>
         </div>
-
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={() => void fetchItemsCatalogo()}
-            disabled={itemsLoading}
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${itemsLoading ? "animate-spin" : ""}`} />
-            Actualizar catálogo asociado
-          </Button>
-          <Button variant="outline" className="bg-transparent" onClick={handleReset}>
-            <RefreshCcw className="mr-2 h-4 w-4" /> Restablecer overlay
+          <Button variant="outline" className="bg-transparent" onClick={() => void refetch()}>
+            <RefreshCw className="mr-2 h-4 w-4" /> Actualizar
           </Button>
           <Button onClick={openCreate}>
             <Plus className="mr-2 h-4 w-4" /> Nueva categoría
@@ -448,182 +371,142 @@ export default function CategoriasPage() {
         </div>
       </div>
 
-      {(error || itemsError) && (
+      {pageError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Categorías de inventario</AlertTitle>
-          <AlertDescription>{error ?? itemsError}</AlertDescription>
+          <AlertTitle>Categorías</AlertTitle>
+          <AlertDescription>{pageError}</AlertDescription>
         </Alert>
       )}
 
-      <Alert>
-        <ShieldAlert className="h-4 w-4" />
-        <AlertTitle>Alcance actual</AlertTitle>
-        <AlertDescription>
-          Las categorías base se leen desde el backend, pero el mantenimiento operativo se sostiene
-          con overlay local persistido en navegador hasta que exista un ABM real del maestro.
-        </AlertDescription>
-      </Alert>
-
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="Categorías visibles"
-          value={rowsWithMetrics.length}
-          description="Base backend más overlay local vigente"
-          icon={<FolderTree className="h-4 w-4 text-muted-foreground" />}
+          title="Ítems sin categoría"
+          value={itemsSinCategoria.length}
+          description="Productos activos que siguen fuera del maestro comercial visible"
+          icon={<ShieldAlert className="h-4 w-4 text-amber-600" />}
         />
         <SummaryCard
-          title="Con productos activos"
-          value={categoriasConItems}
-          description="Con al menos un producto asociado en el catálogo cargado"
-          icon={<Boxes className="h-4 w-4 text-muted-foreground" />}
+          title="Sin stock control"
+          value={categoriasSinStockControl}
+          description="Categorías con artículos activos que hoy no usan circuito de stock"
+          icon={<Wrench className="h-4 w-4 text-sky-700" />}
         />
         <SummaryCard
-          title="Sin asociación visible"
-          value={categoriasSinItems}
-          description="Categorías sin productos activos dentro del lote consultado"
-          icon={<Tag className="h-4 w-4 text-muted-foreground" />}
+          title="Cobertura del catálogo"
+          value={`${categoriasConItems}/${visibleCategorias.length || 0}`}
+          description="Categorías con al menos un producto activo vinculado"
+          icon={<Boxes className="h-4 w-4 text-emerald-700" />}
         />
         <SummaryCard
-          title="Mayor uso"
-          value={categoriaMayorUso?.row.codigo ?? "-"}
-          description={
-            categoriaMayorUso
-              ? `${categoriaMayorUso.linkedItems.length} productos activos vinculados`
-              : "Sin datos de asociación todavía"
-          }
-          icon={<FolderTree className="h-4 w-4 text-muted-foreground" />}
+          title="Inactivas"
+          value={categoriasInactivas}
+          description="Categorías dadas de baja pero aún visibles para control funcional"
+          icon={<Tag className="h-4 w-4 text-rose-600" />}
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {radarCatalogo.map((item) => (
-          <Card key={item.title}>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-sm font-medium">{item.title}</CardTitle>
-                {item.icon}
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-lg font-semibold">{item.value}</div>
-              <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.45fr_0.85fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Maestro operativo</CardTitle>
+            <CardTitle>Matriz de categorías</CardTitle>
             <CardDescription>
-              Busca por código, descripción, observación, categoría padre o productos ya vinculados.
+              Clasificación activa del catálogo con uso real por productos, servicios y stock.
             </CardDescription>
-            <div className="relative mt-2 max-w-xl">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <div className="relative mt-2 max-w-md">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
-                className="pl-10"
-                placeholder="Buscar categoría o producto vinculado"
+                className="pl-9"
+                placeholder="Buscar código, descripción, padre o ítem..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
           </CardHeader>
           <CardContent>
-            {loadingCategorias || itemsLoading ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground">
-                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                Cargando categorías y asociaciones...
-              </div>
+            {pageLoading ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                Cargando categorías operativas...
+              </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Código</TableHead>
                     <TableHead>Descripción</TableHead>
-                    <TableHead>Jerarquía</TableHead>
-                    <TableHead className="text-right">Productos</TableHead>
+                    <TableHead>Padre</TableHead>
+                    <TableHead>Uso</TableHead>
                     <TableHead>Estado</TableHead>
-                    <TableHead>Origen</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {visibleCategorias.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                        No hay categorías que coincidan con la búsqueda actual.
+                      <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                        No se encontraron categorías.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    visibleCategorias.map((entry) => {
-                      const parentLabel = entry.row.parentId
-                        ? (rowMap.get(entry.row.parentId)?.row.descripcion ?? "Sin padre")
-                        : "Raíz"
-
-                      return (
-                        <TableRow
-                          key={entry.row.id}
-                          className={
-                            highlighted?.row.id === entry.row.id ? "bg-accent/40" : undefined
-                          }
-                        >
-                          <TableCell
-                            className="font-mono text-sm"
-                            onClick={() => setSelectedId(entry.row.id)}
-                          >
-                            {entry.row.codigo}
-                          </TableCell>
-                          <TableCell onClick={() => setSelectedId(entry.row.id)}>
-                            <div className="space-y-1">
-                              <p className="font-medium">{entry.row.descripcion}</p>
-                              <p className="text-xs text-muted-foreground line-clamp-1">
-                                {entry.row.observacion}
-                              </p>
-                            </div>
-                          </TableCell>
-                          <TableCell onClick={() => setSelectedId(entry.row.id)}>
-                            {parentLabel}
-                          </TableCell>
-                          <TableCell
-                            className="text-right"
-                            onClick={() => setSelectedId(entry.row.id)}
-                          >
-                            {entry.linkedItems.length}
-                          </TableCell>
-                          <TableCell onClick={() => setSelectedId(entry.row.id)}>
-                            {getOperationalBadge(entry.linkedItems, entry.sinStock)}
-                          </TableCell>
-                          <TableCell onClick={() => setSelectedId(entry.row.id)}>
-                            <div className="flex flex-col gap-1">
-                              {getStatusBadge(entry.row.estado)}
-                              <span className="text-xs text-muted-foreground">
-                                {entry.row.source === "backend" ? "Base real" : "Solo overlay"}
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
+                    visibleCategorias.map((entry) => (
+                      <TableRow
+                        key={entry.categoria.id}
+                        className={
+                          highlighted?.categoria.id === entry.categoria.id
+                            ? "bg-accent/40"
+                            : undefined
+                        }
+                        onClick={() => setSelectedId(entry.categoria.id)}
+                      >
+                        <TableCell>
+                          <div className="font-mono text-sm">{entry.categoria.codigo}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Nivel {entry.categoria.nivel ?? 1}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{entry.categoria.descripcion}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {entry.productos} productos, {entry.servicios} servicios,{" "}
+                            {entry.financieros} financieros
+                          </div>
+                        </TableCell>
+                        <TableCell>{entry.parentLabel}</TableCell>
+                        <TableCell>
+                          {getOperationalBadge(entry.linkedItems, entry.sinStock)}
+                        </TableCell>
+                        <TableCell>{getStatusBadge(Boolean(entry.categoria.activo))}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            {!entry.categoria.activo && (
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => openEdit(entry.row)}
+                                onClick={() => void handleActivate(entry.categoria)}
+                                disabled={saving}
                               >
-                                <Pencil className="h-4 w-4" />
+                                <CheckCircle2 className="h-4 w-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDelete(entry.row)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openEdit(entry.categoria)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteId(entry.categoria.id)}
+                              disabled={!entry.categoria.activo}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
                   )}
                 </TableBody>
               </Table>
@@ -636,7 +519,7 @@ export default function CategoriasPage() {
             <CardHeader>
               <CardTitle>Categoría destacada</CardTitle>
               <CardDescription>
-                Lectura rápida del registro seleccionado y su cobertura.
+                Lectura rápida de la categoría más relevante en la vista actual.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -644,218 +527,185 @@ export default function CategoriasPage() {
                 <div className="space-y-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                        {highlighted.row.codigo}
+                      <p className="font-semibold">{highlighted.categoria.descripcion}</p>
+                      <p className="mt-1 font-mono text-sm text-muted-foreground">
+                        {highlighted.categoria.codigo}
                       </p>
-                      <h3 className="mt-1 text-xl font-semibold">{highlighted.row.descripcion}</h3>
                     </div>
-                    {getStatusBadge(highlighted.row.estado)}
+                    {getStatusBadge(Boolean(highlighted.categoria.activo))}
                   </div>
-
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Jerarquía</p>
-                      <p className="mt-1 text-sm font-medium">
-                        {highlighted.row.parentId
-                          ? (rowMap.get(highlighted.row.parentId)?.row.descripcion ?? "Sin padre")
-                          : "Raíz"}
-                      </p>
+                      <p className="text-sm text-muted-foreground">Ítems vinculados</p>
+                      <p className="mt-2 font-medium">{highlighted.linkedItems.length}</p>
                     </div>
                     <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Origen</p>
-                      <p className="mt-1 text-sm font-medium">
-                        {highlighted.row.source === "backend" ? "Base real + overlay" : "Local"}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Productos activos</p>
-                      <p className="mt-1 text-sm font-medium">{highlighted.linkedItems.length}</p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Sin stock</p>
-                      <p className="mt-1 text-sm font-medium">{highlighted.sinStock}</p>
+                      <p className="text-sm text-muted-foreground">Padre</p>
+                      <p className="mt-2 font-medium">{highlighted.parentLabel}</p>
                     </div>
                   </div>
-
-                  <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
-                    {highlighted.row.observacion}
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <h4 className="text-sm font-semibold">Productos vinculados</h4>
-                      {getOperationalBadge(highlighted.linkedItems, highlighted.sinStock)}
-                    </div>
-                    {highlighted.linkedItems.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        No hay productos activos vinculados a esta categoría en el lote cargado.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {highlighted.linkedItems.slice(0, 5).map((item) => (
-                          <div key={item.id} className="rounded-lg border p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="font-medium">{item.descripcion}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {item.codigo} · Stock mín. {item.stockMinimo}
-                                </p>
-                              </div>
-                              <Badge variant="outline">
-                                {item.esProducto
-                                  ? "Producto"
-                                  : item.esServicio
-                                    ? "Servicio"
-                                    : "Financiero"}
-                              </Badge>
-                            </div>
-                          </div>
-                        ))}
-                        {highlighted.linkedItems.length > 5 && (
-                          <p className="text-xs text-muted-foreground">
-                            +{highlighted.linkedItems.length - 5} productos adicionales dentro del
-                            lote activo.
-                          </p>
-                        )}
-                      </div>
-                    )}
+                  <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+                    Uso real: {highlighted.productos} productos, {highlighted.servicios} servicios,{" "}
+                    {highlighted.financieros} financieros.{" "}
+                    {highlighted.sinStock > 0
+                      ? `${highlighted.sinStock} ítems están sin stock visible.`
+                      : "No hay alertas inmediatas de stock en la categoría."}
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  No hay categorías suficientes para mostrar detalle en la selección actual.
-                </p>
+                <p className="text-sm text-muted-foreground">No hay categorías visibles.</p>
               )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Radar operativo</CardTitle>
-              <CardDescription>
-                Señales rápidas del maestro según el lote consultado.
-              </CardDescription>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FolderTree className="h-4 w-4" /> Radar del maestro
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {rowsWithMetrics
-                .slice()
-                .sort(
-                  (left, right) =>
-                    right.sinStock - left.sinStock ||
-                    right.linkedItems.length - left.linkedItems.length
-                )
-                .slice(0, 3)
-                .map((entry) => (
-                  <div key={entry.row.id} className="rounded-lg border p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium">{entry.row.descripcion}</p>
-                        <p className="text-xs text-muted-foreground">{entry.row.codigo}</p>
-                      </div>
-                      {getOperationalBadge(entry.linkedItems, entry.sinStock)}
-                    </div>
-                    <p className="mt-3 text-sm text-muted-foreground">
-                      {entry.productos} prod. · {entry.servicios} serv. · {entry.financieros} fin. ·{" "}
-                      {entry.conStockControl} con control de stock
-                    </p>
-                  </div>
-                ))}
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <p>{categoriasSinItems} categorías siguen sin uso visible en el catálogo activo.</p>
+              <p>
+                {categoriaMayorUso
+                  ? `${categoriaMayorUso.categoria.descripcion} es la categoría con mayor utilización actual.`
+                  : "Todavía no hay una categoría dominante en el catálogo activo."}
+              </p>
+              <p>
+                El alta, edición, baja y reactivación ya operan sobre el backend real de categorías.
+              </p>
             </CardContent>
           </Card>
         </div>
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingId ? "Editar categoría" : "Nueva categoría"}</DialogTitle>
             <DialogDescription>
-              El cambio se guarda sólo en el overlay local. Si el backend publica luego ABM real,
-              podrá migrarse sin perder este criterio operativo.
+              Gestión del maestro de categorías conectado al backend de inventario comercial.
             </DialogDescription>
           </DialogHeader>
-
-          <div className="grid gap-4 py-2 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Código</Label>
-              <Input
-                value={form.codigo}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, codigo: event.target.value }))
-                }
-                placeholder="CAT-MP"
-              />
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="codigo">Código</Label>
+                <Input
+                  id="codigo"
+                  value={form.codigo}
+                  onChange={(event) => setForm((prev) => ({ ...prev, codigo: event.target.value }))}
+                  placeholder="CAT-GRAL"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="parentId">Categoría padre</Label>
+                <Select
+                  value={form.parentId}
+                  onValueChange={(value) => setForm((prev) => ({ ...prev, parentId: value }))}
+                  disabled={Boolean(editingId)}
+                >
+                  <SelectTrigger id="parentId" className="w-full">
+                    <SelectValue placeholder="Sin padre" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin padre</SelectItem>
+                    {parentOptions.map((categoria) => (
+                      <SelectItem key={categoria.id} value={String(categoria.id)}>
+                        {categoria.codigo} · {categoria.descripcion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {editingId && (
+                  <p className="text-xs text-muted-foreground">
+                    El backend actual no expone cambio de padre en edición.
+                  </p>
+                )}
+              </div>
             </div>
             <div className="space-y-2">
-              <Label>Estado</Label>
-              <Select
-                value={form.estado}
-                onValueChange={(value) =>
-                  setForm((current) => ({ ...current, estado: value as CategoryStatus }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar estado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="activa">Activa</SelectItem>
-                  <SelectItem value="revision">En revisión</SelectItem>
-                  <SelectItem value="inactiva">Inactiva</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2 md:col-span-2">
-              <Label>Descripción</Label>
+              <Label htmlFor="descripcion">Descripción</Label>
               <Input
+                id="descripcion"
                 value={form.descripcion}
                 onChange={(event) =>
-                  setForm((current) => ({ ...current, descripcion: event.target.value }))
+                  setForm((prev) => ({ ...prev, descripcion: event.target.value }))
                 }
-                placeholder="Materia prima refrigerada"
+                placeholder="Categoría principal"
               />
             </div>
-
-            <div className="space-y-2 md:col-span-2">
-              <Label>Categoría padre</Label>
-              <Select
-                value={form.parentId}
-                onValueChange={(value) => setForm((current) => ({ ...current, parentId: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Sin categoría padre" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Sin categoría padre</SelectItem>
-                  {parentOptions.map((row) => (
-                    <SelectItem key={row.id} value={row.id}>
-                      {row.codigo} - {row.descripcion}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="ordenNivel">Orden nivel</Label>
+                <Input
+                  id="ordenNivel"
+                  value={form.ordenNivel}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, ordenNivel: event.target.value }))
+                  }
+                  placeholder="1.10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="observacion">Observación operativa</Label>
+                <Textarea
+                  id="observacion"
+                  rows={3}
+                  value={form.observacion}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, observacion: event.target.value }))
+                  }
+                  placeholder="Referencia interna de uso"
+                />
+              </div>
             </div>
-
-            <div className="space-y-2 md:col-span-2">
-              <Label>Observación</Label>
-              <Textarea
-                rows={4}
-                value={form.observacion}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, observacion: event.target.value }))
-                }
-                placeholder="Criterio de uso, familia principal o nota de migración"
-              />
-            </div>
+            {formError && <p className="text-sm text-red-500">{formError}</p>}
           </div>
-
-          {formError && <p className="text-sm text-red-500">{formError}</p>}
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button
+              variant="outline"
+              className="bg-transparent"
+              onClick={() => setDialogOpen(false)}
+            >
               Cancelar
             </Button>
-            <Button onClick={handleSave}>Guardar categoría</Button>
+            <Button onClick={() => void handleSave()} disabled={savingForm || saving}>
+              {savingForm || saving
+                ? "Guardando..."
+                : editingId
+                  ? "Guardar cambios"
+                  : "Crear categoría"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(categoriaToDelete)} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Desactivar categoría</DialogTitle>
+            <DialogDescription>
+              Se desactivará la categoría seleccionada. Si todavía tiene ítems activos asociados, el
+              backend bloqueará la operación.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+            {categoriaToDelete
+              ? `${categoriaToDelete.codigo} · ${categoriaToDelete.descripcion}`
+              : "Sin categoría seleccionada."}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="bg-transparent" onClick={() => setDeleteId(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void handleDelete()}
+              disabled={deleting || saving}
+            >
+              {deleting ? "Desactivando..." : "Desactivar"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

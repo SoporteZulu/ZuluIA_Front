@@ -1,9 +1,18 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Pencil, Plus, RefreshCcw, Search, ShieldCheck, Trash2 } from "lucide-react"
+import {
+  AlertCircle,
+  CheckCircle2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react"
 
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,81 +41,152 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Textarea } from "@/components/ui/textarea"
-import { legacyAttributeSets, type LegacyAttributeSet } from "@/lib/inventario-legacy-data"
-import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
-import { useItems, useItemsConfig } from "@/lib/hooks/useItems"
-
-const ATTRIBUTES_STORAGE_KEY = "inventory-attributes-local-overlay"
+import { useAtributos, useItemsCatalogSnapshot } from "@/lib/hooks/useInventarioMaestros"
+import type { AtributoInventario, Item } from "@/lib/types/items"
 
 type AttributeFormState = {
-  nombre: string
-  alcance: LegacyAttributeSet["alcance"]
-  categoria: string
-  obligatorios: string
-  opcionales: string
-  validacion: string
-  observacion: string
+  descripcion: string
+  tipo: string
+  requerido: boolean
 }
 
 function emptyForm(): AttributeFormState {
   return {
-    nombre: "",
-    alcance: "catalogo",
-    categoria: "",
-    obligatorios: "",
-    opcionales: "",
-    validacion: "",
-    observacion: "",
+    descripcion: "",
+    tipo: "texto",
+    requerido: false,
   }
 }
 
-function formFromAttribute(row: LegacyAttributeSet): AttributeFormState {
+function formFromAttribute(attribute: AtributoInventario): AttributeFormState {
   return {
-    nombre: row.nombre,
-    alcance: row.alcance,
-    categoria: row.categoria,
-    obligatorios: row.obligatorios.join(", "),
-    opcionales: row.opcionales.join(", "),
-    validacion: row.validacion,
-    observacion: row.observacion,
+    descripcion: attribute.descripcion,
+    tipo: attribute.tipo,
+    requerido: attribute.requerido,
   }
 }
 
-function scopeBadge(scope: string) {
-  if (scope === "fiscal") return <Badge variant="secondary">Fiscal</Badge>
-  if (scope === "logistica") return <Badge>Logistica</Badge>
-  if (scope === "produccion") return <Badge variant="outline">Produccion</Badge>
-  return <Badge variant="secondary">Catalogo</Badge>
+function typeBadge(tipo: string) {
+  const normalized = tipo.trim().toLowerCase()
+
+  if (normalized === "numero" || normalized === "decimal" || normalized === "entero") {
+    return <Badge variant="secondary">Numerico</Badge>
+  }
+
+  if (normalized === "fecha") {
+    return <Badge>Fecha</Badge>
+  }
+
+  if (normalized === "booleano" || normalized === "bool") {
+    return <Badge variant="outline">Booleano</Badge>
+  }
+
+  if (normalized === "lista") {
+    return <Badge variant="outline">Lista</Badge>
+  }
+
+  return <Badge variant="secondary">{tipo || "Texto"}</Badge>
+}
+
+function requiredBadge(requerido: boolean) {
+  if (requerido) return <Badge>Obligatorio</Badge>
+  return <Badge variant="outline">Opcional</Badge>
+}
+
+function stateBadge(activo: boolean) {
+  if (activo) return <Badge>Activo</Badge>
+  return <Badge variant="outline">Inactivo</Badge>
 }
 
 export default function AtributosInventarioPage() {
-  const { items } = useItems()
-  const { categorias } = useItemsConfig()
-  const {
-    rows: attributeRows,
-    setRows,
-    reset,
-  } = useLegacyLocalCollection<LegacyAttributeSet>(ATTRIBUTES_STORAGE_KEY, legacyAttributeSets)
+  const { atributos, loading, saving, error, crear, actualizar, cambiarEstado, refetch } =
+    useAtributos()
+  const { items, loading: loadingItems, error: itemsError } = useItemsCatalogSnapshot()
   const [search, setSearch] = useState("")
-  const [selectedId, setSelectedId] = useState<string | null>(attributeRows[0]?.id ?? null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [deleteId, setDeleteId] = useState<number | null>(null)
   const [form, setForm] = useState<AttributeFormState>(emptyForm())
   const [formError, setFormError] = useState<string | null>(null)
 
-  const rows = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    return attributeRows.filter(
-      (row) =>
-        !term ||
-        row.nombre.toLowerCase().includes(term) ||
-        row.categoria.toLowerCase().includes(term) ||
-        row.alcance.toLowerCase().includes(term)
-    )
-  }, [attributeRows, search])
+  const usageByAttribute = useMemo(() => {
+    const linkedItems = new Map<number, Item[]>()
+    const linkedValues = new Map<number, number>()
+    let hasItemPayload = false
 
-  const highlighted = rows.find((row) => row.id === selectedId) ?? rows[0] ?? null
+    items.forEach((item) => {
+      if (!Array.isArray(item.atributos)) {
+        return
+      }
+
+      hasItemPayload = true
+      const seenOnItem = new Set<number>()
+
+      item.atributos.forEach((atributo) => {
+        linkedValues.set(atributo.atributoId, (linkedValues.get(atributo.atributoId) ?? 0) + 1)
+
+        if (seenOnItem.has(atributo.atributoId)) {
+          return
+        }
+
+        const existing = linkedItems.get(atributo.atributoId) ?? []
+        existing.push(item)
+        linkedItems.set(atributo.atributoId, existing)
+        seenOnItem.add(atributo.atributoId)
+      })
+    })
+
+    return {
+      linkedItems,
+      linkedValues,
+      hasItemPayload,
+    }
+  }, [items])
+
+  const visibleAttributes = useMemo(() => {
+    const term = search.trim().toLowerCase()
+
+    return atributos
+      .map((atributo) => ({
+        atributo,
+        linkedItems: usageByAttribute.linkedItems.get(atributo.id) ?? [],
+        linkedValues: usageByAttribute.linkedValues.get(atributo.id) ?? 0,
+      }))
+      .filter((entry) => {
+        if (!term) return true
+
+        return (
+          entry.atributo.descripcion.toLowerCase().includes(term) ||
+          entry.atributo.tipo.toLowerCase().includes(term) ||
+          (entry.atributo.requerido ? "obligatorio" : "opcional").includes(term)
+        )
+      })
+      .sort(
+        (left, right) =>
+          right.linkedItems.length - left.linkedItems.length ||
+          left.atributo.descripcion.localeCompare(right.atributo.descripcion)
+      )
+  }, [atributos, search, usageByAttribute])
+
+  const effectiveSelectedId = visibleAttributes.some((entry) => entry.atributo.id === selectedId)
+    ? selectedId
+    : (visibleAttributes[0]?.atributo.id ?? null)
+
+  const highlighted =
+    visibleAttributes.find((entry) => entry.atributo.id === effectiveSelectedId) ??
+    visibleAttributes[0] ??
+    null
+  const attributeToDelete = deleteId
+    ? (atributos.find((atributo) => atributo.id === deleteId) ?? null)
+    : null
+  const hasSearchFilter = search.trim().length > 0
+  const requiredCount = visibleAttributes.filter((entry) => entry.atributo.requerido).length
+  const inactiveCount = visibleAttributes.filter((entry) => !entry.atributo.activo).length
+  const typeCount = new Set(
+    visibleAttributes.map((entry) => entry.atributo.tipo.trim().toLowerCase()).filter(Boolean)
+  ).size
+  const pageError = error ?? itemsError
 
   const openCreate = () => {
     setEditingId(null)
@@ -115,48 +195,56 @@ export default function AtributosInventarioPage() {
     setDialogOpen(true)
   }
 
-  const openEdit = (row: LegacyAttributeSet) => {
-    setEditingId(row.id)
-    setForm(formFromAttribute(row))
+  const openEdit = (attribute: AtributoInventario) => {
+    setSelectedId(attribute.id)
+    setEditingId(attribute.id)
+    setForm(formFromAttribute(attribute))
     setFormError(null)
     setDialogOpen(true)
   }
 
-  const handleSave = () => {
-    if (!form.nombre.trim() || !form.categoria.trim() || !form.validacion.trim()) {
-      setFormError("Completá nombre, categoría y validación para guardar el bloque.")
+  const handleSave = async () => {
+    if (!form.descripcion.trim() || !form.tipo.trim()) {
+      setFormError("Completa descripcion y tipo para guardar el atributo.")
       return
     }
 
-    const next: LegacyAttributeSet = {
-      id: editingId ?? `attr-local-${Date.now()}`,
-      nombre: form.nombre.trim(),
-      alcance: form.alcance,
-      categoria: form.categoria.trim(),
-      obligatorios: form.obligatorios
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
-      opcionales: form.opcionales
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
-      validacion: form.validacion.trim(),
-      observacion: form.observacion.trim() || "Sin observación adicional.",
+    const duplicate = atributos.find(
+      (atributo) =>
+        atributo.id !== editingId &&
+        atributo.descripcion.trim().toLowerCase() === form.descripcion.trim().toLowerCase()
+    )
+
+    if (duplicate) {
+      setFormError("Ya existe otro atributo con la misma descripcion.")
+      return
     }
 
-    setRows((prev) => {
-      const rest = prev.filter((row) => row.id !== next.id)
-      return [...rest, next].sort((left, right) => left.nombre.localeCompare(right.nombre))
-    })
-    setSelectedId(next.id)
+    const payload = {
+      descripcion: form.descripcion.trim(),
+      tipo: form.tipo.trim(),
+      requerido: form.requerido,
+    }
+
+    const ok = editingId ? await actualizar(editingId, payload) : await crear(payload)
+
+    if (!ok) {
+      setFormError(
+        editingId ? "No se pudo actualizar el atributo." : "No se pudo crear el atributo."
+      )
+      return
+    }
+
     setDialogOpen(false)
+    setEditingId(null)
+    setForm(emptyForm())
   }
 
-  const handleDelete = (id: string) => {
-    setRows((prev) => prev.filter((row) => row.id !== id))
-    if (selectedId === id) {
-      setSelectedId(null)
+  const handleChangeState = async (attribute: AtributoInventario, activo: boolean) => {
+    const ok = await cambiarEstado(attribute.id, activo)
+    if (ok) {
+      setDeleteId(null)
+      setSelectedId(attribute.id)
     }
   }
 
@@ -166,153 +254,245 @@ export default function AtributosInventarioPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Atributos</h1>
           <p className="mt-1 text-muted-foreground">
-            Bloques de atributos y validaciones heredadas para el maestro de ítems. Mientras no
-            exista backend de familias dinámicas, el frontend mantiene un overlay local operativo.
+            Maestro real de atributos de inventario. Los valores por item se administran desde el
+            detalle del producto, no con overlays locales.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="bg-transparent" onClick={() => reset()}>
-            <RefreshCcw className="mr-2 h-4 w-4" /> Restablecer overlay
+          <Button variant="outline" className="bg-transparent" onClick={() => void refetch()}>
+            <RefreshCw className="mr-2 h-4 w-4" /> Actualizar
           </Button>
           <Button onClick={openCreate}>
-            <Plus className="mr-2 h-4 w-4" /> Nuevo bloque
+            <Plus className="mr-2 h-4 w-4" /> Nuevo atributo
           </Button>
         </div>
       </div>
 
+      {pageError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Atributos</AlertTitle>
+          <AlertDescription>{pageError}</AlertDescription>
+        </Alert>
+      )}
+
       <Alert>
         <ShieldCheck className="h-4 w-4" />
+        <AlertTitle>Contrato activo</AlertTitle>
         <AlertDescription>
-          Las familias de atributos siguen fuera del contrato actual. Esta pantalla permite mantener
-          bloques, validaciones y listas de campos en frontend sin inventar endpoints.
+          Esta vista administra definiciones reales de atributos. La carga de valores por item ya
+          queda cubierta en Productos con el endpoint de atributos por item.
         </AlertDescription>
       </Alert>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Familias</CardTitle>
+            <CardTitle className="text-sm font-medium">Definiciones</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{rows.length}</div>
+            <div className="text-2xl font-bold">{visibleAttributes.length}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {hasSearchFilter
+                ? "Definiciones visibles tras el filtro actual"
+                : "Maestro publicado por backend"}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Campos obligatorios</CardTitle>
+            <CardTitle className="text-sm font-medium">Obligatorios</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {rows.reduce((sum, row) => sum + row.obligatorios.length, 0)}
-            </div>
+            <div className="text-2xl font-bold">{requiredCount}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {hasSearchFilter
+                ? "Campos exigidos dentro de la vista actual"
+                : "Campos exigidos en captura de datos"}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Items actuales</CardTitle>
+            <CardTitle className="text-sm font-medium">Tipos visibles</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{items.length}</div>
+            <div className="text-2xl font-bold">{typeCount}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {hasSearchFilter
+                ? "Variantes presentes en la vista actual"
+                : "Variantes activas del contrato"}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Categorias reales</CardTitle>
+            <CardTitle className="text-sm font-medium">Inactivos</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{categorias.length}</div>
+            <div className="text-2xl font-bold text-amber-600">{inactiveCount}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {hasSearchFilter
+                ? "Bajas lógicas visibles en el filtro"
+                : "Bajas logicas conservadas"}
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
         <Card>
           <CardHeader>
             <CardTitle>Matriz de atributos</CardTitle>
             <CardDescription>
-              Replica los bloques funcionales que el legacy separaba por dominio.
+              Definiciones reales disponibles para los items. Se muestran activas e inactivas para
+              preservar el comportamiento historico.
             </CardDescription>
             <div className="relative mt-2 max-w-md">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
                 className="pl-9"
-                placeholder="Buscar bloque de atributos..."
+                placeholder="Buscar por descripcion, tipo o requerimiento..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Bloque</TableHead>
-                  <TableHead>Alcance</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead>Obligatorios</TableHead>
-                  <TableHead>Opcionales</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    className={highlighted?.id === row.id ? "bg-accent/40" : undefined}
-                  >
-                    <TableCell className="font-medium" onClick={() => setSelectedId(row.id)}>
-                      {row.nombre}
-                    </TableCell>
-                    <TableCell onClick={() => setSelectedId(row.id)}>
-                      {scopeBadge(row.alcance)}
-                    </TableCell>
-                    <TableCell onClick={() => setSelectedId(row.id)}>{row.categoria}</TableCell>
-                    <TableCell onClick={() => setSelectedId(row.id)}>
-                      {row.obligatorios.length}
-                    </TableCell>
-                    <TableCell onClick={() => setSelectedId(row.id)}>
-                      {row.opcionales.length}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(row.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+            {loading || loadingItems ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                Cargando atributos...
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Atributo</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Requerido</TableHead>
+                    <TableHead>Items</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {visibleAttributes.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                        No se encontraron atributos.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    visibleAttributes.map((entry) => (
+                      <TableRow
+                        key={entry.atributo.id}
+                        className={
+                          highlighted?.atributo.id === entry.atributo.id
+                            ? "bg-accent/40"
+                            : undefined
+                        }
+                        onClick={() => setSelectedId(entry.atributo.id)}
+                      >
+                        <TableCell>
+                          <div className="font-medium">{entry.atributo.descripcion}</div>
+                          <div className="text-xs text-muted-foreground">
+                            ID {entry.atributo.id}
+                          </div>
+                        </TableCell>
+                        <TableCell>{typeBadge(entry.atributo.tipo)}</TableCell>
+                        <TableCell>{requiredBadge(entry.atributo.requerido)}</TableCell>
+                        <TableCell>
+                          {usageByAttribute.hasItemPayload ? entry.linkedItems.length : "-"}
+                        </TableCell>
+                        <TableCell>{stateBadge(entry.atributo.activo)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            {!entry.atributo.activo && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => void handleChangeState(entry.atributo, true)}
+                                disabled={saving}
+                              >
+                                <CheckCircle2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openEdit(entry.atributo)}
+                              disabled={!entry.atributo.activo || saving}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteId(entry.atributo.id)}
+                              disabled={!entry.atributo.activo || saving}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Bloque destacado</CardTitle>
-              <CardDescription>Validacion principal de la vista visible.</CardDescription>
+              <CardTitle>Atributo destacado</CardTitle>
+              <CardDescription>Detalle rapido del atributo seleccionado.</CardDescription>
             </CardHeader>
             <CardContent>
               {highlighted ? (
                 <div className="space-y-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-semibold">{highlighted.nombre}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{highlighted.validacion}</p>
+                      <p className="font-semibold">{highlighted.atributo.descripcion}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        ID {highlighted.atributo.id}
+                      </p>
                     </div>
-                    {scopeBadge(highlighted.alcance)}
+                    {stateBadge(highlighted.atributo.activo)}
                   </div>
-                  <div className="rounded-lg border p-4 text-sm">
-                    <p className="font-medium">Obligatorios</p>
-                    <p className="mt-2 text-muted-foreground">
-                      {highlighted.obligatorios.join(" · ")}
-                    </p>
+                  <div className="flex flex-wrap gap-2">
+                    {typeBadge(highlighted.atributo.tipo)}
+                    {requiredBadge(highlighted.atributo.requerido)}
                   </div>
-                  <div className="rounded-lg border p-4 text-sm text-muted-foreground">
-                    {highlighted.observacion}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border p-3">
+                      <p className="text-sm text-muted-foreground">Items visibles</p>
+                      <p className="mt-2 font-medium">
+                        {usageByAttribute.hasItemPayload
+                          ? highlighted.linkedItems.length
+                          : "No expuesto"}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-sm text-muted-foreground">Valores visibles</p>
+                      <p className="mt-2 font-medium">
+                        {usageByAttribute.hasItemPayload
+                          ? highlighted.linkedValues
+                          : "Desde detalle"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+                    {usageByAttribute.hasItemPayload
+                      ? highlighted.linkedItems.length > 0
+                        ? `Se observa en ${highlighted.linkedItems
+                            .slice(0, 3)
+                            .map((item) => item.descripcion)
+                            .join(", ")}.`
+                        : "No hay items activos visibles con este atributo cargado."
+                      : "El backend publica la definicion del atributo; las asignaciones por item se consultan desde el detalle del producto."}
                   </div>
                 </div>
               ) : (
@@ -320,15 +500,15 @@ export default function AtributosInventarioPage() {
               )}
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck className="h-4 w-4" /> Criterio de implementacion
-              </CardTitle>
+              <CardTitle className="text-base">Regla vigente</CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground">
-              La pantalla documenta familias y validaciones del legacy sin inventar endpoints de
-              atributos dinámicos. El overlay local deja operativo el maestro funcional pendiente.
+              Las altas y ediciones impactan directamente en el maestro de atributos. La carga de
+              valores por item se mantiene en la ficha de productos para respetar el contrato
+              actual.
             </CardContent>
           </Card>
         </div>
@@ -337,104 +517,89 @@ export default function AtributosInventarioPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {editingId ? "Editar bloque de atributos" : "Nuevo bloque de atributos"}
-            </DialogTitle>
+            <DialogTitle>{editingId ? "Editar atributo" : "Nuevo atributo"}</DialogTitle>
             <DialogDescription>
-              Alta y edición local de familias y validaciones para el catálogo de ítems.
+              Define el atributo que luego podra asignarse a los items desde la ficha de productos.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="nombre">Nombre</Label>
-                <Input
-                  id="nombre"
-                  value={form.nombre}
-                  onChange={(event) => setForm((prev) => ({ ...prev, nombre: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="categoria">Categoría</Label>
-                <Input
-                  id="categoria"
-                  value={form.categoria}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, categoria: event.target.value }))
-                  }
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="descripcion">Descripcion</Label>
+              <Input
+                id="descripcion"
+                value={form.descripcion}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, descripcion: event.target.value }))
+                }
+                placeholder="Ej. Color, Lote, Fecha de vencimiento"
+              />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="alcance">Alcance</Label>
+              <Label htmlFor="tipo">Tipo</Label>
+              <Input
+                id="tipo"
+                value={form.tipo}
+                onChange={(event) => setForm((prev) => ({ ...prev, tipo: event.target.value }))}
+                placeholder="texto, numero, fecha, booleano..."
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Requerido</Label>
               <Select
-                value={form.alcance}
+                value={form.requerido ? "true" : "false"}
                 onValueChange={(value) =>
-                  setForm((prev) => ({ ...prev, alcance: value as LegacyAttributeSet["alcance"] }))
+                  setForm((prev) => ({ ...prev, requerido: value === "true" }))
                 }
               >
-                <SelectTrigger id="alcance" className="w-full">
-                  <SelectValue placeholder="Seleccionar alcance" />
+                <SelectTrigger>
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="catalogo">Catálogo</SelectItem>
-                  <SelectItem value="logistica">Logística</SelectItem>
-                  <SelectItem value="fiscal">Fiscal</SelectItem>
-                  <SelectItem value="produccion">Producción</SelectItem>
+                  <SelectItem value="false">Opcional</SelectItem>
+                  <SelectItem value="true">Obligatorio</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="obligatorios">Obligatorios</Label>
-              <Input
-                id="obligatorios"
-                value={form.obligatorios}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, obligatorios: event.target.value }))
-                }
-                placeholder="código interno, unidad, iva"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="opcionales">Opcionales</Label>
-              <Input
-                id="opcionales"
-                value={form.opcionales}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, opcionales: event.target.value }))
-                }
-                placeholder="ean, marca, origen"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="validacion">Validación</Label>
-              <Textarea
-                id="validacion"
-                rows={3}
-                value={form.validacion}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, validacion: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="observacion">Observación</Label>
-              <Textarea
-                id="observacion"
-                rows={3}
-                value={form.observacion}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, observacion: event.target.value }))
-                }
-              />
-            </div>
-            {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
+            {formError && <p className="text-sm text-red-500">{formError}</p>}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button
+              variant="outline"
+              className="bg-transparent"
+              onClick={() => setDialogOpen(false)}
+            >
               Cancelar
             </Button>
-            <Button onClick={handleSave}>Guardar bloque</Button>
+            <Button onClick={() => void handleSave()} disabled={saving}>
+              {saving ? "Guardando..." : editingId ? "Guardar cambios" : "Crear atributo"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(attributeToDelete)} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Desactivar atributo</DialogTitle>
+            <DialogDescription>
+              El atributo quedara inactivo para nuevas asignaciones, pero se mantendra la
+              trazabilidad historica.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+            {attributeToDelete ? attributeToDelete.descripcion : "Sin atributo seleccionado."}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="bg-transparent" onClick={() => setDeleteId(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => attributeToDelete && void handleChangeState(attributeToDelete, false)}
+              disabled={saving}
+            >
+              {saving ? "Desactivando..." : "Desactivar"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

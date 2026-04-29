@@ -23,15 +23,6 @@ export function useStockMovimientos(itemId?: number, depositoId?: number) {
   const [hasta, setHasta] = useState("")
 
   const fetchMovimientos = useCallback(async () => {
-    if (!itemId && !depositoId) {
-      setMovimientos([])
-      setTotalCount(0)
-      setTotalPages(1)
-      setError(null)
-      setLoading(false)
-      return
-    }
-
     setLoading(true)
     setError(null)
     try {

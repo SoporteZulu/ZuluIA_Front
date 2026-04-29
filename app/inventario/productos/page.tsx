@@ -36,6 +36,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -49,6 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { useAtributos, useItemAtributos, useMarcas } from "@/lib/hooks/useInventarioMaestros"
 import { useItems, useItemsConfig } from "@/lib/hooks/useItems"
 import { apiGet } from "@/lib/api"
 import { API_BASE_URL } from "@/lib/api-config"
@@ -135,6 +137,34 @@ function getStockStatus(item: Item) {
   return "Stock sin referencia visible"
 }
 
+function getSecondaryDescription(item: Item) {
+  if (item.descripcionAdicional?.trim()) {
+    return item.descripcionAdicional.trim()
+  }
+
+  if (item.codigoBarras?.trim()) {
+    return `EAN ${item.codigoBarras.trim()}`
+  }
+
+  if (item.marcaDescripcion?.trim()) {
+    return `Marca ${item.marcaDescripcion.trim()}`
+  }
+
+  return null
+}
+
+function isBooleanAttribute(tipo?: string) {
+  const normalized = (tipo ?? "").toLowerCase()
+  return normalized.includes("bool") || normalized.includes("si_no") || normalized.includes("sí")
+}
+
+function getAttributeInputType(tipo?: string) {
+  const normalized = (tipo ?? "").toLowerCase()
+  if (normalized.includes("fecha")) return "date"
+  if (normalized.includes("numero") || normalized.includes("decimal")) return "number"
+  return "text"
+}
+
 function SummaryCard({
   title,
   value,
@@ -170,14 +200,17 @@ interface ItemFormProps {
 
 function ItemForm({ item, onClose, onSaved, createItem, updateItem }: ItemFormProps) {
   const { categorias, unidades, alicuotas, monedas } = useItemsConfig()
+  const { marcas } = useMarcas(true)
   const [form, setForm] = useState<CreateItemDto>(
     item
       ? {
           codigo: item.codigo,
+          codigoAlternativo: item.codigoAlternativo ?? null,
           codigoBarras: item.codigoBarras,
           descripcion: item.descripcion,
           descripcionAdicional: item.descripcionAdicional,
           categoriaId: item.categoriaId,
+          marcaId: item.marcaId ?? null,
           unidadMedidaId: item.unidadMedidaId,
           alicuotaIvaId: item.alicuotaIvaId,
           monedaId: item.monedaId,
@@ -189,6 +222,9 @@ function ItemForm({ item, onClose, onSaved, createItem, updateItem }: ItemFormPr
           precioVenta: item.precioVenta,
           stockMinimo: item.stockMinimo,
           stockMaximo: item.stockMaximo,
+          depositoDefaultId: item.depositoDefaultId ?? null,
+          esTrazable: item.esTrazable ?? false,
+          permiteFraccionamiento: item.permiteFraccionamiento ?? false,
           codigoAfip: item.codigoAfip,
         }
       : { ...EMPTY_FORM }
@@ -242,7 +278,13 @@ function ItemForm({ item, onClose, onSaved, createItem, updateItem }: ItemFormPr
             value={form.codigo}
             onChange={(e) => set("codigo", e.target.value)}
             placeholder="PROD-001"
+            disabled={Boolean(item)}
           />
+          {item && (
+            <p className="text-xs text-muted-foreground">
+              El código se conserva desde el alta porque el backend no admite modificarlo.
+            </p>
+          )}
         </div>
         <div className="space-y-1.5">
           <Label>Código de Barras</Label>
@@ -250,6 +292,14 @@ function ItemForm({ item, onClose, onSaved, createItem, updateItem }: ItemFormPr
             value={form.codigoBarras ?? ""}
             onChange={(e) => set("codigoBarras", e.target.value || null)}
             placeholder="7890000000000"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Código Alternativo</Label>
+          <Input
+            value={form.codigoAlternativo ?? ""}
+            onChange={(e) => set("codigoAlternativo", e.target.value || null)}
+            placeholder="Alias comercial"
           />
         </div>
         <div className="space-y-1.5 col-span-2">
@@ -285,6 +335,25 @@ function ItemForm({ item, onClose, onSaved, createItem, updateItem }: ItemFormPr
               {categorias.map((c) => (
                 <SelectItem key={c.id} value={String(c.id)}>
                   {c.descripcion}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Marca</Label>
+          <Select
+            value={form.marcaId ? String(form.marcaId) : "__none__"}
+            onValueChange={(v) => set("marcaId", v !== "__none__" ? Number(v) : null)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Sin marca" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Sin marca</SelectItem>
+              {marcas.map((marca) => (
+                <SelectItem key={marca.id} value={String(marca.id)}>
+                  {marca.descripcion}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -436,6 +505,22 @@ function ItemForm({ item, onClose, onSaved, createItem, updateItem }: ItemFormPr
           />
           <Label htmlFor="manejaStock">Maneja Stock</Label>
         </div>
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={Boolean(form.esTrazable)}
+            onCheckedChange={(value) => set("esTrazable", value)}
+            id="esTrazable"
+          />
+          <Label htmlFor="esTrazable">Es Trazable</Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={Boolean(form.permiteFraccionamiento)}
+            onCheckedChange={(value) => set("permiteFraccionamiento", value)}
+            id="permiteFraccionamiento"
+          />
+          <Label htmlFor="permiteFraccionamiento">Permite Fraccionamiento</Label>
+        </div>
       </div>
 
       {formError && (
@@ -450,6 +535,153 @@ function ItemForm({ item, onClose, onSaved, createItem, updateItem }: ItemFormPr
         </Button>
         <Button onClick={handleSave} disabled={saving}>
           {saving ? "Guardando..." : item ? "Guardar Cambios" : "Crear Producto"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function ItemAttributesPanel({ itemId }: { itemId: number }) {
+  const { atributos: definiciones, loading: loadingDefiniciones } = useAtributos(true)
+  const {
+    atributos: asignados,
+    loading,
+    saving,
+    error,
+    guardarValor,
+    eliminarValor,
+    refetch,
+  } = useItemAtributos(itemId)
+  const [values, setValues] = useState<Record<number, string>>({})
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [savingAll, setSavingAll] = useState(false)
+  const assignedValues = useMemo(
+    () =>
+      asignados.reduce<Record<number, string>>((accumulator, atributo) => {
+        accumulator[atributo.atributoId] = atributo.valor ?? ""
+        return accumulator
+      }, {}),
+    [asignados]
+  )
+
+  const handleSaveAll = async () => {
+    const faltantes = definiciones.filter(
+      (atributo) =>
+        atributo.requerido && !(values[atributo.id] ?? assignedValues[atributo.id] ?? "").trim()
+    )
+
+    if (faltantes.length > 0) {
+      setSaveError(
+        `Completá los atributos requeridos: ${faltantes.map((atributo) => atributo.descripcion).join(", ")}.`
+      )
+      return
+    }
+
+    setSavingAll(true)
+    setSaveError(null)
+
+    const asignadosPorId = new Map(asignados.map((atributo) => [atributo.atributoId, atributo]))
+
+    for (const atributo of definiciones) {
+      const nextValue = (values[atributo.id] ?? "").trim()
+      const currentValue = (asignadosPorId.get(atributo.id)?.valor ?? "").trim()
+
+      if (nextValue === currentValue) {
+        continue
+      }
+
+      const ok = nextValue
+        ? await guardarValor(atributo.id, nextValue)
+        : asignadosPorId.has(atributo.id)
+          ? await eliminarValor(atributo.id)
+          : true
+
+      if (!ok) {
+        setSaveError("No se pudieron guardar los atributos del producto.")
+        setSavingAll(false)
+        return
+      }
+    }
+
+    await refetch()
+    setValues({})
+    setSavingAll(false)
+  }
+
+  if (loadingDefiniciones || loading) {
+    return <p className="text-sm text-muted-foreground">Cargando atributos del producto...</p>
+  }
+
+  if (definiciones.length === 0) {
+    return <p className="text-sm text-muted-foreground">No hay atributos activos definidos.</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-3">
+        {definiciones.map((atributo) => {
+          const currentValue = values[atributo.id] ?? assignedValues[atributo.id] ?? ""
+
+          return (
+            <div key={atributo.id} className="rounded-lg border p-4">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium">{atributo.descripcion}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Tipo {atributo.tipo} {atributo.requerido ? "· requerido" : "· opcional"}
+                  </p>
+                </div>
+                <Badge variant={atributo.requerido ? "default" : "outline"}>
+                  {atributo.requerido ? "Requerido" : "Opcional"}
+                </Badge>
+              </div>
+
+              {isBooleanAttribute(atributo.tipo) ? (
+                <Select
+                  value={currentValue || "__none__"}
+                  onValueChange={(value) =>
+                    setValues((prev) => ({
+                      ...prev,
+                      [atributo.id]: value === "__none__" ? "" : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar valor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin definir</SelectItem>
+                    <SelectItem value="SI">Sí</SelectItem>
+                    <SelectItem value="NO">No</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  type={getAttributeInputType(atributo.tipo)}
+                  value={currentValue}
+                  onChange={(event) =>
+                    setValues((prev) => ({
+                      ...prev,
+                      [atributo.id]: event.target.value,
+                    }))
+                  }
+                  placeholder={`Valor para ${atributo.descripcion.toLowerCase()}`}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {(error || saveError) && (
+        <p className="flex items-center gap-1 text-sm text-red-500">
+          <AlertCircle className="h-4 w-4" /> {saveError ?? error}
+        </p>
+      )}
+
+      <div className="flex justify-end">
+        <Button onClick={handleSaveAll} disabled={saving || savingAll}>
+          {saving || savingAll ? "Guardando atributos..." : "Guardar atributos"}
         </Button>
       </div>
     </div>
@@ -486,10 +718,12 @@ function ItemDetail({
 
   const generalFields = [
     { label: "Código", value: item.codigo },
+    { label: "Código Alternativo", value: item.codigoAlternativo ?? "-" },
     { label: "Código de Barras", value: item.codigoBarras ?? "-" },
     { label: "Descripción", value: item.descripcion },
     { label: "Descripción Adicional", value: item.descripcionAdicional ?? "-" },
     { label: "Categoría", value: item.categoriaDescripcion ?? String(item.categoriaId ?? "-") },
+    { label: "Marca", value: item.marcaDescripcion ?? "-" },
     {
       label: "Unidad de Medida",
       value: item.unidadMedidaDescripcion ?? String(item.unidadMedidaId),
@@ -502,6 +736,7 @@ function ItemDetail({
           : String(item.alicuotaIvaId),
     },
     { label: "Moneda", value: item.monedaSimbol ?? String(item.monedaId) },
+    { label: "Depósito Default", value: item.depositoDefaultDescripcion ?? "-" },
     { label: "Sucursal", value: item.sucursalId ? `Sucursal ${item.sucursalId}` : "-" },
     { label: "Fecha de alta", value: formatDate(item.createdAt) },
   ]
@@ -513,6 +748,7 @@ function ItemDetail({
       label: "Margen visible",
       value: markup !== null ? `${markup.toFixed(1)}%` : "Sin base de costo",
     },
+    { label: "Marca comercial", value: item.marcaDescripcion ?? "Sin marca" },
     { label: "Stock Mínimo", value: String(item.stockMinimo) },
     {
       label: "Stock Máximo",
@@ -542,15 +778,21 @@ function ItemDetail({
           ? String(stockDistribution)
           : "-",
     },
+    { label: "Es trazable", value: item.esTrazable ? "Sí" : "No" },
+    {
+      label: "Fraccionamiento",
+      value: item.permiteFraccionamiento ? "Permitido" : "No permitido",
+    },
   ]
 
   return (
     <div className="space-y-4">
       <Tabs defaultValue="general" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="comercial">Comercial</TabsTrigger>
           <TabsTrigger value="circuito">Circuito</TabsTrigger>
+          <TabsTrigger value="atributos">Atributos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
@@ -610,6 +852,10 @@ function ItemDetail({
               </Table>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="atributos" className="space-y-4">
+          <ItemAttributesPanel itemId={item.id} />
         </TabsContent>
       </Tabs>
 
@@ -694,18 +940,25 @@ export default function ProductosPage() {
     [editingItemId, items]
   )
 
-  const catalogStats = {
-    conCategoria: items.filter((item) => Boolean(item.categoriaId)).length,
-    sinCategoria: items.filter((item) => !item.categoriaId).length,
-    manejaStock: items.filter((item) => item.manejaStock).length,
-    categoriasVisibles: categorias.length,
-    conDatosComplementarios: items.filter((item) =>
-      Boolean(item.codigoBarras || item.codigoAfip || item.descripcionAdicional)
-    ).length,
-    conAlertaStock: items.filter(
-      (item) => item.manejaStock && typeof item.stock === "number" && item.stock < item.stockMinimo
-    ).length,
-  }
+  const hasLocalFilters = typeFilter !== "todos" || catalogFilter !== "todos"
+  const summaryItems = hasLocalFilters ? visibleItems : items
+
+  const catalogStats = useMemo(
+    () => ({
+      conCategoria: summaryItems.filter((item) => Boolean(item.categoriaId)).length,
+      sinCategoria: summaryItems.filter((item) => !item.categoriaId).length,
+      manejaStock: summaryItems.filter((item) => item.manejaStock).length,
+      categoriasVisibles: categorias.length,
+      conDatosComplementarios: summaryItems.filter((item) =>
+        Boolean(item.codigoBarras || item.codigoAfip || item.descripcionAdicional)
+      ).length,
+      conAlertaStock: summaryItems.filter(
+        (item) =>
+          item.manejaStock && typeof item.stock === "number" && item.stock < item.stockMinimo
+      ).length,
+    }),
+    [categorias.length, summaryItems]
+  )
 
   const handleViewDetail = (item: Item) => {
     setSelectedItemId(item.id)
@@ -779,8 +1032,12 @@ export default function ProductosPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Lote cargado"
-          value={items.length}
-          description={`Página ${page} de ${totalPages || 1} sobre ${totalCount} activos en backend`}
+          value={summaryItems.length}
+          description={
+            hasLocalFilters
+              ? `${summaryItems.length} visibles tras filtros locales sobre ${items.length} cargados en la página`
+              : `Página ${page} de ${totalPages || 1} sobre ${totalCount} activos en backend`
+          }
           icon={<Boxes className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
@@ -912,9 +1169,9 @@ export default function ProductosPage() {
                         <TableCell>
                           <div className="space-y-1">
                             <p className="font-medium">{item.descripcion}</p>
-                            {(item.descripcionAdicional || item.codigoBarras) && (
+                            {getSecondaryDescription(item) && (
                               <p className="text-xs text-muted-foreground">
-                                {item.descripcionAdicional ?? `EAN ${item.codigoBarras}`}
+                                {getSecondaryDescription(item)}
                               </p>
                             )}
                           </div>
@@ -1046,6 +1303,11 @@ export default function ProductosPage() {
             <DialogTitle>
               {editingItem ? `Editar: ${editingItem.descripcion}` : "Nuevo Producto"}
             </DialogTitle>
+            <DialogDescription>
+              {editingItem
+                ? "Actualiza la ficha comercial, fiscal y operativa del producto seleccionado."
+                : "Carga un nuevo producto con su configuracion comercial y de stock."}
+            </DialogDescription>
           </DialogHeader>
           <ItemForm
             key={`${editingItem?.id ?? "new-item"}-${isFormOpen ? "open" : "closed"}`}
@@ -1063,6 +1325,9 @@ export default function ProductosPage() {
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedItem?.descripcion}</DialogTitle>
+            <DialogDescription>
+              Resumen del catalogo, stock visible y atributos del producto seleccionado.
+            </DialogDescription>
           </DialogHeader>
           {selectedItem && (
             <ItemDetail
@@ -1083,11 +1348,11 @@ export default function ProductosPage() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>¿Desactivar este producto?</DialogTitle>
+            <DialogDescription>
+              El producto <strong>{selectedItem?.descripcion}</strong> sera desactivado y no
+              aparecera en las listas activas.
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            El producto <strong>{selectedItem?.descripcion}</strong> será desactivado y no aparecerá
-            en las listas activas.
-          </p>
           <DialogFooter className="gap-2 mt-2">
             <Button
               variant="outline"

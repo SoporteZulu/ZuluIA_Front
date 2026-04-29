@@ -134,16 +134,21 @@ export default function AlmacenesPage() {
     })
   }, [depositos, estadoFiltro, search])
 
-  const activos = depositos.filter((deposito) => deposito.activo).length
-  const inactivos = depositos.filter((deposito) => !deposito.activo).length
-  const defaults = depositos.filter((deposito) => deposito.esDefault).length
-  const defaultActivo = depositos.find((deposito) => deposito.esDefault && deposito.activo)
-  const defaultsInactivos = depositos.filter((deposito) => deposito.esDefault && !deposito.activo)
+  const hasLocalFilters = search.trim().length > 0 || estadoFiltro !== "todos"
+  const visibleDepositos = filteredDepositos
+
+  const activos = visibleDepositos.filter((deposito) => deposito.activo).length
+  const inactivos = visibleDepositos.filter((deposito) => !deposito.activo).length
+  const defaults = visibleDepositos.filter((deposito) => deposito.esDefault).length
+  const defaultActivo = visibleDepositos.find((deposito) => deposito.esDefault && deposito.activo)
+  const defaultsInactivos = visibleDepositos.filter(
+    (deposito) => deposito.esDefault && !deposito.activo
+  )
   const sinDefault = defaults === 0
   const multiplesDefaults = defaults > 1
 
   const descripcionesDuplicadas = useMemo(() => {
-    const counter = depositos.reduce<Record<string, number>>((accumulator, deposito) => {
+    const counter = visibleDepositos.reduce<Record<string, number>>((accumulator, deposito) => {
       const key = deposito.descripcion.trim().toLowerCase()
       accumulator[key] = (accumulator[key] ?? 0) + 1
       return accumulator
@@ -152,14 +157,14 @@ export default function AlmacenesPage() {
     return Object.entries(counter)
       .filter(([, quantity]) => quantity > 1)
       .map(([description, quantity]) => ({ description, quantity }))
-  }, [depositos])
+  }, [visibleDepositos])
 
   const depositoDestacado = useMemo(() => {
-    if (depositos.length === 0) {
+    if (visibleDepositos.length === 0) {
       return null
     }
 
-    return [...depositos].sort((left, right) => {
+    return [...visibleDepositos].sort((left, right) => {
       const leftScore = Number(left.activo) * 4 + Number(left.esDefault) * 6
       const rightScore = Number(right.activo) * 4 + Number(right.esDefault) * 6
 
@@ -169,12 +174,12 @@ export default function AlmacenesPage() {
 
       return left.descripcion.localeCompare(right.descripcion)
     })[0]
-  }, [depositos])
+  }, [visibleDepositos])
 
   const radarOperativo = [
     {
       title: "Cobertura activa",
-      value: `${activos}/${depositos.length || 0}`,
+      value: `${activos}/${visibleDepositos.length || 0}`,
       description: "Almacenes habilitados hoy para inventario y movimientos.",
       icon: <Warehouse className="h-4 w-4 text-sky-700" />,
     },
@@ -182,8 +187,12 @@ export default function AlmacenesPage() {
       title: "Default operativo",
       value: defaultActivo ? defaultActivo.descripcion : "Sin definir",
       description: defaultActivo
-        ? "Es el almacén principal disponible en la sucursal visible."
-        : "No hay almacén activo marcado como referencia.",
+        ? hasLocalFilters
+          ? "Es el almacén principal dentro de la vista filtrada."
+          : "Es el almacén principal disponible en la sucursal visible."
+        : hasLocalFilters
+          ? "No hay almacén activo marcado como referencia en la vista actual."
+          : "No hay almacén activo marcado como referencia.",
       icon: <MapPin className="h-4 w-4 text-emerald-700" />,
     },
     {
@@ -332,8 +341,12 @@ export default function AlmacenesPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Almacenes visibles"
-          value={depositos.length}
-          description={`Sucursal operativa ${sucursalId}`}
+          value={visibleDepositos.length}
+          description={
+            hasLocalFilters
+              ? `${visibleDepositos.length} en la vista filtrada de sucursal ${sucursalId}`
+              : `Sucursal operativa ${sucursalId}`
+          }
           icon={<Warehouse className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
@@ -353,8 +366,12 @@ export default function AlmacenesPage() {
           value={defaults}
           description={
             defaultActivo
-              ? `Principal activo: ${defaultActivo.descripcion}`
-              : "Sin principal activo"
+              ? hasLocalFilters
+                ? `Principal visible: ${defaultActivo.descripcion}`
+                : `Principal activo: ${defaultActivo.descripcion}`
+              : hasLocalFilters
+                ? "Sin principal visible"
+                : "Sin principal activo"
           }
           icon={<MapPin className="h-4 w-4 text-muted-foreground" />}
         />
@@ -409,7 +426,9 @@ export default function AlmacenesPage() {
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">
                   {sinDefault
-                    ? "No hay ningún almacén marcado como principal para la sucursal activa."
+                    ? hasLocalFilters
+                      ? "No hay ningún almacén visible marcado como principal."
+                      : "No hay ningún almacén marcado como principal para la sucursal activa."
                     : multiplesDefaults
                       ? `Hay ${defaults} almacenes marcados como default; conviene consolidar uno solo.`
                       : `El principal activo es ${defaultActivo?.descripcion ?? "N/D"}.`}

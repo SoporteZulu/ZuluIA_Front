@@ -188,6 +188,10 @@ function getStockBadge(item: Item) {
   return <Badge variant="default">Disponible</Badge>
 }
 
+function canManageStock(item: Item) {
+  return item.manejaStock
+}
+
 export default function InventarioPage() {
   const sucursalId = useDefaultSucursalId()
   const {
@@ -308,7 +312,7 @@ export default function InventarioPage() {
     return filteredProducts.find((item) => item.id === featuredAlert.itemId) ?? selectedItem
   }, [featuredAlert, filteredProducts, selectedItem])
 
-  const ultimoMovimientoVisible = movimientos[0] ?? null
+  const ultimoMovimientoVisible = selectedItem ? (movimientos[0] ?? null) : null
   const ultimaActualizacionStock = stock?.depositos
     ?.map((deposito) => deposito.updatedAt)
     .filter(Boolean)
@@ -327,6 +331,8 @@ export default function InventarioPage() {
   }
 
   const openAjuste = (item: Item) => {
+    if (!canManageStock(item)) return
+
     setSelectedItemId(item.id)
     setActionError(null)
     setAjusteForm(emptyAjuste())
@@ -334,6 +340,8 @@ export default function InventarioPage() {
   }
 
   const openTransfer = (item: Item) => {
+    if (!canManageStock(item)) return
+
     setSelectedItemId(item.id)
     setActionError(null)
     setTransferForm(emptyTransfer())
@@ -722,89 +730,99 @@ export default function InventarioPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredProducts.map((item) => (
-                    <TableRow
-                      key={item.id}
-                      className={item.id === selectedItemId ? "bg-accent/40" : undefined}
-                      onClick={() => setSelectedItemId(item.id)}
-                    >
-                      <TableCell className="font-mono text-sm font-semibold">
-                        {item.codigo}
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <p>{item.descripcion}</p>
-                          {(item.descripcionAdicional || item.codigoBarras) && (
+                  filteredProducts.map((item) => {
+                    const stockActionsEnabled = canManageStock(item)
+
+                    return (
+                      <TableRow
+                        key={item.id}
+                        className={item.id === selectedItemId ? "bg-accent/40" : undefined}
+                        onClick={() => setSelectedItemId(item.id)}
+                      >
+                        <TableCell className="font-mono text-sm font-semibold">
+                          {item.codigo}
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <p>{item.descripcion}</p>
+                            {(item.descripcionAdicional || item.codigoBarras) && (
+                              <p className="text-xs text-muted-foreground">
+                                {item.descripcionAdicional ?? `EAN ${item.codigoBarras}`}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <Badge variant="outline">
+                              {item.categoriaDescripcion ?? "Sin categoría"}
+                            </Badge>
                             <p className="text-xs text-muted-foreground">
-                              {item.descripcionAdicional ?? `EAN ${item.codigoBarras}`}
+                              {item.unidadMedidaDescripcion ?? "Unidad no informada"}
                             </p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <Badge variant="outline">
-                            {item.categoriaDescripcion ?? "Sin categoría"}
-                          </Badge>
-                          <p className="text-xs text-muted-foreground">
-                            {item.unidadMedidaDescripcion ?? "Unidad no informada"}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <Badge variant="outline" className="text-xs">
-                            {getCatalogStatus(item)}
-                          </Badge>
-                          {item.codigoAfip && (
-                            <p className="text-xs text-muted-foreground">AFIP {item.codigoAfip}</p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">{item.stock ?? 0}</TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {item.stockMinimo}
-                      </TableCell>
-                      <TableCell>{getStockBadge(item)}</TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              openDetail(item)
-                            }}
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            Ver
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              openAjuste(item)
-                            }}
-                          >
-                            <SlidersHorizontal className="h-4 w-4 mr-2" />
-                            Ajuste
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              openTransfer(item)
-                            }}
-                          >
-                            <ArrowRightLeft className="h-4 w-4 mr-2" />
-                            Transferir
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <Badge variant="outline" className="text-xs">
+                              {getCatalogStatus(item)}
+                            </Badge>
+                            {item.codigoAfip && (
+                              <p className="text-xs text-muted-foreground">
+                                AFIP {item.codigoAfip}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {item.stock ?? 0}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {item.stockMinimo}
+                        </TableCell>
+                        <TableCell>{getStockBadge(item)}</TableCell>
+                        <TableCell>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openDetail(item)
+                              }}
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              Ver
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!stockActionsEnabled}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openAjuste(item)
+                              }}
+                            >
+                              <SlidersHorizontal className="h-4 w-4 mr-2" />
+                              Ajuste
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!stockActionsEnabled}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openTransfer(item)
+                              }}
+                            >
+                              <ArrowRightLeft className="h-4 w-4 mr-2" />
+                              Transferir
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
@@ -906,13 +924,19 @@ export default function InventarioPage() {
                         <Eye className="h-4 w-4 mr-2" />
                         Ver ficha
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => openAjuste(selectedItem)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!canManageStock(selectedItem)}
+                        onClick={() => openAjuste(selectedItem)}
+                      >
                         <SlidersHorizontal className="h-4 w-4 mr-2" />
                         Ajustar
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
+                        disabled={!canManageStock(selectedItem)}
                         onClick={() => openTransfer(selectedItem)}
                       >
                         <ArrowRightLeft className="h-4 w-4 mr-2" />
