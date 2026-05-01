@@ -25,13 +25,50 @@ type AuthLoginErrorResponse = {
   error_description?: string
 }
 
+type JwtPayload = {
+  exp?: number
+}
+
+function decodeJwtPayload(token: string): JwtPayload | null {
+  const parts = token.split(".")
+  if (parts.length < 2) return null
+
+  try {
+    const normalizedPayload = parts[1].replace(/-/g, "+").replace(/_/g, "/")
+    const paddedPayload = normalizedPayload.padEnd(
+      normalizedPayload.length + ((4 - (normalizedPayload.length % 4)) % 4),
+      "="
+    )
+
+    return JSON.parse(atob(paddedPayload)) as JwtPayload
+  } catch {
+    return null
+  }
+}
+
+function isExpiredToken(token: string): boolean {
+  const payload = decodeJwtPayload(token)
+  if (typeof payload?.exp !== "number") return false
+
+  return payload.exp <= Math.floor(Date.now() / 1000)
+}
+
 export function isAuthConfigured(): boolean {
   return API_BASE_URL.length > 0
 }
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null
-  return localStorage.getItem(TOKEN_KEY)
+
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (!token) return null
+
+  if (isExpiredToken(token)) {
+    localStorage.removeItem(TOKEN_KEY)
+    return null
+  }
+
+  return token
 }
 
 export function isAuthenticated(): boolean {

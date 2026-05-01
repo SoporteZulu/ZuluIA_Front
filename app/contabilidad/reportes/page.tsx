@@ -5,6 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table,
@@ -28,11 +35,11 @@ import {
   Waypoints,
 } from "lucide-react"
 import { useLibroIva } from "@/lib/hooks/useLibroIva"
-import { useAsientos } from "@/lib/hooks/useAsientos"
+import { useAsientos, usePlanCuentas } from "@/lib/hooks/useAsientos"
 import { useEjercicioVigente } from "@/lib/hooks/useEjercicios"
 import { usePeriodosIva } from "@/lib/hooks/usePeriodosIva"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
-import type { Asiento } from "@/lib/types/asientos"
+import type { Asiento, BalanceSumasYSaldos, MayorResult, PlanCuenta } from "@/lib/types/asientos"
 import type { Ejercicio } from "@/lib/types/ejercicios"
 import type { LibroIvaDto, LibroIvaLinea } from "@/lib/types/libro-iva"
 import type { PeriodoIvaDto } from "@/lib/types/periodos-iva"
@@ -75,7 +82,23 @@ function buildRangeFromPeriodo(periodo: string) {
 }
 
 function formatDate(value?: string) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("es-AR")
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("es-AR")
+}
+
+function normalizeAsientoEstado(status?: string) {
+  return (status ?? "").trim().toLowerCase()
+}
+
+function isConsolidatedAsientoStatus(status?: string) {
+  const normalized = normalizeAsientoEstado(status)
+  return normalized === "publicado" || normalized === "contabilizado"
 }
 
 function formatPeriodo(periodo?: string) {
@@ -522,11 +545,14 @@ function LibroDiarioTab({
   const [desde, setDesde] = useState(initialRange.desde)
   const [hasta, setHasta] = useState(initialRange.hasta)
   const [libroDiario, setLibroDiario] = useState<LibroDiarioResult | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
 
   const handleBuscar = async () => {
     if (!ejercicio?.id || !desde || !hasta) return
+    setReportLoading(true)
     const result = await getLibroDiario(ejercicio.id, sucursalId, desde, hasta)
     setLibroDiario((result as LibroDiarioResult | null) ?? null)
+    setReportLoading(false)
   }
 
   const recentEntries = useMemo(
@@ -643,9 +669,9 @@ function LibroDiarioTab({
         </Alert>
       )}
 
-      {loading && <p className="text-sm text-muted-foreground">Cargando Libro Diario…</p>}
+      {reportLoading && <p className="text-sm text-muted-foreground">Cargando Libro Diario…</p>}
 
-      {libroDiario && !loading && (
+      {libroDiario && !reportLoading && (
         <>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <SummaryCard
@@ -753,7 +779,7 @@ function LibroDiarioTab({
         </>
       )}
 
-      {!libroDiario && !loading && (
+      {!libroDiario && !reportLoading && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Últimos asientos cargados</CardTitle>
@@ -789,7 +815,7 @@ function LibroDiarioTab({
                       <TableCell>
                         <Badge
                           variant={
-                            entry.estado.toLowerCase() === "publicado" ? "default" : "secondary"
+                            isConsolidatedAsientoStatus(entry.estado) ? "default" : "secondary"
                           }
                         >
                           {entry.estado}
@@ -818,6 +844,574 @@ function LibroDiarioTab({
   )
 }
 
+function BalanceTab({
+  ejercicio,
+  recentPeriodos,
+  getBalance,
+  sucursalId,
+  error,
+}: {
+  ejercicio: Ejercicio | null
+  recentPeriodos: PeriodoIvaDto[]
+  getBalance: (
+    ejercicioId: number,
+    desde: string,
+    hasta: string,
+    sucursalId?: number
+  ) => Promise<BalanceSumasYSaldos | null>
+  sucursalId: number
+  error: string | null
+}) {
+  const initialRange = recentPeriodos[0]
+    ? buildRangeFromPeriodo(recentPeriodos[0].periodo)
+    : buildMonthRange(0)
+  const [desde, setDesde] = useState(initialRange.desde)
+  const [hasta, setHasta] = useState(initialRange.hasta)
+  const [balance, setBalance] = useState<BalanceSumasYSaldos | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+
+  const selectedPeriodo = useMemo(
+    () =>
+      recentPeriodos.find((periodo) => {
+        const range = buildRangeFromPeriodo(periodo.periodo)
+        return range.desde === desde && range.hasta === hasta
+      }) ?? null,
+    [desde, hasta, recentPeriodos]
+  )
+  const periodoStatus = getPeriodoStatus(selectedPeriodo)
+  const balanceDifference = Math.abs((balance?.totalDebe ?? 0) - (balance?.totalHaber ?? 0))
+  const balanceStatus = getBalanceStatus(balanceDifference)
+  const balanceLineas = balance?.lineas ?? []
+
+  const setCurrentMonth = () => {
+    const range = buildMonthRange(0)
+    setDesde(range.desde)
+    setHasta(range.hasta)
+  }
+
+  const setPreviousMonth = () => {
+    const range = buildMonthRange(-1)
+    setDesde(range.desde)
+    setHasta(range.hasta)
+  }
+
+  const setPeriodoRange = (periodo: PeriodoIvaDto) => {
+    const range = buildRangeFromPeriodo(periodo.periodo)
+    setDesde(range.desde)
+    setHasta(range.hasta)
+  }
+
+  const handleBuscar = async () => {
+    if (!ejercicio?.id || !desde || !hasta) return
+
+    setReportLoading(true)
+    const result = await getBalance(ejercicio.id, desde, hasta, sucursalId)
+    setBalance(result)
+    setReportLoading(false)
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="text-base">Parametros del balance</CardTitle>
+          <CardDescription>
+            Emiti el balance de sumas y saldos del ejercicio vigente usando el mismo rango fiscal o
+            un rango manual equivalente al legado.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="space-y-1">
+              <Label className="text-xs">Desde</Label>
+              <Input
+                type="date"
+                value={desde}
+                onChange={(e) => setDesde(e.target.value)}
+                className="w-40"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Hasta</Label>
+              <Input
+                type="date"
+                value={hasta}
+                onChange={(e) => setHasta(e.target.value)}
+                className="w-40"
+              />
+            </div>
+            <Button
+              onClick={handleBuscar}
+              disabled={reportLoading || !desde || !hasta || !ejercicio?.id}
+            >
+              <Search className="h-4 w-4 mr-2" />
+              Generar
+            </Button>
+          </div>
+
+          <RangeQuickActions
+            onCurrentMonth={setCurrentMonth}
+            onPreviousMonth={setPreviousMonth}
+            recentPeriodos={recentPeriodos}
+            onPeriodoSelect={setPeriodoRange}
+          />
+
+          <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+            <div className="flex items-start gap-2">
+              <Scale className="mt-0.5 h-4 w-4 text-primary" />
+              <div>
+                <p className="font-medium text-foreground">Lectura del rango de balance</p>
+                <p>
+                  {selectedPeriodo
+                    ? periodoStatus.detail
+                    : "Podes emitir el balance con un rango manual aunque no coincida con un periodo IVA persistido."}
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {reportLoading && (
+        <p className="text-sm text-muted-foreground">Cargando balance de sumas y saldos...</p>
+      )}
+
+      {balance && !reportLoading && (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard
+              title="Cuentas con movimiento"
+              value={String(balanceLineas.length)}
+              description="Cuentas alcanzadas por el rango contable consultado."
+            />
+            <SummaryCard
+              title="Total Debe"
+              value={`$${fmtARS(balance.totalDebe ?? 0)}`}
+              description="Sumatoria total del debe para el balance emitido."
+            />
+            <SummaryCard
+              title="Total Haber"
+              value={`$${fmtARS(balance.totalHaber ?? 0)}`}
+              description="Sumatoria total del haber para el balance emitido."
+            />
+            <SummaryCard
+              title="Diferencia"
+              value={`$${fmtARS(balanceDifference)}`}
+              description={balanceStatus.detail}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard
+              title="Saldo Deudor"
+              value={`$${fmtARS(balance.totalSaldoDeudor ?? 0)}`}
+              description="Total de saldos deudores del rango emitido."
+            />
+            <SummaryCard
+              title="Saldo Acreedor"
+              value={`$${fmtARS(balance.totalSaldoAcreedor ?? 0)}`}
+              description="Total de saldos acreedores del rango emitido."
+            />
+            <SummaryCard
+              title="Estado"
+              value={balanceStatus.label}
+              description="Lectura rapida del equilibrio del reporte devuelto."
+            />
+            <SummaryCard
+              title="Ejercicio"
+              value={balance.ejercicioDescripcion || ejercicio?.descripcion || "Sin definir"}
+              description={`Sucursal ${sucursalId} dentro del rango ${formatDate(desde)} a ${formatDate(hasta)}.`}
+            />
+          </div>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Balance de sumas y saldos</CardTitle>
+              <CardDescription>
+                {balance.ejercicioDescripcion || ejercicio?.descripcion || "Sin ejercicio"} ·{" "}
+                {formatDate(desde)} a {formatDate(hasta)}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cuenta</TableHead>
+                    <TableHead>Denominacion</TableHead>
+                    <TableHead className="text-right">Nivel</TableHead>
+                    <TableHead className="text-right">Sumas Debe</TableHead>
+                    <TableHead className="text-right">Sumas Haber</TableHead>
+                    <TableHead className="text-right">Saldo Deudor</TableHead>
+                    <TableHead className="text-right">Saldo Acreedor</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {balanceLineas.map((linea) => (
+                    <TableRow key={linea.cuentaId}>
+                      <TableCell className="font-mono text-sm">{linea.codigoCuenta}</TableCell>
+                      <TableCell className="text-sm">{linea.denominacion}</TableCell>
+                      <TableCell className="text-right text-sm">{linea.nivel}</TableCell>
+                      <TableCell className="text-right text-sm">
+                        ${fmtARS(linea.sumasDebe)}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">
+                        ${fmtARS(linea.sumasHaber)}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">
+                        ${fmtARS(linea.saldoDeudor)}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">
+                        ${fmtARS(linea.saldoAcreedor)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {balanceLineas.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                        Sin movimientos contables para el rango elegido.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}
+
+function MayorTab({
+  ejercicio,
+  recentPeriodos,
+  cuentas,
+  cuentasLoading,
+  getMayor,
+  error,
+}: {
+  ejercicio: Ejercicio | null
+  recentPeriodos: PeriodoIvaDto[]
+  cuentas: PlanCuenta[]
+  cuentasLoading: boolean
+  getMayor: (options: {
+    cuentaId: number
+    ejercicioId: number
+    desde?: string
+    hasta?: string
+    page?: number
+    pageSize?: number
+  }) => Promise<MayorResult | null>
+  error: string | null
+}) {
+  const initialRange = recentPeriodos[0]
+    ? buildRangeFromPeriodo(recentPeriodos[0].periodo)
+    : buildMonthRange(0)
+  const [cuentaId, setCuentaId] = useState("")
+  const [desde, setDesde] = useState(initialRange.desde)
+  const [hasta, setHasta] = useState(initialRange.hasta)
+  const [search, setSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [mayor, setMayor] = useState<MayorResult | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+
+  const selectedCuenta = useMemo(
+    () => cuentas.find((cuenta) => cuenta.id === Number(cuentaId)) ?? null,
+    [cuentaId, cuentas]
+  )
+  const selectedPeriodo = useMemo(
+    () =>
+      recentPeriodos.find((periodo) => {
+        const range = buildRangeFromPeriodo(periodo.periodo)
+        return range.desde === desde && range.hasta === hasta
+      }) ?? null,
+    [desde, hasta, recentPeriodos]
+  )
+  const filteredLineas = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    const lineas = mayor?.lineas ?? []
+
+    if (!term) return lineas
+
+    return lineas.filter((linea) =>
+      [
+        String(linea.numero ?? linea.asientoId),
+        linea.asientoDescripcion,
+        linea.lineaDescripcion ?? "",
+        linea.fecha,
+        linea.centroCostoId ? `cc ${linea.centroCostoId}` : "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(term)
+    )
+  }, [mayor, search])
+
+  const pageDebe = filteredLineas.reduce((sum, linea) => sum + Number(linea.debe ?? 0), 0)
+  const pageHaber = filteredLineas.reduce((sum, linea) => sum + Number(linea.haber ?? 0), 0)
+
+  const setCurrentMonth = () => {
+    const range = buildMonthRange(0)
+    setDesde(range.desde)
+    setHasta(range.hasta)
+  }
+
+  const setPreviousMonth = () => {
+    const range = buildMonthRange(-1)
+    setDesde(range.desde)
+    setHasta(range.hasta)
+  }
+
+  const setPeriodoRange = (periodo: PeriodoIvaDto) => {
+    const range = buildRangeFromPeriodo(periodo.periodo)
+    setDesde(range.desde)
+    setHasta(range.hasta)
+  }
+
+  const fetchMayorPage = async (nextPage = 1) => {
+    if (!ejercicio?.id || !cuentaId) return
+
+    setReportLoading(true)
+    const result = await getMayor({
+      cuentaId: Number(cuentaId),
+      ejercicioId: ejercicio.id,
+      desde,
+      hasta,
+      page: nextPage,
+      pageSize: 50,
+    })
+    setMayor(result)
+    setPage(nextPage)
+    setReportLoading(false)
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="text-base">Parametros del libro mayor</CardTitle>
+          <CardDescription>
+            Selecciona una cuenta imputable y un rango contable para revisar todos los movimientos
+            que la impactan en el ejercicio vigente.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_180px_180px_auto]">
+            <div className="space-y-1">
+              <Label className="text-xs">Cuenta contable</Label>
+              <Select
+                value={cuentaId || "__none__"}
+                onValueChange={(value) => {
+                  setCuentaId(value === "__none__" ? "" : value)
+                  setMayor(null)
+                  setPage(1)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar cuenta" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Seleccionar cuenta</SelectItem>
+                  {cuentas.map((cuenta) => (
+                    <SelectItem key={cuenta.id} value={String(cuenta.id)}>
+                      {cuenta.codigoCuenta} - {cuenta.denominacion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Desde</Label>
+              <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Hasta</Label>
+              <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+            </div>
+            <Button
+              className="self-end"
+              onClick={() => void fetchMayorPage(1)}
+              disabled={reportLoading || cuentasLoading || !ejercicio?.id || !cuentaId}
+            >
+              <Search className="h-4 w-4 mr-2" />
+              Generar
+            </Button>
+          </div>
+
+          <RangeQuickActions
+            onCurrentMonth={setCurrentMonth}
+            onPreviousMonth={setPreviousMonth}
+            recentPeriodos={recentPeriodos}
+            onPeriodoSelect={setPeriodoRange}
+          />
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+              <div className="flex items-start gap-2">
+                <FileText className="mt-0.5 h-4 w-4 text-primary" />
+                <div>
+                  <p className="font-medium text-foreground">Cuenta enfocada</p>
+                  <p>
+                    {selectedCuenta
+                      ? `${selectedCuenta.codigoCuenta} - ${selectedCuenta.denominacion}`
+                      : "Selecciona una cuenta imputable para consultar el mayor real."}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+              <div className="flex items-start gap-2">
+                <Waypoints className="mt-0.5 h-4 w-4 text-primary" />
+                <div>
+                  <p className="font-medium text-foreground">Rango contable</p>
+                  <p>
+                    {selectedPeriodo
+                      ? `El rango coincide con ${formatPeriodo(selectedPeriodo.periodo)}.`
+                      : "El mayor puede emitirse con un rango manual sin depender de un periodo IVA guardado."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {reportLoading && <p className="text-sm text-muted-foreground">Cargando libro mayor...</p>}
+
+      {mayor && !reportLoading && (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard
+              title="Lineas visibles"
+              value={String(filteredLineas.length)}
+              description={`Pagina ${page} de ${mayor.totalPages || 1} sobre ${mayor.totalCount} lineas backend.`}
+            />
+            <SummaryCard
+              title="Debe pagina"
+              value={`$${fmtARS(pageDebe)}`}
+              description="Total del debe dentro de la pagina cargada y filtrada localmente."
+            />
+            <SummaryCard
+              title="Haber pagina"
+              value={`$${fmtARS(pageHaber)}`}
+              description="Total del haber dentro de la pagina cargada y filtrada localmente."
+            />
+            <SummaryCard
+              title="Cuenta"
+              value={selectedCuenta?.codigoCuenta ?? "Sin cuenta"}
+              description={selectedCuenta?.denominacion ?? "Selecciona una cuenta imputable."}
+            />
+          </div>
+
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">Movimientos del mayor</CardTitle>
+              <CardDescription>
+                {selectedCuenta
+                  ? `${selectedCuenta.codigoCuenta} - ${selectedCuenta.denominacion}`
+                  : "Cuenta no seleccionada"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="relative max-w-md">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="pl-8"
+                  placeholder="Buscar por asiento, fecha o detalle..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Asiento</TableHead>
+                      <TableHead>Descripcion</TableHead>
+                      <TableHead>Detalle linea</TableHead>
+                      <TableHead>Centro costo</TableHead>
+                      <TableHead className="text-right">Debe</TableHead>
+                      <TableHead className="text-right">Haber</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredLineas.map((linea) => (
+                      <TableRow key={linea.id}>
+                        <TableCell className="text-sm">{formatDate(linea.fecha)}</TableCell>
+                        <TableCell className="font-mono text-sm">
+                          {linea.numero ?? linea.asientoId}
+                        </TableCell>
+                        <TableCell className="text-sm">{linea.asientoDescripcion}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {linea.lineaDescripcion ?? "Sin detalle"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {linea.centroCostoId ? `CC ${linea.centroCostoId}` : "-"}
+                        </TableCell>
+                        <TableCell className="text-right text-sm">${fmtARS(linea.debe)}</TableCell>
+                        <TableCell className="text-right text-sm">${fmtARS(linea.haber)}</TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredLineas.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                          Sin movimientos para la cuenta y el rango seleccionados.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {mayor.totalPages > 1 && (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    Pagina {page} de {mayor.totalPages} sobre {mayor.totalCount} lineas.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page <= 1 || reportLoading}
+                      onClick={() => void fetchMayorPage(page - 1)}
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page >= mayor.totalPages || reportLoading}
+                      onClick={() => void fetchMayorPage(page + 1)}
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function ReportesContablesPage() {
   const sucursalId = useDefaultSucursalId() ?? 1
   const { ejercicio } = useEjercicioVigente()
@@ -831,31 +1425,39 @@ export default function ReportesContablesPage() {
     loading: loadingAsientos,
     error: errorAsientos,
     getLibroDiario,
+    getBalance,
+    getMayor,
   } = useAsientos({ ejercicioId: ejercicio?.id, sucursalId })
+  const { cuentas, loading: loadingCuentas } = usePlanCuentas(ejercicio?.id)
+  const safePeriodos = periodos ?? []
+  const safeAsientos = asientos ?? []
+  const safeCuentas = cuentas ?? []
+  const ejercicioSucursales = ejercicio?.sucursales ?? []
 
   const recentPeriodos = useMemo(
-    () => [...periodos].sort((a, b) => b.periodo.localeCompare(a.periodo)).slice(0, 3),
-    [periodos]
+    () => [...safePeriodos].sort((a, b) => b.periodo.localeCompare(a.periodo)).slice(0, 3),
+    [safePeriodos]
   )
 
-  const asientosPublicados = useMemo(
-    () => asientos.filter((entry) => entry.estado.toLowerCase() === "publicado").length,
-    [asientos]
+  const asientosConsolidados = useMemo(
+    () => safeAsientos.filter((entry) => isConsolidatedAsientoStatus(entry.estado)).length,
+    [safeAsientos]
   )
 
   const asientosBorrador = useMemo(
-    () => asientos.filter((entry) => entry.estado.toLowerCase() === "borrador").length,
-    [asientos]
+    () => safeAsientos.filter((entry) => entry.estado.toLowerCase() === "borrador").length,
+    [safeAsientos]
   )
 
   const ultimoAsiento = useMemo(
     () =>
-      [...asientos].sort((a, b) => `${b.fecha}-${b.id}`.localeCompare(`${a.fecha}-${a.id}`))[0] ??
-      null,
-    [asientos]
+      [...safeAsientos].sort((a, b) =>
+        `${b.fecha}-${b.id}`.localeCompare(`${a.fecha}-${a.id}`)
+      )[0] ?? null,
+    [safeAsientos]
   )
 
-  const periodosAbiertos = periodos.filter((periodo) => !periodo.cerrado).length
+  const periodosAbiertos = safePeriodos.filter((periodo) => !periodo.cerrado).length
   const ultimoPeriodo = recentPeriodos[0] ?? null
 
   return (
@@ -897,16 +1499,16 @@ export default function ReportesContablesPage() {
         />
         <SummaryCard
           title="Períodos IVA"
-          value={`${periodosAbiertos}/${periodos.length}`}
+          value={`${periodosAbiertos}/${safePeriodos.length}`}
           description={
             loadingPeriodos
               ? "Cargando períodos fiscales…"
-              : `${periodosAbiertos} abiertos sobre ${periodos.length} detectados.`
+              : `${periodosAbiertos} abiertos sobre ${safePeriodos.length} detectados.`
           }
         />
         <SummaryCard
-          title="Asientos publicados"
-          value={loadingAsientos ? "..." : String(asientosPublicados)}
+          title="Asientos consolidados"
+          value={loadingAsientos ? "..." : String(asientosConsolidados)}
           description={
             loadingAsientos
               ? "Cargando libro diario base…"
@@ -932,8 +1534,8 @@ export default function ReportesContablesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {asientos.length} asientos visibles del ejercicio y {recentPeriodos.length} períodos IVA
-            recientes para reutilizar como base de emisión.
+            {safeAsientos.length} asientos visibles del ejercicio y {recentPeriodos.length} períodos
+            IVA recientes para reutilizar como base de emisión.
           </CardContent>
         </Card>
         <Card>
@@ -956,7 +1558,7 @@ export default function ReportesContablesPage() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             {ejercicio
-              ? `${ejercicio.sucursales.length} sucursales asociadas al ejercicio vigente; la consola está enfocada en la sucursal ${sucursalId}.`
+              ? `${ejercicioSucursales.length} sucursales asociadas al ejercicio vigente; la consola está enfocada en la sucursal ${sucursalId}.`
               : `La consola toma la sucursal ${sucursalId} sin contexto adicional de ejercicio.`}
           </CardContent>
         </Card>
@@ -976,10 +1578,12 @@ export default function ReportesContablesPage() {
       )}
 
       <Tabs defaultValue="iva-ventas" className="w-full">
-        <TabsList>
+        <TabsList className="flex h-auto w-full flex-wrap justify-start">
           <TabsTrigger value="iva-ventas">Libro IVA Ventas</TabsTrigger>
           <TabsTrigger value="iva-compras">Libro IVA Compras</TabsTrigger>
           <TabsTrigger value="diario">Libro Diario</TabsTrigger>
+          <TabsTrigger value="balance">Balance</TabsTrigger>
+          <TabsTrigger value="mayor">Libro Mayor</TabsTrigger>
         </TabsList>
 
         <TabsContent value="iva-ventas" className="mt-6">
@@ -1005,11 +1609,34 @@ export default function ReportesContablesPage() {
             key={`libro-diario-${!loadingPeriodos}-${recentPeriodos[0]?.id ?? recentPeriodos[0]?.periodo ?? "manual"}`}
             ejercicio={ejercicio}
             recentPeriodos={recentPeriodos}
-            asientos={asientos}
+            asientos={safeAsientos}
             loading={loadingAsientos}
             error={errorAsientos}
             getLibroDiario={getLibroDiario}
             sucursalId={sucursalId}
+          />
+        </TabsContent>
+
+        <TabsContent value="balance" className="mt-6">
+          <BalanceTab
+            key={`balance-${!loadingPeriodos}-${recentPeriodos[0]?.id ?? recentPeriodos[0]?.periodo ?? "manual"}`}
+            ejercicio={ejercicio}
+            recentPeriodos={recentPeriodos}
+            getBalance={getBalance}
+            sucursalId={sucursalId}
+            error={errorAsientos}
+          />
+        </TabsContent>
+
+        <TabsContent value="mayor" className="mt-6">
+          <MayorTab
+            key={`mayor-${ejercicio?.id ?? "sin-ejercicio"}-${safeCuentas.length}`}
+            ejercicio={ejercicio}
+            recentPeriodos={recentPeriodos}
+            cuentas={safeCuentas}
+            cuentasLoading={loadingCuentas}
+            getMayor={getMayor}
+            error={errorAsientos}
           />
         </TabsContent>
       </Tabs>

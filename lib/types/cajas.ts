@@ -10,6 +10,12 @@ export interface Caja {
   saldoActual?: number
   fechaApertura?: string
   saldoInicial?: number
+  esCaja?: boolean
+  banco?: string
+  nroCuenta?: string
+  cbu?: string
+  usuarioId?: number
+  nroCierreActual?: number
 }
 
 export interface TipoCaja {
@@ -20,10 +26,26 @@ export interface TipoCaja {
 
 export interface CreateCajaDto {
   sucursalId: number
-  tipoCajaId: number
-  nombre: string
-  descripcion?: string
-  monedaId?: number
+  tipoId: number
+  descripcion: string
+  monedaId: number
+  esCaja: boolean
+  banco?: string
+  nroCuenta?: string
+  cbu?: string
+  usuarioId?: number
+}
+
+export interface UpdateCajaDto {
+  id: number
+  descripcion: string
+  tipoId: number
+  monedaId: number
+  esCaja: boolean
+  banco?: string
+  nroCuenta?: string
+  cbu?: string
+  usuarioId?: number
 }
 
 export interface CajaFormaPago {

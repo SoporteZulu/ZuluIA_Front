@@ -1,20 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
-import { BadgeAlert, Eye, RefreshCw, Search, ShieldAlert } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { BadgeAlert, Eye, FileText, Receipt, RefreshCw, Search, ShieldCheck } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -31,92 +24,101 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
-import { legacyAccountingCaeItems, type LegacyAccountingCae } from "@/lib/contabilidad-legacy-data"
-import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
-import { useCotizaciones } from "@/lib/hooks/useCotizaciones"
-import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
+import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { usePeriodosIva } from "@/lib/hooks/usePeriodosIva"
+import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
+import { useTimbrados } from "@/lib/hooks/useTimbrados"
+import type { Comprobante } from "@/lib/types/comprobantes"
+import type { Timbrado } from "@/lib/types/timbrado"
 
-type CaeStage = "controlado" | "renovar" | "observado" | "cerrado"
-type LocalCaeTracker = {
-  caeId: string
-  stage: CaeStage
-  owner: string
-  nextStep: string
-  updatedAt: string
-}
-
-const CAE_TRACKER_STORAGE_KEY = "zuluia_contabilidad_cae_trackers"
-
-const STATUS_CONFIG: Record<
-  LegacyAccountingCae["estado"],
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  VIGENTE: { label: "Vigente", variant: "default" },
-  A_VENCER: { label: "A vencer", variant: "secondary" },
-  OBSERVADO: { label: "Observado", variant: "destructive" },
-}
-
-const STAGE_CONFIG: Record<
-  CaeStage,
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  controlado: { label: "Controlado", variant: "default" },
-  renovar: { label: "Renovar", variant: "secondary" },
-  observado: { label: "Observado", variant: "destructive" },
-  cerrado: { label: "Cerrado", variant: "outline" },
-}
-
-const DEFAULT_TRACKERS: LocalCaeTracker[] = legacyAccountingCaeItems.map((item) => ({
-  caeId: item.id,
-  stage:
-    item.estado === "OBSERVADO"
-      ? "observado"
-      : item.estado === "A_VENCER"
-        ? "renovar"
-        : "controlado",
-  owner: item.responsable,
-  nextStep:
-    item.estado === "OBSERVADO"
-      ? "Corregir observacion y reemitir solicitud."
-      : item.estado === "A_VENCER"
-        ? "Preparar renovacion antes del vencimiento."
-        : "Mantener control de vigencia y consumo.",
-  updatedAt: item.ultimoControl,
-}))
+type DocumentFilter = "todos" | "con-cae" | "sin-cae" | "anulados" | "borradores"
 
 function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).toLocaleDateString(
+      "es-AR"
+    )
+  }
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("es-AR")
 }
-function daysUntil(value: string) {
-  return Math.ceil((new Date(value).getTime() - Date.now()) / 86400000)
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "-"
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleString("es-AR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
 }
-function matchesTerm(item: LegacyAccountingCae, tracker: LocalCaeTracker, term: string) {
-  if (term === "") return true
-  return [
-    item.id,
-    item.circuito,
-    item.puntoVenta,
-    item.referencia,
-    item.tipo,
-    item.entorno,
-    item.observacion,
-    tracker.owner,
-    tracker.nextStep,
-    ...item.accionesPendientes,
-  ]
-    .join(" ")
-    .toLowerCase()
-    .includes(term)
+
+function formatMoney(value: number, symbol = "$") {
+  return `${symbol} ${Number(value ?? 0).toLocaleString("es-AR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
 }
-function getCaeHealth(item: LegacyAccountingCae, tracker: LocalCaeTracker) {
-  if (tracker.stage === "observado") return "Autorizacion observada y pendiente de correccion"
-  if (tracker.stage === "renovar") return "Autorizacion vigente con renovacion pendiente"
-  if (tracker.stage === "cerrado") return "Seguimiento documental cerrado"
-  return "Autorizacion bajo control local"
+
+function daysUntil(value?: string | null) {
+  if (!value) return null
+
+  const parsed = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return null
+
+  return Math.ceil((parsed.getTime() - Date.now()) / 86400000)
 }
+
+function getDocumentFilterValue(document: Comprobante): DocumentFilter {
+  const status = (document.estado ?? "").trim().toUpperCase()
+
+  if (status === "ANULADO") return "anulados"
+  if (status === "BORRADOR") return "borradores"
+  if (document.cae) return "con-cae"
+  return "sin-cae"
+}
+
+function getFiscalStatus(document: Comprobante) {
+  const status = (document.estado ?? "").trim().toUpperCase()
+
+  if (status === "ANULADO") return "Circuito fiscal cerrado por anulación"
+  if (document.cae) {
+    return document.caeFechaVto
+      ? `CAE vigente hasta ${formatDate(document.caeFechaVto)}`
+      : "CAE asignado"
+  }
+  if (status === "BORRADOR") return "Pendiente de emisión fiscal"
+  return "CAE pendiente"
+}
+
+function getFiscalBadge(document: Comprobante) {
+  const status = (document.estado ?? "").trim().toUpperCase()
+
+  if (status === "ANULADO") {
+    return <Badge variant="destructive">Anulado</Badge>
+  }
+  if (status === "BORRADOR") {
+    return <Badge variant="secondary">Borrador</Badge>
+  }
+  if (document.cae) {
+    return <Badge>Con CAE</Badge>
+  }
+  return <Badge variant="outline">CAE pendiente</Badge>
+}
+
+function getTimbradoBadge(timbrado: Timbrado) {
+  return timbrado.activo ? <Badge>Activo</Badge> : <Badge variant="outline">Inactivo</Badge>
+}
+
 function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
   return (
     <div className="grid gap-3 md:grid-cols-2">
@@ -133,61 +135,123 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
 export default function ContabilidadCaeTimbradoPage() {
   const sucursalId = useDefaultSucursalId()
   const { periodos } = usePeriodosIva(sucursalId)
-  const { cotizaciones } = useCotizaciones()
   const {
-    rows: trackers,
-    setRows: setTrackers,
-    reset: resetTrackers,
-  } = useLegacyLocalCollection<LocalCaeTracker>(CAE_TRACKER_STORAGE_KEY, DEFAULT_TRACKERS)
+    timbrados,
+    loading: timbradosLoading,
+    error: timbradosError,
+    refetch: refetchTimbrados,
+  } = useTimbrados({ sucursalId })
+  const {
+    comprobantes,
+    loading: comprobantesLoading,
+    error: comprobantesError,
+    totalCount,
+    refetch: refetchComprobantes,
+  } = useComprobantes({ sucursalId })
+
   const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState<"todos" | LegacyAccountingCae["estado"]>("todos")
-  const [stageFilter, setStageFilter] = useState<"todos" | CaeStage>("todos")
-  const [selectedId, setSelectedId] = useState<string | null>(
-    legacyAccountingCaeItems[0]?.id ?? null
-  )
-  const trackerMap = useMemo(
-    () => new Map(trackers.map((tracker) => [tracker.caeId, tracker])),
-    [trackers]
-  )
-  const items = useMemo(
-    () =>
-      legacyAccountingCaeItems.map((item) => ({
-        ...item,
-        tracker:
-          trackerMap.get(item.id) ?? DEFAULT_TRACKERS.find((tracker) => tracker.caeId === item.id)!,
-      })),
-    [trackerMap]
-  )
-  const filtered = useMemo(() => {
-    const term = search.toLowerCase().trim()
-    return items.filter(
-      (item) =>
-        matchesTerm(item, item.tracker, term) &&
-        (statusFilter === "todos" || item.estado === statusFilter) &&
-        (stageFilter === "todos" || item.tracker.stage === stageFilter)
+  const [documentFilter, setDocumentFilter] = useState<DocumentFilter>("todos")
+  const [selectedTimbradoId, setSelectedTimbradoId] = useState<number | null>(null)
+  const [selectedComprobanteId, setSelectedComprobanteId] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (timbrados.length === 0) {
+      setSelectedTimbradoId(null)
+      return
+    }
+
+    setSelectedTimbradoId((current) =>
+      current && timbrados.some((timbrado) => timbrado.id === current) ? current : timbrados[0].id
     )
-  }, [items, search, statusFilter, stageFilter])
-  const selected = items.find((item) => item.id === selectedId) ?? filtered[0] ?? null
-  const highlighted = filtered.find((item) => item.estado !== "VIGENTE") ?? filtered[0] ?? null
-  const kpis = useMemo(
-    () => ({
-      valid: items.filter((item) => item.estado === "VIGENTE").length,
-      expiring: items.filter((item) => item.estado === "A_VENCER").length,
-      observed: items.filter((item) => item.estado === "OBSERVADO").length,
-      nextExpiry: items.map((item) => daysUntil(item.fechaVto)).sort((a, b) => a - b)[0] ?? 0,
-    }),
-    [items]
-  )
-  const updateTracker = (caeId: string, patch: Partial<LocalCaeTracker>) =>
-    setTrackers((current) => {
-      const index = current.findIndex((row) => row.caeId === caeId)
-      const base =
-        index >= 0 ? current[index] : DEFAULT_TRACKERS.find((row) => row.caeId === caeId)!
-      const nextRow = { ...base, ...patch, updatedAt: new Date().toISOString() }
-      return index >= 0
-        ? current.map((row, rowIndex) => (rowIndex === index ? nextRow : row))
-        : [...current, nextRow]
+  }, [timbrados])
+
+  useEffect(() => {
+    if (comprobantes.length === 0) {
+      setSelectedComprobanteId(null)
+      return
+    }
+
+    setSelectedComprobanteId((current) =>
+      current && comprobantes.some((document) => document.id === current)
+        ? current
+        : comprobantes[0].id
+    )
+  }, [comprobantes])
+
+  const filteredTimbrados = useMemo(() => {
+    const term = search.trim().toLowerCase()
+
+    return timbrados.filter((timbrado) => {
+      if (!term) return true
+
+      return [
+        timbrado.nroTimbrado,
+        String(timbrado.id),
+        String(timbrado.puntoFacturacionId),
+        timbrado.observacion ?? "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(term)
     })
+  }, [search, timbrados])
+
+  const filteredComprobantes = useMemo(() => {
+    const term = search.trim().toLowerCase()
+
+    return comprobantes.filter((document) => {
+      if (documentFilter !== "todos" && getDocumentFilterValue(document) !== documentFilter) {
+        return false
+      }
+
+      if (!term) return true
+
+      return [
+        String(document.id),
+        document.nroComprobante ?? "",
+        document.tipoComprobanteDescripcion ?? "",
+        document.terceroRazonSocial ?? "",
+        document.cae ?? "",
+        document.estado ?? "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(term)
+    })
+  }, [comprobantes, documentFilter, search])
+
+  const selectedTimbrado =
+    filteredTimbrados.find((timbrado) => timbrado.id === selectedTimbradoId) ??
+    timbrados.find((timbrado) => timbrado.id === selectedTimbradoId) ??
+    filteredTimbrados[0] ??
+    timbrados[0] ??
+    null
+
+  const selectedComprobante =
+    filteredComprobantes.find((document) => document.id === selectedComprobanteId) ??
+    comprobantes.find((document) => document.id === selectedComprobanteId) ??
+    filteredComprobantes[0] ??
+    comprobantes[0] ??
+    null
+
+  const kpis = useMemo(() => {
+    const nextTimbradoExpiry = timbrados
+      .filter((timbrado) => timbrado.activo)
+      .map((timbrado) => daysUntil(timbrado.fechaFin))
+      .filter((value): value is number => value !== null)
+      .sort((a, b) => a - b)[0]
+
+    return {
+      activeTimbrados: timbrados.filter((timbrado) => timbrado.activo).length,
+      activeTimbradosInSucursal: timbrados.filter((timbrado) => timbrado.activo).length,
+      withCae: comprobantes.filter((document) => Boolean(document.cae)).length,
+      withoutCae: comprobantes.filter((document) => getDocumentFilterValue(document) === "sin-cae")
+        .length,
+      nextTimbradoExpiry: nextTimbradoExpiry ?? null,
+    }
+  }, [comprobantes, timbrados])
+
+  const combinedError = timbradosError ?? comprobantesError
 
   return (
     <div className="space-y-6 pb-6">
@@ -195,388 +259,383 @@ export default function ContabilidadCaeTimbradoPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">CAE y timbrado</h1>
           <p className="mt-1 text-muted-foreground">
-            Control documental de CAE, timbrados y observaciones fiscales con renovacion y
-            seguimiento local del legado.
+            Vista real fiscal basada en timbrados de punto de venta y en el estado de los
+            comprobantes reales de la sucursal activa.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="bg-transparent" onClick={() => resetTrackers()}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Restablecer seguimiento
+          <Button
+            variant="outline"
+            className="bg-transparent"
+            onClick={() => {
+              void refetchTimbrados()
+              void refetchComprobantes()
+            }}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" /> Actualizar
           </Button>
           <Button asChild variant="outline" className="bg-transparent">
-            <Link href="/contabilidad/periodos-iva">Periodos IVA</Link>
+            <Link href="/ventas/facturas">Facturas</Link>
           </Button>
           <Button asChild>
             <Link href="/contabilidad/reportes">Reportes</Link>
           </Button>
         </div>
       </div>
+
       <Alert>
-        <ShieldAlert className="h-4 w-4" />
+        <ShieldCheck className="h-4 w-4" />
         <AlertDescription>
-          El frontend actual no solicita, consulta ni renueva CAE o timbrados. Esta pantalla deja
-          trazabilidad, vencimientos y proximos pasos sin fingir integracion fiscal.
+          La pantalla deja de depender de timbrados simulados y ahora muestra los timbrados reales
+          del circuito de punto de venta junto con la cobertura fiscal efectiva de los comprobantes
+          emitidos.
         </AlertDescription>
       </Alert>
+
+      {combinedError ? (
+        <Alert>
+          <AlertDescription>{combinedError}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Vigentes</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-600">{kpis.valid}</p>
+            <p className="text-xs text-muted-foreground">Timbrados activos</p>
+            <p className="mt-2 text-2xl font-bold">{kpis.activeTimbrados}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">A vencer</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.expiring}</p>
+            <p className="text-xs text-muted-foreground">Comprobantes con CAE</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-600">{kpis.withCae}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Observados</p>
-            <p className="mt-2 text-2xl font-bold text-destructive">{kpis.observed}</p>
+            <p className="text-xs text-muted-foreground">CAE pendiente</p>
+            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.withoutCae}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Proximo vencimiento</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.nextExpiry} d</p>
+            <p className="text-xs text-muted-foreground">Próximo vencimiento</p>
+            <p className="mt-2 text-2xl font-bold">
+              {kpis.nextTimbradoExpiry !== null ? `${kpis.nextTimbradoExpiry} d` : "Sin dato"}
+            </p>
           </CardContent>
         </Card>
       </div>
-      {highlighted ? (
-        <Card className="border-primary/20 bg-primary/5">
-          <CardHeader>
-            <CardDescription>Autorizacion priorizada</CardDescription>
-            <CardTitle className="mt-1 text-xl">{highlighted.id.toUpperCase()}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-lg bg-background/70 p-3">
-              <p className="text-xs text-muted-foreground">Circuito</p>
-              <p className="text-sm font-medium">{highlighted.circuito}</p>
-            </div>
-            <div className="rounded-lg bg-background/70 p-3">
-              <p className="text-xs text-muted-foreground">Punto venta</p>
-              <p className="text-sm font-medium">{highlighted.puntoVenta}</p>
-            </div>
-            <div className="rounded-lg bg-background/70 p-3">
-              <p className="text-xs text-muted-foreground">Estado</p>
-              <p className="text-sm font-medium">{STATUS_CONFIG[highlighted.estado].label}</p>
-            </div>
-            <div className="rounded-lg bg-background/70 p-3">
-              <p className="text-xs text-muted-foreground">Vence</p>
-              <p className="text-sm font-medium">{formatDate(highlighted.fechaVto)}</p>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
+
       <Card>
         <CardContent className="pt-6">
-          <div className="grid gap-4 lg:grid-cols-[1.8fr_1fr_1fr]">
+          <div className="grid gap-4 lg:grid-cols-[1.8fr_1fr]">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="pl-10"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar por circuito, punto de venta o referencia..."
+                placeholder="Buscar por timbrado, comprobante, tercero o tipo..."
               />
             </div>
             <Select
-              value={statusFilter}
-              onValueChange={(value) =>
-                setStatusFilter(value as "todos" | LegacyAccountingCae["estado"])
-              }
+              value={documentFilter}
+              onValueChange={(value) => setDocumentFilter(value as DocumentFilter)}
             >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Estado legacy" />
+              <SelectTrigger>
+                <SelectValue placeholder="Estado fiscal" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Todo el estado legacy</SelectItem>
-                <SelectItem value="VIGENTE">Vigente</SelectItem>
-                <SelectItem value="A_VENCER">A vencer</SelectItem>
-                <SelectItem value="OBSERVADO">Observado</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={stageFilter}
-              onValueChange={(value) => setStageFilter(value as "todos" | CaeStage)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Seguimiento local" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todo el seguimiento</SelectItem>
-                <SelectItem value="controlado">Controlado</SelectItem>
-                <SelectItem value="renovar">Renovar</SelectItem>
-                <SelectItem value="observado">Observado</SelectItem>
-                <SelectItem value="cerrado">Cerrado</SelectItem>
+                <SelectItem value="todos">Todos los comprobantes</SelectItem>
+                <SelectItem value="con-cae">Con CAE</SelectItem>
+                <SelectItem value="sin-cae">CAE pendiente</SelectItem>
+                <SelectItem value="borradores">Borradores</SelectItem>
+                <SelectItem value="anulados">Anulados</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </CardContent>
       </Card>
+
       <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <BadgeAlert className="h-4 w-4" /> Autorizaciones visibles
-            </CardTitle>
-            <CardDescription>
-              CAE y timbrados del legado con control de vigencia y acciones pendientes.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Circuito</TableHead>
-                  <TableHead>Punto venta</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.id.toUpperCase()}</TableCell>
-                    <TableCell>{item.circuito}</TableCell>
-                    <TableCell>{item.puntoVenta}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant={STATUS_CONFIG[item.estado].variant}>
-                          {STATUS_CONFIG[item.estado].label}
-                        </Badge>
-                        <Badge variant={STAGE_CONFIG[item.tracker.stage].variant}>
-                          {STAGE_CONFIG[item.tracker.stage].label}
-                        </Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>{item.tipo}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => setSelectedId(item.id)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filtered.length === 0 ? (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BadgeAlert className="h-4 w-4" /> Timbrados reales visibles
+              </CardTitle>
+              <CardDescription>
+                Timbrados reales del circuito de punto de venta para la sucursal activa.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                      No hay autorizaciones que coincidan con los filtros actuales.
-                    </TableCell>
+                    <TableHead>Timbrado</TableHead>
+                    <TableHead>Sucursal</TableHead>
+                    <TableHead>Punto venta</TableHead>
+                    <TableHead>Observación</TableHead>
+                    <TableHead>Vigencia</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
-                ) : null}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Contexto real del backend</CardTitle>
-            <CardDescription>
-              Referencias vivas del entorno fiscal actual para ubicar el overlay local.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <p className="text-sm font-medium">Periodos IVA visibles</p>
-              <p className="mt-2 text-2xl font-bold">{periodos.length}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <p className="text-sm font-medium">Cotizaciones visibles</p>
-              <p className="mt-2 text-2xl font-bold">{cotizaciones.length}</p>
-            </div>
-            {selected ? (
-              <div className="rounded-lg bg-muted/40 p-3 text-sm">
-                <p className="text-xs text-muted-foreground">Gap activo</p>
-                <p className="mt-1 font-medium">{selected.backendGap}</p>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      </div>
-      <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelectedId(null)}>
-        <DialogContent className="max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>
-              {selected ? `${selected.tipo} ${selected.id.toUpperCase()}` : "Autorizacion"}
-            </DialogTitle>
-            <DialogDescription>
-              {selected
-                ? `${selected.circuito} · ${selected.puntoVenta} · ${selected.referencia}`
-                : "Detalle fiscal"}
-            </DialogDescription>
-          </DialogHeader>
-          {selected ? (
-            <Tabs defaultValue="circuito">
-              <TabsList className="grid h-auto w-full grid-cols-4">
-                <TabsTrigger value="circuito">Circuito</TabsTrigger>
-                <TabsTrigger value="acciones">Acciones</TabsTrigger>
-                <TabsTrigger value="timeline">Timeline</TabsTrigger>
-                <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
-              </TabsList>
-              <TabsContent value="circuito" className="pt-2">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Cabecera fiscal</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <DetailFieldGrid
-                        fields={[
-                          { label: "Circuito", value: selected.circuito },
-                          { label: "Punto venta", value: selected.puntoVenta },
-                          { label: "Tipo", value: selected.tipo },
-                          { label: "Entorno", value: selected.entorno },
-                          { label: "Solicitud", value: formatDate(selected.fechaSolicitud) },
-                          { label: "Vencimiento", value: formatDate(selected.fechaVto) },
-                          { label: "Referencia", value: selected.referencia },
-                          {
-                            label: "Responsable",
-                            value: selected.tracker.owner || selected.responsable,
-                          },
-                          { label: "Ultimo control", value: formatDate(selected.ultimoControl) },
-                          {
-                            label: "Salud del circuito",
-                            value: getCaeHealth(selected, selected.tracker),
-                          },
-                        ]}
-                      />
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Observaciones</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm">
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Observacion</p>
-                        <p className="mt-1 text-muted-foreground">{selected.observacion}</p>
-                      </div>
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Backend faltante</p>
-                        <p className="mt-1 text-muted-foreground">{selected.backendGap}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              </TabsContent>
-              <TabsContent value="acciones" className="pt-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Acciones pendientes</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {selected.accionesPendientes.map((action) => (
-                      <div key={action} className="rounded-lg border bg-muted/20 p-3 text-sm">
-                        {action}
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              <TabsContent value="timeline" className="pt-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Secuencia operativa</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {selected.timeline.map((event) => (
-                      <div key={event.id} className="rounded-lg border bg-muted/20 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="font-medium">{event.title}</p>
-                          <span className="text-xs text-muted-foreground">{event.at}</span>
-                        </div>
-                        <p className="mt-1 text-sm text-muted-foreground">{event.detail}</p>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              <TabsContent value="seguimiento" className="space-y-4 pt-2">
-                <Alert>
-                  <ShieldAlert className="h-4 w-4" />
-                  <AlertDescription>
-                    El seguimiento local cubre control, renovacion y observaciones mientras no
-                    exista integracion CAE o timbrado en backend.
-                  </AlertDescription>
-                </Alert>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Seguimiento local</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Estado operativo</label>
-                        <Select
-                          value={selected.tracker.stage}
-                          onValueChange={(value) =>
-                            updateTracker(selected.id, { stage: value as CaeStage })
-                          }
+                </TableHeader>
+                <TableBody>
+                  {filteredTimbrados.map((timbrado) => (
+                    <TableRow key={timbrado.id}>
+                      <TableCell className="font-medium">{timbrado.nroTimbrado}</TableCell>
+                      <TableCell>{timbrado.sucursalId}</TableCell>
+                      <TableCell>{timbrado.puntoFacturacionId}</TableCell>
+                      <TableCell>{timbrado.observacion || "Sin observación"}</TableCell>
+                      <TableCell>
+                        {formatDate(timbrado.fechaInicio)} al {formatDate(timbrado.fechaFin)}
+                      </TableCell>
+                      <TableCell>{getTimbradoBadge(timbrado)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setSelectedTimbradoId(timbrado.id)}
                         >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Seleccionar estado" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="controlado">Controlado</SelectItem>
-                            <SelectItem value="renovar">Renovar</SelectItem>
-                            <SelectItem value="observado">Observado</SelectItem>
-                            <SelectItem value="cerrado">Cerrado</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Responsable</label>
-                        <Input
-                          value={selected.tracker.owner}
-                          onChange={(event) =>
-                            updateTracker(selected.id, { owner: event.target.value })
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Proximo paso</label>
-                        <Textarea
-                          rows={5}
-                          value={selected.tracker.nextStep}
-                          onChange={(event) =>
-                            updateTracker(selected.id, { nextStep: event.target.value })
-                          }
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Continuidad</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm">
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Estado actual</p>
-                        <p className="mt-1 font-medium">
-                          {getCaeHealth(selected, selected.tracker)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Ultima actualizacion local</p>
-                        <p className="mt-1 font-medium">{formatDate(selected.tracker.updatedAt)}</p>
-                      </div>
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Paso sugerido</p>
-                        <p className="mt-1 font-medium">{selected.tracker.nextStep}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {!timbradosLoading && filteredTimbrados.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                        No hay timbrados reales publicados para la sucursal activa.
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Receipt className="h-4 w-4" /> Cobertura fiscal de comprobantes
+              </CardTitle>
+              <CardDescription>
+                Estado fiscal real sobre comprobantes emitidos y registrados por backend.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Comprobante</TableHead>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Tercero</TableHead>
+                    <TableHead>Estado fiscal</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredComprobantes.map((document) => (
+                    <TableRow key={document.id}>
+                      <TableCell className="font-medium">
+                        {document.nroComprobante ?? `#${document.id}`}
+                      </TableCell>
+                      <TableCell>{formatDate(document.fecha)}</TableCell>
+                      <TableCell>
+                        {document.terceroRazonSocial ?? `Tercero ${document.terceroId}`}
+                      </TableCell>
+                      <TableCell>{getFiscalBadge(document)}</TableCell>
+                      <TableCell className="text-right">
+                        {formatMoney(document.total, document.monedaSimbolo ?? "$")}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setSelectedComprobanteId(document.id)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {!comprobantesLoading && filteredComprobantes.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                        No hay comprobantes que coincidan con los filtros actuales.
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Detalle del timbrado</CardTitle>
+              <CardDescription>
+                {selectedTimbrado
+                  ? `Timbrado ${selectedTimbrado.nroTimbrado} para la sucursal ${selectedTimbrado.sucursalId} y el punto ${selectedTimbrado.puntoFacturacionId}.`
+                  : "Selecciona un timbrado real para ver su detalle."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {selectedTimbrado ? (
+                <div className="space-y-4">
+                  <DetailFieldGrid
+                    fields={[
+                      { label: "Timbrado", value: selectedTimbrado.nroTimbrado },
+                      { label: "Sucursal", value: String(selectedTimbrado.sucursalId) },
+                      {
+                        label: "Punto facturación",
+                        value: String(selectedTimbrado.puntoFacturacionId),
+                      },
+                      {
+                        label: "Observación",
+                        value: selectedTimbrado.observacion || "Sin observación",
+                      },
+                      { label: "Inicio", value: formatDate(selectedTimbrado.fechaInicio) },
+                      { label: "Fin", value: formatDate(selectedTimbrado.fechaFin) },
+                      {
+                        label: "Creado",
+                        value: formatDateTime(selectedTimbrado.createdAt),
+                      },
+                      {
+                        label: "Estado",
+                        value: selectedTimbrado.activo ? "Activo" : "Inactivo",
+                      },
+                    ]}
+                  />
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Vigencia restante</p>
+                    <p className="mt-1 text-sm font-medium">
+                      {daysUntil(selectedTimbrado.fechaFin) !== null
+                        ? `${daysUntil(selectedTimbrado.fechaFin)} día(s)`
+                        : "Sin dato"}
+                    </p>
+                  </div>
                 </div>
-              </TabsContent>
-            </Tabs>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No hay timbrados reales publicados para la sucursal activa.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="h-4 w-4" /> Detalle fiscal del comprobante
+              </CardTitle>
+              <CardDescription>
+                {selectedComprobante
+                  ? `${selectedComprobante.tipoComprobanteDescripcion ?? "Comprobante"} ${selectedComprobante.nroComprobante ?? `#${selectedComprobante.id}`}.`
+                  : "Selecciona un comprobante para revisar su estado fiscal real."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {selectedComprobante ? (
+                <div className="space-y-4">
+                  <DetailFieldGrid
+                    fields={[
+                      {
+                        label: "Comprobante",
+                        value: selectedComprobante.nroComprobante ?? `#${selectedComprobante.id}`,
+                      },
+                      {
+                        label: "Tipo",
+                        value: selectedComprobante.tipoComprobanteDescripcion ?? "Sin tipo",
+                      },
+                      { label: "Fecha", value: formatDate(selectedComprobante.fecha) },
+                      { label: "Estado", value: selectedComprobante.estado },
+                      {
+                        label: "Estado fiscal",
+                        value: getFiscalStatus(selectedComprobante),
+                      },
+                      {
+                        label: "CAE",
+                        value: selectedComprobante.cae || "Sin CAE",
+                      },
+                      {
+                        label: "Vto. CAE",
+                        value: formatDate(selectedComprobante.caeFechaVto),
+                      },
+                      {
+                        label: "Total",
+                        value: formatMoney(
+                          selectedComprobante.total,
+                          selectedComprobante.monedaSimbolo ?? "$"
+                        ),
+                      },
+                      {
+                        label: "Tercero",
+                        value:
+                          selectedComprobante.terceroRazonSocial ??
+                          `Tercero ${selectedComprobante.terceroId}`,
+                      },
+                      {
+                        label: "Creado",
+                        value: formatDateTime(selectedComprobante.createdAt),
+                      },
+                    ]}
+                  />
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Observación</p>
+                    <p className="mt-1 text-sm font-medium">
+                      {selectedComprobante.observacion || "Sin observaciones"}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No hay comprobantes reales visibles para esta sucursal.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Contexto fiscal real</CardTitle>
+              <CardDescription>
+                Resumen operativo del backend para dimensionar cobertura fiscal actual.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <p className="text-sm font-medium">Períodos IVA visibles</p>
+                <p className="mt-2 text-2xl font-bold">{periodos.length}</p>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <p className="text-sm font-medium">Timbrados en sucursal activa</p>
+                <p className="mt-2 text-2xl font-bold">{kpis.activeTimbradosInSucursal}</p>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <p className="text-sm font-medium">Comprobantes relevados</p>
+                <p className="mt-2 text-2xl font-bold">{totalCount}</p>
+              </div>
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <p className="text-xs text-muted-foreground">Lectura operativa</p>
+                <p className="mt-1 text-sm font-medium">
+                  {kpis.withCae > 0
+                    ? `${kpis.withCae} comprobante(s) ya exponen CAE desde backend.`
+                    : "Todavía no hay comprobantes con CAE asignado en los datos reales actuales."}
+                </p>
+              </div>
+              <Button asChild className="w-full">
+                <Link href="/ventas/facturas">Ir a facturas</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   )
 }

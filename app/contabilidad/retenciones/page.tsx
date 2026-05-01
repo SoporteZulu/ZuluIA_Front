@@ -58,8 +58,25 @@ function fmtPercent(value: number) {
   })
 }
 
+function getTipoCodigoLabel(tipo?: Pick<RetencionesTipo, "codigo"> | null) {
+  const codigo = tipo?.codigo?.trim()
+  return codigo ? codigo : "-"
+}
+
+function getTipoDisplayLabel(tipo: Pick<RetencionesTipo, "codigo" | "descripcion">) {
+  const codigo = getTipoCodigoLabel(tipo)
+  return codigo === "-" ? tipo.descripcion : `${codigo} · ${tipo.descripcion}`
+}
+
 function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("es-AR")
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("es-AR")
 }
 
 function formatProviderAddress(proveedor?: Tercero | null) {
@@ -552,7 +569,9 @@ export default function RetencionesPage() {
               ) : (
                 tipos.map((tipo) => (
                   <TableRow key={tipo.id}>
-                    <TableCell className="font-mono font-medium">{tipo.codigo}</TableCell>
+                    <TableCell className="font-mono font-medium">
+                      {getTipoCodigoLabel(tipo)}
+                    </TableCell>
                     <TableCell>{tipo.descripcion}</TableCell>
                     <TableCell className="text-right font-semibold">
                       {fmtPercent(tipo.porcentaje)}%
@@ -587,7 +606,7 @@ export default function RetencionesPage() {
               <Percent className="h-5 w-5" />
               {selectedTipo?.descripcion}
             </DialogTitle>
-            <DialogDescription>Código: {selectedTipo?.codigo}</DialogDescription>
+            <DialogDescription>Código: {getTipoCodigoLabel(selectedTipo)}</DialogDescription>
           </DialogHeader>
 
           <Tabs defaultValue="general" className="py-2">
@@ -601,7 +620,7 @@ export default function RetencionesPage() {
               <DetailFieldGrid
                 fields={[
                   { label: "ID", value: String(selectedTipo?.id ?? "-") },
-                  { label: "Código", value: selectedTipo?.codigo ?? "-" },
+                  { label: "Código", value: getTipoCodigoLabel(selectedTipo) },
                   { label: "Descripción", value: selectedTipo?.descripcion ?? "-" },
                   {
                     label: "Estado",
@@ -735,7 +754,7 @@ export default function RetencionesPage() {
                 <SelectContent>
                   {availableTipos.map((tipo) => (
                     <SelectItem key={tipo.id} value={String(tipo.id)}>
-                      {tipo.codigo} · {tipo.descripcion}
+                      {getTipoDisplayLabel(tipo)}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 import { useEjercicioVigente } from "@/lib/hooks/useEjercicios"
 import { useAsientos, usePlanCuentasAll } from "@/lib/hooks/useAsientos"
+import { useCobros } from "@/lib/hooks/useCobros"
 import { usePagos } from "@/lib/hooks/usePagos"
 import { usePeriodosIva } from "@/lib/hooks/usePeriodosIva"
 import { useCotizaciones } from "@/lib/hooks/useCotizaciones"
@@ -37,8 +38,37 @@ function fmtARS(value: number) {
   return Number(value ?? 0).toLocaleString("es-AR", { minimumFractionDigits: 2 })
 }
 
+function formatCurrencyBreakdown(
+  movements: Array<{ total: number; monedaSimbolo?: string | null }>
+) {
+  const totalsBySymbol = new Map<string, number>()
+
+  movements.forEach((movement) => {
+    const symbol = movement.monedaSimbolo?.trim() || "$"
+    totalsBySymbol.set(symbol, (totalsBySymbol.get(symbol) ?? 0) + Number(movement.total ?? 0))
+  })
+
+  const orderedTotals = [...totalsBySymbol.entries()].sort(([left], [right]) => {
+    if (left === right) return 0
+    if (left === "$") return -1
+    if (right === "$") return 1
+    return left.localeCompare(right)
+  })
+
+  return orderedTotals.length > 0
+    ? orderedTotals.map(([symbol, total]) => `${symbol}${fmtARS(total)}`).join(" + ")
+    : "$0,00"
+}
+
 function formatDate(value?: string) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("es-AR")
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("es-AR")
 }
 
 function formatPeriodo(periodo?: string) {
@@ -53,34 +83,51 @@ function formatPeriodo(periodo?: string) {
   })
 }
 
+function normalizeAsientoEstado(status?: string) {
+  return (status ?? "").trim().toLowerCase()
+}
+
+function isConsolidatedAsientoStatus(status?: string) {
+  const normalized = normalizeAsientoEstado(status)
+  return normalized === "publicado" || normalized === "contabilizado"
+}
+
+function isDraftAsientoStatus(status?: string) {
+  return normalizeAsientoEstado(status) === "borrador"
+}
+
+function isActiveTreasuryStatus(status?: string) {
+  return normalizeAsientoEstado(status) !== "anulado"
+}
+
 const treasuryExpansionLinks = [
   {
     title: "Ingresos",
-    description: "Ingresos de tesorería fuera del circuito estándar de cobros",
+    description: "Cobros reales complementarios visibles para la sucursal activa",
     href: "/contabilidad/ingresos",
     icon: PiggyBank,
   },
   {
     title: "Egresos",
-    description: "Salidas operativas y egresos menores del legacy",
+    description: "Pagos reales complementarios visibles para la sucursal activa",
     href: "/contabilidad/egresos",
     icon: Wallet,
   },
   {
     title: "Vales",
-    description: "Adelantos, fondos a rendir y seguimiento de beneficiarios",
+    description: "Adelantos y fondos a rendir sobre el contrato real de tesorería",
     href: "/contabilidad/vales",
     icon: Ticket,
   },
   {
     title: "Reintegros",
-    description: "Rendiciones parciales o totales de vales emitidos",
+    description: "Rendiciones reales derivadas de vales emitidos",
     href: "/contabilidad/reintegros",
     icon: Undo2,
   },
   {
     title: "Transferencias",
-    description: "Movimientos entre cajas y cuentas bancarias",
+    description: "Transferencias reales entre cajas y cuentas bancarias",
     href: "/contabilidad/transferencias",
     icon: ArrowRightLeft,
   },
@@ -92,13 +139,13 @@ const treasuryExpansionLinks = [
   },
   {
     title: "Anulaciones",
-    description: "Reversión visible de comprobantes financieros y cruces",
+    description: "Tablero real de anulaciones visibles en tesorería",
     href: "/contabilidad/anulaciones",
     icon: Ban,
   },
   {
     title: "Desimputaciones",
-    description: "Corrección visible de aplicaciones documentales",
+    description: "Historial real de imputaciones y reversas disponibles",
     href: "/contabilidad/desimputaciones",
     icon: Unplug,
   },
@@ -122,6 +169,12 @@ export default function ContabilidadPage() {
     totalCount: totalPagos,
   } = usePagos({ sucursalId })
   const {
+    cobros,
+    loading: loadingCobros,
+    error: errorCobros,
+    totalCount: totalCobros,
+  } = useCobros({ sucursalId })
+  const {
     periodos,
     loading: loadingPeriodos,
     error: errorPeriodos,
@@ -130,9 +183,12 @@ export default function ContabilidadPage() {
 
   const imputables = cuentas.filter((cuenta) => cuenta.imputable).length
   const cuentasIntegradoras = cuentas.length - imputables
-  const asientosPublicados = asientos.filter((entry) => entry.estado.toLowerCase() === "publicado")
-  const asientosBorrador = asientos.filter((entry) => entry.estado.toLowerCase() === "borrador")
-  const totalPagosMonto = pagos.reduce((acc, pago) => acc + Number(pago.total ?? 0), 0)
+  const asientosConsolidados = asientos.filter((entry) => isConsolidatedAsientoStatus(entry.estado))
+  const asientosBorrador = asientos.filter((entry) => isDraftAsientoStatus(entry.estado))
+  const pagosActivos = pagos.filter((pago) => isActiveTreasuryStatus(pago.estado))
+  const cobrosActivos = cobros.filter((cobro) => isActiveTreasuryStatus(cobro.estado))
+  const totalTreasuryMovements = pagosActivos.length + cobrosActivos.length
+  const totalTreasuryLabel = formatCurrencyBreakdown([...pagosActivos, ...cobrosActivos])
   const periodosAbiertos = periodos.filter((periodo) => !periodo.cerrado)
   const ultimoPeriodo = [...periodos].sort((a, b) => b.periodo.localeCompare(a.periodo))[0] ?? null
   const ultimaCotizacion =
@@ -145,8 +201,29 @@ export default function ContabilidadPage() {
   const asientosRecientes = [...asientos]
     .sort((a, b) => `${b.fecha}-${b.id}`.localeCompare(`${a.fecha}-${a.id}`))
     .slice(0, 5)
-  const pagosRecientes = [...pagos]
-    .sort((a, b) => `${b.fecha}-${b.id}`.localeCompare(`${a.fecha}-${a.id}`))
+  const treasuryRecientes = [
+    ...pagosActivos.map((pago) => ({
+      key: `pago-${pago.id}`,
+      kind: "Pago",
+      tercero: pago.terceroRazonSocial,
+      sucursalId: pago.sucursalId ?? sucursalId,
+      fecha: pago.fecha,
+      estado: pago.estado,
+      monedaSimbolo: pago.monedaSimbolo,
+      total: Number(pago.total ?? 0),
+    })),
+    ...cobrosActivos.map((cobro) => ({
+      key: `cobro-${cobro.id}`,
+      kind: "Cobro",
+      tercero: cobro.terceroRazonSocial?.trim() || `Tercero #${cobro.terceroId}`,
+      sucursalId: cobro.sucursalId ?? sucursalId,
+      fecha: cobro.fecha,
+      estado: cobro.estado,
+      monedaSimbolo: cobro.monedaSimbolo?.trim() || "$",
+      total: Number(cobro.total ?? 0),
+    })),
+  ]
+    .sort((a, b) => `${b.fecha}-${b.key}`.localeCompare(`${a.fecha}-${a.key}`))
     .slice(0, 5)
   const periodosCerrados = periodos.filter((periodo) => periodo.cerrado).length
   const cotizacionAgeDays = ultimaCotizacion
@@ -154,6 +231,7 @@ export default function ContabilidadPage() {
         (currentTimestamp - new Date(ultimaCotizacion.fecha).getTime()) / (1000 * 60 * 60 * 24)
       )
     : null
+  const latestTreasuryMovement = treasuryRecientes[0] ?? null
 
   const cards = [
     {
@@ -170,12 +248,12 @@ export default function ContabilidadPage() {
     },
     {
       title: "Asientos",
-      description: "Controla el libro diario, los borradores y los asientos ya publicados.",
+      description: "Controla el libro diario, los borradores y los asientos ya consolidados.",
       icon: Wallet,
       href: "/contabilidad/asientos",
       stats: loadingAsientos
         ? "Cargando asientos..."
-        : `${asientosPublicados.length} publicados / ${totalAsientos} consultables`,
+        : `${asientosConsolidados.length} consolidados / ${totalAsientos} consultables`,
       detail: loadingAsientos
         ? "Recuperando libro diario..."
         : `${asientosBorrador.length} en borrador dentro del ejercicio ${ejercicio?.descripcion ?? "activo"}.`,
@@ -185,12 +263,16 @@ export default function ContabilidadPage() {
       description: "Sigue el movimiento financiero registrado y su impacto operativo inmediato.",
       icon: PiggyBank,
       href: "/contabilidad/pagos",
-      stats: loadingPagos
-        ? "Cargando movimientos..."
-        : `$${fmtARS(totalPagosMonto)} en ${totalPagos} movimientos`,
-      detail: loadingPagos
-        ? "Consultando tesorería..."
-        : `Sucursal ${sucursalId}. Último movimiento: ${pagos[0] ? formatDate(pagos[0].fecha) : "sin datos"}.`,
+      stats:
+        loadingPagos || loadingCobros
+          ? "Cargando movimientos..."
+          : `${totalTreasuryLabel} en ${totalTreasuryMovements} movimientos`,
+      detail:
+        loadingPagos || loadingCobros
+          ? "Consultando tesorería..."
+          : latestTreasuryMovement
+            ? `Sucursal ${sucursalId}. Último ${latestTreasuryMovement.kind.toLowerCase()}: ${formatDate(latestTreasuryMovement.fecha)}.`
+            : `Sucursal ${sucursalId}. Sin movimientos visibles.`,
     },
     {
       title: "Reportes",
@@ -216,13 +298,13 @@ export default function ContabilidadPage() {
     {
       modulo: "Libro diario",
       estado: asientosBorrador.length > 0 ? "Seguimiento" : "Controlado",
-      detalle: `${asientosPublicados.length} asientos publicados y ${asientosBorrador.length} borradores en la tanda visible.`,
+      detalle: `${asientosConsolidados.length} asientos consolidados y ${asientosBorrador.length} borradores en la tanda visible.`,
       href: "/contabilidad/asientos",
     },
     {
       modulo: "Tesorería",
-      estado: totalPagos > 0 ? "Activo" : "Sin movimiento",
-      detalle: `$${fmtARS(totalPagosMonto)} visibles en pagos/cobros del contexto actual.`,
+      estado: totalTreasuryMovements > 0 ? "Activo" : "Sin movimiento",
+      detalle: `${totalTreasuryLabel} visibles entre pagos y cobros activos del contexto actual.`,
       href: "/contabilidad/pagos",
     },
     {
@@ -241,7 +323,8 @@ export default function ContabilidadPage() {
     },
   ]
 
-  const hasError = errorCuentas || errorAsientos || errorPagos || errorPeriodos || errorCotizaciones
+  const hasError =
+    errorCuentas || errorAsientos || errorPagos || errorCobros || errorPeriodos || errorCotizaciones
 
   return (
     <div className="space-y-6">
@@ -249,7 +332,7 @@ export default function ContabilidadPage() {
         <h1 className="text-2xl font-bold tracking-tight">Contabilidad</h1>
         <p className="text-muted-foreground">
           Tablero operativo del módulo contable sobre datos reales de ejercicio, libro diario,
-          pagos, períodos IVA y cotizaciones.
+          pagos, cobros, períodos IVA y cotizaciones.
         </p>
       </div>
 
@@ -351,10 +434,10 @@ export default function ContabilidadPage() {
 
         <Card className="lg:col-span-4">
           <CardHeader>
-            <CardTitle>Circuitos Financieros Legacy</CardTitle>
+            <CardTitle>Circuitos Financieros Complementarios</CardTitle>
             <CardDescription>
-              Primer bloque estructural del Lote 6 para tesorería avanzada, autorizaciones y
-              reversión de operaciones sin depender todavía de API específica.
+              Consolas complementarias de tesorería y control documental con distintos niveles de
+              cobertura real según el backend hoy publicado.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -513,7 +596,7 @@ export default function ContabilidadPage() {
                       <TableCell>
                         <Badge
                           variant={
-                            asiento.estado.toLowerCase() === "publicado" ? "secondary" : "outline"
+                            isConsolidatedAsientoStatus(asiento.estado) ? "secondary" : "outline"
                           }
                         >
                           {asiento.estado}
@@ -535,35 +618,36 @@ export default function ContabilidadPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {pagosRecientes.length === 0 && (
+              {treasuryRecientes.length === 0 && (
                 <p className="text-sm text-muted-foreground">
                   No hay movimientos visibles para resumir.
                 </p>
               )}
-              {pagosRecientes.map((pago) => (
-                <div key={pago.id} className="rounded-lg border p-3">
+              {treasuryRecientes.map((movement) => (
+                <div key={movement.key} className="rounded-lg border p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-medium">{pago.terceroRazonSocial}</p>
+                      <p className="font-medium">{movement.tercero}</p>
                       <p className="text-xs text-muted-foreground">
-                        Sucursal {pago.sucursalId} • {formatDate(pago.fecha)}
+                        {movement.kind} • Sucursal {movement.sucursalId} •{" "}
+                        {formatDate(movement.fecha)}
                       </p>
                     </div>
                     <Badge
                       variant={
-                        String(pago.estado).toLowerCase() === "anulado"
+                        String(movement.estado).toLowerCase() === "anulado"
                           ? "destructive"
                           : "secondary"
                       }
                     >
-                      {pago.estado}
+                      {movement.estado}
                     </Badge>
                   </div>
                   <div className="mt-2 flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Importe</span>
                     <span className="font-medium">
-                      {pago.monedaSimbolo}
-                      {fmtARS(Number(pago.total ?? 0))}
+                      {movement.monedaSimbolo}
+                      {fmtARS(movement.total)}
                     </span>
                   </div>
                 </div>

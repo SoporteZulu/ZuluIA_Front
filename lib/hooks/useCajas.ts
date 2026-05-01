@@ -2,30 +2,53 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { apiGet, apiPost, apiPut } from "@/lib/api"
-import type { Caja, TipoCaja, CreateCajaDto } from "@/lib/types/cajas"
+import type { Caja, TipoCaja, CreateCajaDto, UpdateCajaDto } from "@/lib/types/cajas"
 
 type CajaApi = Partial<Caja> & {
   id: number
   sucursalId: number
+  tipoId?: number | null
   descripcion?: string | null
   activa?: boolean | null
+  esCaja?: boolean | null
+  usuarioId?: number | null
+  nroCierreActual?: number | null
+}
+
+function getDefaultTipoDescripcion(esCaja?: boolean | null) {
+  if (esCaja === true) {
+    return "CAJA"
+  }
+
+  if (esCaja === false) {
+    return "CUENTA BANCARIA"
+  }
+
+  return undefined
 }
 
 function normalizeCaja(caja: CajaApi): Caja {
-  const nombre = caja.nombre?.trim() || caja.descripcion?.trim() || `Caja ${caja.id}`
+  const descripcion = caja.descripcion?.trim() || `Caja ${caja.id}`
+  const nombre = caja.nombre?.trim() || descripcion
 
   return {
     id: caja.id,
     sucursalId: caja.sucursalId,
-    tipoCajaId: caja.tipoCajaId ?? 0,
-    tipoCajaDescripcion: caja.tipoCajaDescripcion,
+    tipoCajaId: caja.tipoCajaId ?? caja.tipoId ?? 0,
+    tipoCajaDescripcion: caja.tipoCajaDescripcion?.trim() || getDefaultTipoDescripcion(caja.esCaja),
     nombre,
-    descripcion: caja.descripcion?.trim() || nombre,
+    descripcion,
     monedaId: caja.monedaId,
     activa: caja.activa ?? true,
     saldoActual: Number(caja.saldoActual ?? 0),
     fechaApertura: caja.fechaApertura,
     saldoInicial: Number(caja.saldoInicial ?? 0),
+    esCaja: caja.esCaja ?? true,
+    banco: caja.banco,
+    nroCuenta: caja.nroCuenta,
+    cbu: caja.cbu,
+    usuarioId: caja.usuarioId ?? undefined,
+    nroCierreActual: caja.nroCierreActual ?? undefined,
   }
 }
 
@@ -56,14 +79,14 @@ export function useCajas(sucursalId?: number) {
     fetchCajas()
   }, [fetchCajas])
 
-  const getTipos = async (): Promise<TipoCaja[]> => {
+  const getTipos = useCallback(async (): Promise<TipoCaja[]> => {
     try {
       const result = await apiGet<TipoCaja[]>("/api/cajas/tipos")
       return Array.isArray(result) ? result : []
     } catch {
       return []
     }
-  }
+  }, [])
 
   const crear = async (dto: CreateCajaDto): Promise<boolean> => {
     try {
@@ -76,9 +99,21 @@ export function useCajas(sucursalId?: number) {
     }
   }
 
-  const actualizar = async (id: number, dto: Partial<CreateCajaDto>): Promise<boolean> => {
+  const actualizar = async (id: number, dto: CreateCajaDto): Promise<boolean> => {
     try {
-      await apiPut<void>(`/api/cajas/${id}`, dto)
+      const payload: UpdateCajaDto = {
+        id,
+        descripcion: dto.descripcion,
+        tipoId: dto.tipoId,
+        monedaId: dto.monedaId,
+        esCaja: dto.esCaja,
+        banco: dto.banco,
+        nroCuenta: dto.nroCuenta,
+        cbu: dto.cbu,
+        usuarioId: dto.usuarioId,
+      }
+
+      await apiPut<void>(`/api/cajas/${id}`, payload)
       await fetchCajas()
       return true
     } catch (e) {

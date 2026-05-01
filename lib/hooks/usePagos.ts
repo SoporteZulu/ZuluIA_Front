@@ -1,9 +1,9 @@
-'use client'
+"use client"
 
-import { useState, useEffect, useCallback } from 'react'
-import { apiGet, apiPost } from '@/lib/api'
-import type { Pago, PagoDetalle, RegistrarPagoDto } from '@/lib/types/pagos'
-import type { PagedResult } from '@/lib/types/items'
+import { useState, useEffect, useCallback } from "react"
+import { apiGet, apiPost } from "@/lib/api"
+import type { Pago, PagoDetalle, RegistrarPagoDto } from "@/lib/types/pagos"
+import type { PagedResult } from "@/lib/types/items"
 
 interface UsePagosOptions {
   sucursalId?: number
@@ -17,8 +17,8 @@ export function usePagos(options: UsePagosOptions = {}) {
   const [totalCount, setTotalCount] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [page, setPage] = useState(1)
-  const [desde, setDesde] = useState('')
-  const [hasta, setHasta] = useState('')
+  const [desde, setDesde] = useState("")
+  const [hasta, setHasta] = useState("")
 
   const fetchPagos = useCallback(async () => {
     setLoading(true)
@@ -26,24 +26,25 @@ export function usePagos(options: UsePagosOptions = {}) {
     try {
       const params = new URLSearchParams({
         page: String(page),
-        pageSize: '50',
+        pageSize: "50",
       })
-      if (options.sucursalId) params.set('sucursalId', String(options.sucursalId))
-      if (options.terceroId) params.set('terceroId', String(options.terceroId))
-      if (desde) params.set('desde', desde)
-      if (hasta) params.set('hasta', hasta)
+      if (options.sucursalId) params.set("sucursalId", String(options.sucursalId))
+      if (options.terceroId) params.set("terceroId", String(options.terceroId))
+      if (desde) params.set("desde", desde)
+      if (hasta) params.set("hasta", hasta)
 
-      const result = await apiGet<PagedResult<Pago> | { data: Pago[]; page: number; pageSize: number; totalCount: number; totalPages: number }>(
-        `/api/pagos?${params.toString()}`
-      )
+      const result = await apiGet<
+        | PagedResult<Pago>
+        | { data: Pago[]; page: number; pageSize: number; totalCount: number; totalPages: number }
+      >(`/api/pagos?${params.toString()}`)
       // Backend retorna { data, page, pageSize, totalCount, totalPages }
       const normalize = (p: Pago): Pago => ({ ...p, total: Number(p.total ?? 0) })
 
-      if ('data' in result && Array.isArray(result.data)) {
+      if ("data" in result && Array.isArray(result.data)) {
         setPagos(result.data.map(normalize))
         setTotalCount(result.totalCount)
         setTotalPages(result.totalPages)
-      } else if ('items' in result) {
+      } else if ("items" in result) {
         const r = result as PagedResult<Pago>
         setPagos(r.items.map(normalize))
         setTotalCount(r.totalCount)
@@ -55,42 +56,44 @@ export function usePagos(options: UsePagosOptions = {}) {
         setTotalPages(1)
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar pagos')
+      setError(e instanceof Error ? e.message : "Error al cargar pagos")
     } finally {
       setLoading(false)
     }
   }, [page, desde, hasta, options.sucursalId, options.terceroId])
 
-  useEffect(() => { fetchPagos() }, [fetchPagos])
+  useEffect(() => {
+    fetchPagos()
+  }, [fetchPagos])
 
-  const getById = async (id: number): Promise<PagoDetalle | null> => {
+  const getById = useCallback(async (id: number): Promise<PagoDetalle | null> => {
     try {
       return await apiGet<PagoDetalle>(`/api/pagos/${id}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar pago')
+      setError(e instanceof Error ? e.message : "Error al cargar pago")
       return null
     }
-  }
+  }, [])
 
-  const registrar = async (dto: RegistrarPagoDto): Promise<boolean> => {
+  const registrar = useCallback(async (dto: RegistrarPagoDto): Promise<boolean> => {
     try {
-      await apiPost<{ id: number }>('/api/pagos', dto)
+      await apiPost<{ id: number }>("/api/pagos/basico", dto)
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al registrar pago')
+      setError(e instanceof Error ? e.message : "Error al registrar pago")
       return false
     }
-  }
+  }, [])
 
-  const anular = async (id: number): Promise<boolean> => {
+  const anular = useCallback(async (id: number): Promise<boolean> => {
     try {
       await apiPost<void>(`/api/pagos/${id}/anular`, {})
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al anular pago')
+      setError(e instanceof Error ? e.message : "Error al anular pago")
       return false
     }
-  }
+  }, [])
 
   return {
     pagos,

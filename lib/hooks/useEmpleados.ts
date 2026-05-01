@@ -4,6 +4,11 @@ import { useState, useEffect, useCallback } from "react"
 import { apiGet, apiPost, apiPut } from "@/lib/api"
 import type { Empleado, EmpleadosPagedResult, CreateEmpleadoDto } from "@/lib/types/empleados"
 
+type EmpleadosApiResponse =
+  | EmpleadosPagedResult
+  | { data: Empleado[]; page: number; pageSize: number; totalCount: number; totalPages: number }
+  | Empleado[]
+
 interface UseEmpleadosOptions {
   sucursalId?: number
   estado?: string
@@ -28,16 +33,30 @@ export function useEmpleados(options: UseEmpleadosOptions = {}) {
       if (options.estado) params.set("estado", options.estado)
       if (search) params.set("search", search)
 
-      const result = await apiGet<EmpleadosPagedResult>(`/api/empleados?${params.toString()}`)
-      const items = Array.isArray(result) ? result : (result.items ?? [])
-      setEmpleados(
-        items.map((e) => ({
-          ...e,
-          sueldoBasico: Number(e.sueldoBasico ?? 0),
-        }))
-      )
-      setTotalCount(Array.isArray(result) ? items.length : (result.totalCount ?? items.length))
-      setTotalPages(Array.isArray(result) ? 1 : (result.totalPages ?? 1))
+      const result = await apiGet<EmpleadosApiResponse>(`/api/empleados?${params.toString()}`)
+      const normalize = (empleado: Empleado): Empleado => ({
+        ...empleado,
+        sueldoBasico: Number(empleado.sueldoBasico ?? 0),
+      })
+
+      if (Array.isArray(result)) {
+        setEmpleados(result.map(normalize))
+        setTotalCount(result.length)
+        setTotalPages(1)
+        return
+      }
+
+      if ("data" in result && Array.isArray(result.data)) {
+        setEmpleados(result.data.map(normalize))
+        setTotalCount(result.totalCount ?? result.data.length)
+        setTotalPages(result.totalPages ?? 1)
+        return
+      }
+
+      const items = result.items ?? []
+      setEmpleados(items.map(normalize))
+      setTotalCount(result.totalCount ?? items.length)
+      setTotalPages(result.totalPages ?? 1)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar empleados")
     } finally {
