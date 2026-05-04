@@ -1,13 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -16,7 +15,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import {
+  WmsDetailFieldGrid,
+  WmsDialogContent,
+  WmsTabsList,
+} from "@/components/almacenes/wms-responsive"
 import {
   Table,
   TableBody,
@@ -26,7 +30,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useTransportistas } from "@/lib/hooks/useTransportistas"
-import type { CreateTransportistaDto, Transportista } from "@/lib/types/transportistas"
+import type {
+  CreateTransportistaDto,
+  Transportista,
+  UpdateTransportistaDto,
+} from "@/lib/types/transportistas"
 import { AlertCircle, Eye, Pencil, Plus, RefreshCcw, Search, Truck } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 
@@ -106,6 +114,10 @@ function getTraceabilityStatus(transportista: Transportista) {
   return "Legajo base"
 }
 
+function digitsOnly(value?: string | null) {
+  return String(value ?? "").replace(/\D+/g, "")
+}
+
 export default function TransportistasPage() {
   const [soloActivos, setSoloActivos] = useState(false)
   const { transportistas, loading, error, getById, crear, actualizar, cambiarEstado, refetch } =
@@ -138,34 +150,34 @@ export default function TransportistasPage() {
     [searchTerm, transportistas]
   )
 
-  const activos = transportistas.filter((transportista) => transportista.activo).length
-  const withPatent = transportistas.filter((transportista) => transportista.patente).length
-  const withOwnCuit = transportistas.filter(
-    (transportista) => transportista.nroCuitTransportista
-  ).length
-  const withDomicilio = transportistas.filter(
-    (transportista) => transportista.domicilioPartida
-  ).length
-  const withVehicleProfile = transportistas.filter(
-    (transportista) => transportista.patente || transportista.marcaVehiculo
-  ).length
-  const selectedTraceability = selected ? getTraceabilityStatus(selected) : "-"
+  const visibleStats = useMemo(
+    () => ({
+      total: filtered.length,
+      activos: filtered.filter((transportista) => transportista.activo).length,
+      withPatent: filtered.filter((transportista) => transportista.patente).length,
+      withOwnCuit: filtered.filter((transportista) => transportista.nroCuitTransportista).length,
+      withDomicilio: filtered.filter((transportista) => transportista.domicilioPartida).length,
+      withVehicleProfile: filtered.filter(
+        (transportista) => transportista.patente || transportista.marcaVehiculo
+      ).length,
+    }),
+    [filtered]
+  )
 
-  useEffect(() => {
-    if (!filtered.length) {
-      setSelectedId(null)
-      return
+  const resolvedSelectedId = useMemo(() => {
+    if (!filtered.length) return null
+    if (selectedId && filtered.some((transportista) => transportista.id === selectedId)) {
+      return selectedId
     }
 
-    if (!selectedId || !filtered.some((transportista) => transportista.id === selectedId)) {
-      setSelectedId(filtered[0].id)
-    }
+    return filtered[0].id
   }, [filtered, selectedId])
 
   const selected = useMemo(
-    () => filtered.find((transportista) => transportista.id === selectedId) ?? null,
-    [filtered, selectedId]
+    () => filtered.find((transportista) => transportista.id === resolvedSelectedId) ?? null,
+    [filtered, resolvedSelectedId]
   )
+  const selectedTraceability = selected ? getTraceabilityStatus(selected) : "-"
 
   const openCreate = () => {
     setEditing(null)
@@ -197,16 +209,30 @@ export default function TransportistasPage() {
       return
     }
 
-    const payload: CreateTransportistaDto = {
-      terceroId: draft.terceroId,
-      nroCuitTransportista: draft.nroCuitTransportista || undefined,
-      domicilioPartida: draft.domicilioPartida || undefined,
-      patente: draft.patente || undefined,
-      marcaVehiculo: draft.marcaVehiculo || undefined,
+    const nroCuitTransportista = digitsOnly(draft.nroCuitTransportista)
+    if (!editing && nroCuitTransportista && nroCuitTransportista.length !== 11) {
+      setFormError("El CUIT del transportista debe tener 11 dígitos si se informa.")
+      return
     }
 
+    const domicilioPartida = draft.domicilioPartida.trim() || undefined
+    const patente = draft.patente.trim().toUpperCase() || undefined
+    const marcaVehiculo = draft.marcaVehiculo.trim() || undefined
+
     setSaving(true)
-    const ok = editing ? await actualizar(editing.id, payload) : await crear(payload)
+    const ok = editing
+      ? await actualizar(editing.id, {
+          domicilioPartida,
+          patente,
+          marcaVehiculo,
+        } satisfies UpdateTransportistaDto)
+      : await crear({
+          terceroId: draft.terceroId,
+          nroCuitTransportista: nroCuitTransportista || undefined,
+          domicilioPartida,
+          patente,
+          marcaVehiculo,
+        } satisfies CreateTransportistaDto)
     setSaving(false)
 
     if (!ok) {
@@ -284,37 +310,41 @@ export default function TransportistasPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="Total transportistas"
-          value={String(transportistas.length)}
-          description={soloActivos ? "Vista limitada a activos." : "Incluye activos e inactivos."}
+          title="Transportistas visibles"
+          value={String(visibleStats.total)}
+          description={
+            soloActivos
+              ? "Coinciden con la búsqueda dentro de los legajos activos."
+              : "Coinciden con la búsqueda dentro de la vista actual."
+          }
         />
         <SummaryCard
           title="Activos"
-          value={String(activos)}
-          description="Legajos disponibles para documentos de traslado y carta porte."
+          value={String(visibleStats.activos)}
+          description="Legajos visibles disponibles para documentos de traslado y carta porte."
         />
         <SummaryCard
           title="Con patente"
-          value={String(withPatent)}
-          description="Registros que ya informan dominio del vehículo."
+          value={String(visibleStats.withPatent)}
+          description="Registros visibles que ya informan dominio del vehículo."
         />
         <SummaryCard
           title="CUIT propio informado"
-          value={String(withOwnCuit)}
-          description="Transportistas con CUIT operativo específico cargado."
+          value={String(visibleStats.withOwnCuit)}
+          description="Transportistas visibles con CUIT operativo específico cargado."
         />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Con partida"
-          value={String(withDomicilio)}
-          description="Legajos con domicilio de partida visible para logística."
+          value={String(visibleStats.withDomicilio)}
+          description="Legajos visibles con domicilio de partida cargado para logística."
         />
         <SummaryCard
           title="Perfil vehicular"
-          value={String(withVehicleProfile)}
-          description="Transportistas con patente o marca de unidad informada."
+          value={String(visibleStats.withVehicleProfile)}
+          description="Transportistas visibles con patente o marca de unidad informada."
         />
         <SummaryCard
           title="Trazabilidad"
@@ -396,7 +426,9 @@ export default function TransportistasPage() {
                   filtered.map((transportista) => (
                     <TableRow
                       key={transportista.id}
-                      className={transportista.id === selectedId ? "bg-accent/40" : undefined}
+                      className={
+                        transportista.id === resolvedSelectedId ? "bg-accent/40" : undefined
+                      }
                       onClick={() => setSelectedId(transportista.id)}
                     >
                       <TableCell className="font-medium">
@@ -515,7 +547,7 @@ export default function TransportistasPage() {
       </div>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent>
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Detalle del transportista</DialogTitle>
             <DialogDescription>
@@ -526,67 +558,58 @@ export default function TransportistasPage() {
             <p className="text-sm text-muted-foreground">Cargando detalle...</p>
           ) : detail ? (
             <Tabs defaultValue="general">
-              <TabsList className="grid w-full grid-cols-3">
+              <WmsTabsList className="md:grid-cols-3">
                 <TabsTrigger value="general">General</TabsTrigger>
                 <TabsTrigger value="vehiculo">Vehiculo</TabsTrigger>
                 <TabsTrigger value="circuito">Circuito</TabsTrigger>
-              </TabsList>
+              </WmsTabsList>
 
-              <TabsContent value="general" className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Tercero</span>
-                  <p className="text-sm font-medium">
-                    {detail.terceroRazonSocial ?? `#${detail.terceroId}`}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Estado</span>
-                  <p className="text-sm font-medium">{detail.activo ? "Activo" : "Inactivo"}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">CUIT tercero</span>
-                  <p className="text-sm font-medium">{detail.terceroCuit ?? "-"}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">
-                    CUIT transportista
-                  </span>
-                  <p className="text-sm font-medium">{detail.nroCuitTransportista ?? "-"}</p>
-                </div>
+              <TabsContent value="general" className="mt-4">
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    {
+                      label: "Tercero",
+                      value: detail.terceroRazonSocial ?? `#${detail.terceroId}`,
+                    },
+                    { label: "Estado", value: detail.activo ? "Activo" : "Inactivo" },
+                    { label: "CUIT tercero", value: detail.terceroCuit ?? "-" },
+                    {
+                      label: "CUIT transportista",
+                      value: detail.nroCuitTransportista ?? "-",
+                    },
+                  ]}
+                />
               </TabsContent>
 
-              <TabsContent value="vehiculo" className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Patente</span>
-                  <p className="text-sm font-medium">{detail.patente ?? "-"}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Marca vehículo</span>
-                  <p className="text-sm font-medium">{detail.marcaVehiculo ?? "-"}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3 sm:col-span-2">
-                  <span className="mb-1 block text-xs text-muted-foreground">Estado de unidad</span>
-                  <p className="text-sm font-medium">{getVehicleStatus(detail)}</p>
-                </div>
+              <TabsContent value="vehiculo" className="mt-4">
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    { label: "Patente", value: detail.patente ?? "-" },
+                    { label: "Marca vehículo", value: detail.marcaVehiculo ?? "-" },
+                    {
+                      label: "Estado de unidad",
+                      value: getVehicleStatus(detail),
+                      className: "md:col-span-2",
+                    },
+                  ]}
+                />
               </TabsContent>
 
-              <TabsContent value="circuito" className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg bg-muted/40 p-3 sm:col-span-2">
-                  <span className="mb-1 block text-xs text-muted-foreground">
-                    Domicilio partida
-                  </span>
-                  <p className="text-sm font-medium">{detail.domicilioPartida ?? "-"}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Estado de legajo</span>
-                  <p className="text-sm font-medium">{getTraceabilityStatus(detail)}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">
-                    Cobertura vehicular
-                  </span>
-                  <p className="text-sm font-medium">{getVehicleStatus(detail)}</p>
-                </div>
+              <TabsContent value="circuito" className="mt-4">
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    {
+                      label: "Domicilio partida",
+                      value: detail.domicilioPartida ?? "-",
+                      className: "md:col-span-2",
+                    },
+                    { label: "Estado de legajo", value: getTraceabilityStatus(detail) },
+                    { label: "Cobertura vehicular", value: getVehicleStatus(detail) },
+                  ]}
+                />
               </TabsContent>
             </Tabs>
           ) : (
@@ -599,15 +622,27 @@ export default function TransportistasPage() {
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
-      <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
+      <Dialog
+        open={formOpen}
+        onOpenChange={(open) => {
+          setFormOpen(open)
+          if (!open) {
+            setEditing(null)
+            setDraft(emptyDraft())
+            setFormError(null)
+          }
+        }}
+      >
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>{editing ? "Editar transportista" : "Nuevo transportista"}</DialogTitle>
             <DialogDescription>
-              Cargá o actualizá el legajo de transporte. La activación depende hoy del tercero base.
+              {editing
+                ? "El backend hoy permite actualizar domicilio de partida, patente y marca. El tercero base y el CUIT operativo quedan en solo lectura."
+                : "Cargá el legajo de transporte completo. La activación depende hoy del tercero base."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -618,14 +653,16 @@ export default function TransportistasPage() {
                 type="number"
                 min={1}
                 value={draft.terceroId || ""}
+                disabled={Boolean(editing)}
                 onChange={(e) =>
                   setDraft((prev) => ({ ...prev, terceroId: Number(e.target.value) || 0 }))
                 }
                 placeholder="Identificador del maestro de terceros"
               />
               <p className="text-xs text-muted-foreground">
-                Este identificador sigue siendo la referencia principal del legajo en el frontend
-                actual.
+                {editing
+                  ? "Para cambiar el tercero asociado hoy hay que recrear el legajo del transportista."
+                  : "Este identificador sigue siendo la referencia principal del legajo en el frontend actual."}
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -634,13 +671,15 @@ export default function TransportistasPage() {
                 <Input
                   id="cuit-transporte"
                   value={draft.nroCuitTransportista ?? ""}
+                  disabled={Boolean(editing)}
                   onChange={(e) =>
                     setDraft((prev) => ({ ...prev, nroCuitTransportista: e.target.value }))
                   }
                 />
                 <p className="text-xs text-muted-foreground">
-                  Informalo cuando el circuito logistico requiera CUIT operativo distinto al del
-                  tercero.
+                  {editing
+                    ? "El CUIT específico hoy se conserva desde el alta original; si cambia, conviene recrear el legajo."
+                    : "Informalo cuando el circuito logistico requiera CUIT operativo distinto al del tercero."}
                 </p>
               </div>
               <div className="space-y-2">
@@ -687,7 +726,7 @@ export default function TransportistasPage() {
               {saving ? "Guardando..." : editing ? "Guardar cambios" : "Crear transportista"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

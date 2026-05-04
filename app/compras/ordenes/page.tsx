@@ -188,6 +188,13 @@ function createPurchaseOrderFormState(
   }
 }
 
+function getQuoteOperationalStatus(
+  quote: Pick<CotizacionCompraListItem, "estado" | "estadoLegacy">
+) {
+  const status = (quote.estado || quote.estadoLegacy || "").toUpperCase()
+  return status === "ACEPTADA" ? "APROBADA" : status
+}
+
 type OrderCreationContext = {
   quoteId: number
   providerId: number
@@ -206,7 +213,7 @@ function buildOrderCreationContextFromQuote(quote: CotizacionCompraListItem): Or
     requisitionReference: quote.requisicionReferencia,
     total: quote.total,
     dueDate: quote.fechaVencimiento,
-    status: (quote.estadoLegacy || quote.estado || "").toUpperCase(),
+    status: getQuoteOperationalStatus(quote),
   }
 }
 
@@ -843,27 +850,36 @@ export default function OrdenesCompraPage() {
   const approvedQuotes = useMemo(
     () =>
       cotizaciones
-        .filter((quote) => {
-          const status = (quote.estadoLegacy || quote.estado || "").toUpperCase()
-          return status === "APROBADA" || status === "ACEPTADA"
-        })
+        .filter((quote) => getQuoteOperationalStatus(quote) === "APROBADA")
         .sort((left, right) => right.id - left.id),
     [cotizaciones]
   )
-  const quotesReadyForOrder = useMemo(
+  const approvedQuotesWithAvailability = useMemo(
     () =>
-      approvedQuotes
-        .map((quote) => ({
-          quote,
-          availableCount: getAvailableOrderBaseComprobantes(
-            comprobantes,
-            linkedComprobanteIds,
-            quote.proveedorId
-          ).length,
-        }))
-        .filter((entry) => entry.availableCount > 0)
-        .slice(0, 4),
+      approvedQuotes.map((quote) => ({
+        quote,
+        availableCount: getAvailableOrderBaseComprobantes(
+          comprobantes,
+          linkedComprobanteIds,
+          quote.proveedorId
+        ).length,
+      })),
     [approvedQuotes, comprobantes, linkedComprobanteIds]
+  )
+  const quotesReadyForOrder = useMemo(
+    () => approvedQuotesWithAvailability.filter((entry) => entry.availableCount > 0).slice(0, 4),
+    [approvedQuotesWithAvailability]
+  )
+  const blockedQuotesForOrder = useMemo(
+    () => approvedQuotesWithAvailability.filter((entry) => entry.availableCount === 0).slice(0, 4),
+    [approvedQuotesWithAvailability]
+  )
+  const routeBlockedQuote = useMemo(
+    () =>
+      Number.isFinite(routeQuoteId)
+        ? (blockedQuotesForOrder.find((entry) => entry.quote.id === routeQuoteId) ?? null)
+        : null,
+    [blockedQuotesForOrder, routeQuoteId]
   )
   const selectedOrder = useMemo(
     () => ordenes.find((order) => order.id === selectedOrderId) ?? null,
@@ -1137,6 +1153,37 @@ export default function OrdenesCompraPage() {
                 </Button>
               </div>
             ))
+          ) : blockedQuotesForOrder.length > 0 ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                {routeBlockedQuote
+                  ? `La cotización COT-${routeBlockedQuote.quote.id} está aprobada y ya abrió el contexto comercial, pero no tiene comprobantes base libres para convertirla en orden hoy.`
+                  : "Hay cotizaciones aprobadas, pero ninguna tiene comprobantes base libres hoy para iniciar nuevas órdenes."}
+              </p>
+              {blockedQuotesForOrder.map(({ quote }) => (
+                <div
+                  key={quote.id}
+                  className="flex flex-col gap-3 rounded-lg border border-dashed p-4 lg:flex-row lg:items-center lg:justify-between"
+                >
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">COT-{quote.id}</p>
+                      <Badge variant="default">Aprobada</Badge>
+                      <Badge variant="outline">0 comprobantes base libres</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {quote.proveedor} · {quote.requisicionReferencia ?? "Sin requisición visible"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Total {formatMoney(quote.total)} · Vence {formatDate(quote.fechaVencimiento)}
+                    </p>
+                  </div>
+                  <Button variant="outline" className="bg-transparent" disabled>
+                    Sin comprobante base disponible
+                  </Button>
+                </div>
+              ))}
+            </>
           ) : (
             <p className="text-sm text-muted-foreground">
               {loadingQuotes

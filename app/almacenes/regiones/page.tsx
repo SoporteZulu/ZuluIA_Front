@@ -9,12 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { WmsDialogContent } from "@/components/almacenes/wms-responsive"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -130,6 +130,15 @@ export default function RegionesAlmacenPage() {
     })
   }, [regiones, search])
 
+  const visibleStats = useMemo(
+    () => ({
+      total: filtered.length,
+      integradoras: filtered.filter((row) => row.esRegionIntegradora).length,
+      subregiones: filtered.filter((row) => row.regionIntegradoraId !== null).length,
+    }),
+    [filtered]
+  )
+
   const selected = filtered.find((row) => row.id === selectedId) ?? filtered[0] ?? null
   const parentById = useMemo(
     () => new Map(regiones.map((region) => [region.id, region])),
@@ -239,22 +248,18 @@ export default function RegionesAlmacenPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Regiones visibles"
-          value={loading ? "..." : String(filtered.length)}
+          value={loading ? "..." : String(visibleStats.total)}
           description="Estructura regional activa en el maestro actual."
         />
         <SummaryCard
           title="Integradoras"
-          value={loading ? "..." : String(regiones.filter((row) => row.esRegionIntegradora).length)}
-          description="Nodos superiores para agrupar subregiones operativas."
+          value={loading ? "..." : String(visibleStats.integradoras)}
+          description="Nodos visibles para agrupar subregiones operativas."
         />
         <SummaryCard
           title="Subregiones"
-          value={
-            loading
-              ? "..."
-              : String(regiones.filter((row) => row.regionIntegradoraId !== null).length)
-          }
-          description="Regiones hijas ya vinculadas a una integradora."
+          value={loading ? "..." : String(visibleStats.subregiones)}
+          description="Regiones hijas visibles ya vinculadas a una integradora."
         />
         <SummaryCard
           title="Depósitos reales"
@@ -404,7 +409,7 @@ export default function RegionesAlmacenPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{editingId ? "Editar región" : "Nueva región"}</DialogTitle>
             <DialogDescription>
@@ -526,7 +531,7 @@ export default function RegionesAlmacenPage() {
               Guardar región
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

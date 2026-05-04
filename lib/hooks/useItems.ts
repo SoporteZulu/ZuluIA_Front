@@ -78,7 +78,7 @@ export function useItems(options: UseItemsOptions = {}) {
 
   const updateItem = async (id: number, dto: Partial<CreateItemDto>): Promise<boolean> => {
     try {
-      await apiPut<Item>(`/api/items/${id}`, dto)
+      await apiPut<Item>(`/api/items/${id}`, { id, ...dto })
       await fetchItems()
       return true
     } catch (e) {
@@ -124,7 +124,7 @@ export function useItemsConfig() {
 
   useEffect(() => {
     Promise.all([
-      apiGet<CategoriaItem[] | PagedResult<CategoriaItem>>("/api/categorias-items"),
+      apiGet<CategoriaItem[] | PagedResult<CategoriaItem>>("/api/categorias-items/plano"),
       apiGet<UnidadMedida[] | PagedResult<UnidadMedida>>("/api/configuracion/unidades-medida"),
       apiGet<AlicuotaIva[] | PagedResult<AlicuotaIva>>("/api/configuracion/alicuotas-iva"),
       apiGet<Moneda[] | PagedResult<Moneda>>("/api/configuracion/monedas"),

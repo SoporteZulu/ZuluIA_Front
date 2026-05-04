@@ -52,7 +52,6 @@ import {
 import { useConfiguracion } from "@/lib/hooks/useConfiguracion"
 import { useCobros } from "@/lib/hooks/useCobros"
 import { useCajas } from "@/lib/hooks/useCajas"
-import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { usePagos } from "@/lib/hooks/usePagos"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 import { useProveedores, useTerceros, useTercerosConfig } from "@/lib/hooks/useTerceros"
@@ -67,8 +66,37 @@ function fmtARS(value: number) {
   return Number(value ?? 0).toLocaleString("es-AR", { minimumFractionDigits: 2 })
 }
 
+function formatCurrencyBreakdown(
+  movements: Array<{ total: number; monedaSimbolo?: string | null }>
+) {
+  const totalsBySymbol = new Map<string, number>()
+
+  movements.forEach((movement) => {
+    const symbol = movement.monedaSimbolo?.trim() || "$"
+    totalsBySymbol.set(symbol, (totalsBySymbol.get(symbol) ?? 0) + Number(movement.total ?? 0))
+  })
+
+  const orderedTotals = [...totalsBySymbol.entries()].sort(([left], [right]) => {
+    if (left === right) return 0
+    if (left === "$") return -1
+    if (right === "$") return 1
+    return left.localeCompare(right)
+  })
+
+  return orderedTotals.length > 0
+    ? orderedTotals.map(([symbol, total]) => `${symbol}${fmtARS(total)}`).join(" + ")
+    : "$0,00"
+}
+
 function formatDate(value?: string) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("es-AR")
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("es-AR")
 }
 
 function formatDateTime(value?: string) {
@@ -205,105 +233,62 @@ type MovimientoFormState = {
   observacion: string
 }
 
-type MovementTrackerStage =
-  | "registrado"
-  | "pendiente_imputacion"
-  | "pendiente_retencion"
-  | "cerrado"
-
-type LocalMovementTracker = {
-  movementKey: string
-  stage: MovementTrackerStage
-  owner: string
-  expectedImputation: string
-  retentionNote: string
-  nextStep: string
-  updatedAt: string
+function getDefaultMonedaId(monedas: Moneda[]) {
+  return monedas[0] ? String(monedas[0].id) : ""
 }
 
-const MOVEMENT_TRACKER_STORAGE_KEY = "zuluia_contabilidad_pagos_trackers"
-
-const MOVEMENT_STAGE_CONFIG: Record<
-  MovementTrackerStage,
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  registrado: { label: "Registrado", variant: "outline" },
-  pendiente_imputacion: { label: "Pendiente imputacion", variant: "secondary" },
-  pendiente_retencion: { label: "Pendiente retencion", variant: "destructive" },
-  cerrado: { label: "Cerrado", variant: "default" },
-}
-
-function getMovementKey(kind: MovimientoKind, id: number) {
-  return `${kind}-${id}`
-}
-
-function buildDefaultMovementTracker(
-  kind: MovimientoKind,
-  item: { id: number; estado: string; terceroId: number }
-): LocalMovementTracker {
-  return {
-    movementKey: getMovementKey(kind, item.id),
-    stage: item.estado === "ANULADO" ? "cerrado" : "registrado",
-    owner: kind === "pago" ? "Tesoreria" : "Cobranzas",
-    expectedImputation:
-      kind === "pago"
-        ? `Revisar aplicacion del pago sobre proveedor #${item.terceroId}.`
-        : `Verificar aplicacion del cobro sobre cliente #${item.terceroId}.`,
-    retentionNote:
-      kind === "pago"
-        ? "Sin retenciones locales cargadas."
-        : "No aplica retencion compleja en el flujo actual.",
-    nextStep:
-      kind === "pago"
-        ? "Confirmar imputacion final y revisar retenciones si corresponde."
-        : "Confirmar imputacion del cobro y cierre documental.",
-    updatedAt: new Date().toISOString(),
-  }
-}
-
-function getMovementTrackerHealth(kind: MovimientoKind, tracker: LocalMovementTracker) {
-  if (tracker.stage === "cerrado") {
-    return kind === "pago"
-      ? "Pago conciliado, imputado y sin tareas pendientes"
-      : "Cobro conciliado y cerrado sobre el circuito actual"
+function resolveCajaMonedaId(cajas: Caja[], cajaId?: string, fallbackMonedaId = "") {
+  if (!cajaId) {
+    return fallbackMonedaId
   }
 
-  if (tracker.stage === "pendiente_retencion") {
-    return kind === "pago"
-      ? "Pago pendiente de certificar o validar retenciones"
-      : "Cobro con observacion fiscal documentada localmente"
-  }
-
-  if (tracker.stage === "pendiente_imputacion") {
-    return kind === "pago"
-      ? "Pago registrado pero pendiente de aplicacion avanzada"
-      : "Cobro registrado pero pendiente de aplicacion avanzada"
-  }
-
-  return kind === "pago"
-    ? "Pago registrado en backend y bajo seguimiento operativo"
-    : "Cobro registrado en backend y bajo seguimiento operativo"
+  const caja = cajas.find((item) => String(item.id) === cajaId)
+  return caja?.monedaId ? String(caja.monedaId) : fallbackMonedaId
 }
 
 function createEmptyMedio(monedas: Moneda[], cajas: Caja[], formasPago: FormaPago[]): MedioDraft {
+  const fallbackMonedaId = getDefaultMonedaId(monedas)
+  const defaultCajaId = cajas[0] ? String(cajas[0].id) : ""
+
   return {
     id: `medio-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     formaPagoId: formasPago[0] ? String(formasPago[0].id) : "",
-    cajaId: cajas[0] ? String(cajas[0].id) : "",
+    cajaId: defaultCajaId,
     importe: "",
-    monedaId: monedas[0] ? String(monedas[0].id) : "",
+    monedaId: resolveCajaMonedaId(cajas, defaultCajaId, fallbackMonedaId),
     cotizacion: "1",
     chequeId: "",
   }
 }
 
-function buildInitialForm(monedas: Moneda[]): MovimientoFormState {
+function buildInitialForm(monedas: Moneda[], cajas: Caja[]): MovimientoFormState {
+  const fallbackMonedaId = getDefaultMonedaId(monedas)
+  const defaultCajaId = cajas[0] ? String(cajas[0].id) : undefined
+
   return {
     terceroId: "",
     fecha: new Date().toISOString().slice(0, 10),
-    monedaId: monedas[0] ? String(monedas[0].id) : "",
+    monedaId: resolveCajaMonedaId(cajas, defaultCajaId, fallbackMonedaId),
     cotizacion: "1",
     observacion: "",
+  }
+}
+
+function resolvePrimaryCurrency(
+  form: MovimientoFormState,
+  medios: Array<{ monedaId: number; cotizacion: number }>
+) {
+  const distinctMonedaIds = Array.from(
+    new Set(medios.map((medio) => medio.monedaId).filter(Boolean))
+  )
+  const distinctCotizaciones = Array.from(new Set(medios.map((medio) => medio.cotizacion)))
+
+  return {
+    monedaId: distinctMonedaIds.length === 1 ? distinctMonedaIds[0] : Number(form.monedaId),
+    cotizacion:
+      distinctMonedaIds.length === 1 && distinctCotizaciones.length === 1
+        ? distinctCotizaciones[0]
+        : Number(form.cotizacion || 1),
   }
 }
 
@@ -335,7 +320,7 @@ function MovimientoDialog({
   onSaved: () => Promise<void>
 }) {
   const [tab, setTab] = useState("principal")
-  const [form, setForm] = useState<MovimientoFormState>(() => buildInitialForm(monedas))
+  const [form, setForm] = useState<MovimientoFormState>(() => buildInitialForm(monedas, cajas))
   const [medios, setMedios] = useState<MedioDraft[]>(() => [
     createEmptyMedio(monedas, cajas, formasPago),
   ])
@@ -354,7 +339,37 @@ function MovimientoDialog({
 
   function updateMedio(id: string, key: keyof MedioDraft, value: string) {
     setMedios((current) =>
-      current.map((medio) => (medio.id === id ? { ...medio, [key]: value } : medio))
+      current.map((medio) => {
+        if (medio.id !== id) {
+          return medio
+        }
+
+        if (key === "cajaId") {
+          const monedaId = resolveCajaMonedaId(cajas, value, medio.monedaId || form.monedaId)
+
+          if (current.length === 1) {
+            setForm((formCurrent) =>
+              formCurrent.monedaId === monedaId ? formCurrent : { ...formCurrent, monedaId }
+            )
+          }
+
+          return { ...medio, cajaId: value, monedaId }
+        }
+
+        if (current.length === 1 && key === "monedaId") {
+          setForm((formCurrent) =>
+            formCurrent.monedaId === value ? formCurrent : { ...formCurrent, monedaId: value }
+          )
+        }
+
+        if (current.length === 1 && key === "cotizacion") {
+          setForm((formCurrent) =>
+            formCurrent.cotizacion === value ? formCurrent : { ...formCurrent, cotizacion: value }
+          )
+        }
+
+        return { ...medio, [key]: value }
+      })
     )
   }
 
@@ -402,6 +417,11 @@ function MovimientoDialog({
       return
     }
 
+    const { monedaId: primaryMonedaId, cotizacion: primaryCotizacion } = resolvePrimaryCurrency(
+      form,
+      mediosPayload
+    )
+
     setSaving(true)
 
     const ok =
@@ -410,8 +430,8 @@ function MovimientoDialog({
             sucursalId,
             terceroId: Number(form.terceroId),
             fecha: form.fecha,
-            monedaId: Number(form.monedaId),
-            cotizacion: Number(form.cotizacion || 1),
+            monedaId: primaryMonedaId,
+            cotizacion: primaryCotizacion,
             observacion: form.observacion.trim() || undefined,
             medios: mediosPayload,
           })
@@ -419,8 +439,11 @@ function MovimientoDialog({
             sucursalId,
             terceroId: Number(form.terceroId),
             fecha: form.fecha,
+            monedaId: primaryMonedaId,
+            cotizacion: primaryCotizacion,
+            observacion: form.observacion.trim() || undefined,
             medios: mediosPayload,
-            imputaciones: undefined,
+            comprobantesAImputar: [],
           })
 
     setSaving(false)
@@ -500,9 +523,17 @@ function MovimientoDialog({
                   <Label>Moneda principal</Label>
                   <Select
                     value={form.monedaId}
-                    onValueChange={(value) =>
+                    onValueChange={(value) => {
                       setForm((current) => ({ ...current, monedaId: value }))
-                    }
+
+                      if (medios.length === 1) {
+                        setMedios((current) =>
+                          current.map((medio, index) =>
+                            index === 0 ? { ...medio, monedaId: value } : medio
+                          )
+                        )
+                      }
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar moneda" />
@@ -525,9 +556,19 @@ function MovimientoDialog({
                     min="0.0001"
                     step="0.0001"
                     value={form.cotizacion}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, cotizacion: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      const { value } = event.target
+
+                      setForm((current) => ({ ...current, cotizacion: value }))
+
+                      if (medios.length === 1) {
+                        setMedios((current) =>
+                          current.map((medio, index) =>
+                            index === 0 ? { ...medio, cotizacion: value } : medio
+                          )
+                        )
+                      }
+                    }}
                   />
                 </div>
 
@@ -811,11 +852,6 @@ function PagosContent() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   const [movementDialog, setMovementDialog] = useState<MovimientoKind | null>(null)
-  const {
-    rows: trackers,
-    setRows: setTrackers,
-    reset: resetTrackers,
-  } = useLegacyLocalCollection<LocalMovementTracker>(MOVEMENT_TRACKER_STORAGE_KEY, [])
 
   const clientesOptions = useMemo<TerceroOption[]>(
     () =>
@@ -851,10 +887,6 @@ function PagosContent() {
   )
 
   const cajasById = useMemo(() => new Map(cajas.map((caja) => [caja.id, caja])), [cajas])
-  const trackerMap = useMemo(
-    () => new Map(trackers.map((tracker) => [tracker.movementKey, tracker])),
-    [trackers]
-  )
 
   const filteredPagos = useMemo(
     () =>
@@ -890,14 +922,10 @@ function PagosContent() {
     [clienteById, clienteNameById, cobros, search]
   )
 
-  const totalPagar = pagos
-    .filter((pago) => pago.estado !== "ANULADO")
-    .reduce((sum, pago) => sum + pago.total, 0)
-  const totalCobrar = cobros
-    .filter((cobro) => cobro.estado !== "ANULADO")
-    .reduce((sum, cobro) => sum + cobro.total, 0)
-  const pagosActivos = pagos.filter((pago) => pago.estado !== "ANULADO").length
-  const cobrosActivos = cobros.filter((cobro) => cobro.estado !== "ANULADO").length
+  const pagosActivos = pagos.filter((pago) => pago.estado !== "ANULADO")
+  const cobrosActivos = cobros.filter((cobro) => cobro.estado !== "ANULADO")
+  const totalPagarLabel = formatCurrencyBreakdown(pagosActivos)
+  const totalCobrarLabel = formatCurrencyBreakdown(cobrosActivos)
   const ultimoPago = pagos[0] ?? null
   const ultimoCobro = cobros[0] ?? null
   const catalogLoading = loadingCajas || loadingConfiguracion || loadingMonedas
@@ -907,35 +935,9 @@ function PagosContent() {
     Boolean(proveedor.nroDocumento)
   ).length
   const clientesConDocumento = clientes.filter((cliente) => Boolean(cliente.nroDocumento)).length
-  const pendingAdvanced = useMemo(
-    () =>
-      [
-        ...pagos.map((item) => ["pago", item] as const),
-        ...cobros.map((item) => ["cobro", item] as const),
-      ]
-        .map(
-          ([kind, item]) =>
-            trackerMap.get(getMovementKey(kind, item.id)) ?? buildDefaultMovementTracker(kind, item)
-        )
-        .filter((tracker) => tracker.stage !== "cerrado").length,
-    [cobros, pagos, trackerMap]
-  )
-
-  const updateTracker = (
-    movementKey: string,
-    patch: Partial<LocalMovementTracker>,
-    fallback: LocalMovementTracker
-  ) => {
-    setTrackers((current) => {
-      const index = current.findIndex((row) => row.movementKey === movementKey)
-      const base = index >= 0 ? current[index] : fallback
-      const nextRow = { ...base, ...patch, updatedAt: new Date().toISOString() }
-
-      return index >= 0
-        ? current.map((row, rowIndex) => (rowIndex === index ? nextRow : row))
-        : [...current, nextRow]
-    })
-  }
+  const anuladosVisibles =
+    pagos.filter((pago) => pago.estado === "ANULADO").length +
+    cobros.filter((cobro) => cobro.estado === "ANULADO").length
 
   const setSharedDesde = (value: string) => {
     setDesdePagos(value)
@@ -1014,10 +1016,6 @@ function PagosContent() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => resetTrackers()}>
-            <RefreshCcw className="h-4 w-4" />
-            Reiniciar seguimiento local
-          </Button>
           <Button variant="outline" onClick={refreshAll} disabled={loadingPagos || loadingCobros}>
             <RefreshCcw className="h-4 w-4" />
             Actualizar
@@ -1056,20 +1054,20 @@ function PagosContent() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Total cobrado"
-          value={`$${fmtARS(totalCobrar)}`}
-          description={`${cobrosActivos} cobros activos en sucursal ${sucursalId}.`}
+          value={totalCobrarLabel}
+          description={`${cobrosActivos.length} cobros activos en sucursal ${sucursalId}.`}
         />
         <SummaryCard
           title="Total pagado"
-          value={`$${fmtARS(totalPagar)}`}
-          description={`${pagosActivos} pagos activos en sucursal ${sucursalId}.`}
+          value={totalPagarLabel}
+          description={`${pagosActivos.length} pagos activos en sucursal ${sucursalId}.`}
         />
         <SummaryCard
           title="Último cobro"
           value={ultimoCobro ? formatDate(ultimoCobro.fecha) : "Sin datos"}
           description={
             ultimoCobro
-              ? `Cobro #${ultimoCobro.id} por $${fmtARS(ultimoCobro.total)}.`
+              ? `Cobro #${ultimoCobro.id} por ${ultimoCobro.monedaSimbolo?.trim() || "$"}${fmtARS(ultimoCobro.total)}.`
               : "No hay cobros cargados."
           }
         />
@@ -1078,14 +1076,14 @@ function PagosContent() {
           value={ultimoPago ? formatDate(ultimoPago.fecha) : "Sin datos"}
           description={
             ultimoPago
-              ? `Pago #${ultimoPago.id} por $${fmtARS(ultimoPago.total)}.`
+              ? `Pago #${ultimoPago.id} por ${ultimoPago.monedaSimbolo?.trim() || "$"}${fmtARS(ultimoPago.total)}.`
               : "No hay pagos cargados."
           }
         />
         <SummaryCard
-          title="Pendientes avanzados"
-          value={String(pendingAdvanced)}
-          description="Movimientos con seguimiento local pendiente de imputacion, retencion o cierre."
+          title="Anulados visibles"
+          value={String(anuladosVisibles)}
+          description="Pagos y cobros ya revertidos y publicados por backend en la sucursal activa."
         />
       </div>
 
@@ -1484,18 +1482,17 @@ function PagosContent() {
                       description={
                         detail.kind === "pago"
                           ? `Tercero: ${detail.data.terceroRazonSocial}`
-                          : `Cliente #${detail.data.terceroId}`
+                          : `Cliente: ${detail.data.terceroRazonSocial ?? clienteNameById.get(detail.data.terceroId) ?? `Cliente #${detail.data.terceroId}`}`
                       }
                     />
                   </div>
 
                   <Tabs defaultValue="general" className="w-full">
-                    <TabsList className="grid w-full grid-cols-5">
+                    <TabsList className="grid w-full grid-cols-4">
                       <TabsTrigger value="general">General</TabsTrigger>
                       <TabsTrigger value="tercero">Tercero</TabsTrigger>
                       <TabsTrigger value="medios">Medios</TabsTrigger>
                       <TabsTrigger value="circuito">Circuito</TabsTrigger>
-                      <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="general" className="space-y-4 pt-4">
@@ -1646,6 +1643,16 @@ function PagosContent() {
                         </CardContent>
                       </Card>
 
+                      <Alert>
+                        <Wallet className="h-4 w-4" />
+                        <AlertDescription>
+                          La imputación avanzada, la conciliación ampliada y el seguimiento
+                          posterior de retenciones siguen fuera del contrato actual. Cuando ese
+                          circuito exista, debe venir desde backend y no desde notas guardadas sólo
+                          en este navegador.
+                        </AlertDescription>
+                      </Alert>
+
                       {detail.kind === "pago" && detail.data.retenciones.length > 0 && (
                         <Card>
                           <CardHeader className="pb-2">
@@ -1675,155 +1682,6 @@ function PagosContent() {
                           </CardContent>
                         </Card>
                       )}
-                    </TabsContent>
-
-                    <TabsContent value="seguimiento" className="space-y-4 pt-4">
-                      {(() => {
-                        const fallback = buildDefaultMovementTracker(detail.kind, detail.data)
-                        const tracker =
-                          trackerMap.get(getMovementKey(detail.kind, detail.data.id)) ?? fallback
-
-                        return (
-                          <>
-                            <Alert>
-                              <Wallet className="h-4 w-4" />
-                              <AlertDescription>
-                                Este seguimiento es local al navegador actual y cubre imputaciones,
-                                retenciones y cierre ampliado mientras no exista backend dedicado.
-                              </AlertDescription>
-                            </Alert>
-
-                            <div className="grid gap-4 md:grid-cols-2">
-                              <Card>
-                                <CardHeader>
-                                  <CardTitle className="text-base">Seguimiento avanzado</CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                  <div className="space-y-2">
-                                    <Label>Estado operativo</Label>
-                                    <Select
-                                      value={tracker.stage}
-                                      onValueChange={(value) =>
-                                        updateTracker(
-                                          getMovementKey(detail.kind, detail.data.id),
-                                          { stage: value as MovementTrackerStage },
-                                          fallback
-                                        )
-                                      }
-                                    >
-                                      <SelectTrigger className="w-full">
-                                        <SelectValue placeholder="Seleccionar estado" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="registrado">Registrado</SelectItem>
-                                        <SelectItem value="pendiente_imputacion">
-                                          Pendiente imputacion
-                                        </SelectItem>
-                                        <SelectItem value="pendiente_retencion">
-                                          Pendiente retencion
-                                        </SelectItem>
-                                        <SelectItem value="cerrado">Cerrado</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Responsable</Label>
-                                    <Input
-                                      value={tracker.owner}
-                                      onChange={(event) =>
-                                        updateTracker(
-                                          getMovementKey(detail.kind, detail.data.id),
-                                          { owner: event.target.value },
-                                          fallback
-                                        )
-                                      }
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Imputacion esperada</Label>
-                                    <Textarea
-                                      rows={4}
-                                      value={tracker.expectedImputation}
-                                      onChange={(event) =>
-                                        updateTracker(
-                                          getMovementKey(detail.kind, detail.data.id),
-                                          { expectedImputation: event.target.value },
-                                          fallback
-                                        )
-                                      }
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Nota de retenciones</Label>
-                                    <Textarea
-                                      rows={4}
-                                      value={tracker.retentionNote}
-                                      onChange={(event) =>
-                                        updateTracker(
-                                          getMovementKey(detail.kind, detail.data.id),
-                                          { retentionNote: event.target.value },
-                                          fallback
-                                        )
-                                      }
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Proximo paso</Label>
-                                    <Textarea
-                                      rows={4}
-                                      value={tracker.nextStep}
-                                      onChange={(event) =>
-                                        updateTracker(
-                                          getMovementKey(detail.kind, detail.data.id),
-                                          { nextStep: event.target.value },
-                                          fallback
-                                        )
-                                      }
-                                    />
-                                  </div>
-                                </CardContent>
-                              </Card>
-
-                              <Card>
-                                <CardHeader>
-                                  <CardTitle className="text-base">Continuidad</CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-3 text-sm">
-                                  <div className="rounded-lg bg-muted/40 p-3">
-                                    <p className="text-xs text-muted-foreground">Estado actual</p>
-                                    <div className="mt-1 flex items-center gap-2">
-                                      <Badge variant={MOVEMENT_STAGE_CONFIG[tracker.stage].variant}>
-                                        {MOVEMENT_STAGE_CONFIG[tracker.stage].label}
-                                      </Badge>
-                                    </div>
-                                    <p className="mt-2 font-medium">
-                                      {getMovementTrackerHealth(detail.kind, tracker)}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-lg bg-muted/40 p-3">
-                                    <p className="text-xs text-muted-foreground">
-                                      Ultima actualizacion local
-                                    </p>
-                                    <p className="mt-1 font-medium">
-                                      {formatDateTime(tracker.updatedAt)}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-lg bg-muted/40 p-3">
-                                    <p className="text-xs text-muted-foreground">
-                                      Imputacion esperada
-                                    </p>
-                                    <p className="mt-1 font-medium">{tracker.expectedImputation}</p>
-                                  </div>
-                                  <div className="rounded-lg bg-muted/40 p-3">
-                                    <p className="text-xs text-muted-foreground">Retenciones</p>
-                                    <p className="mt-1 font-medium">{tracker.retentionNote}</p>
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            </div>
-                          </>
-                        )
-                      })()}
                     </TabsContent>
                   </Tabs>
                 </div>

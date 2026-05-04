@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { apiGet, apiPost } from "@/lib/api"
-import type { CreateNotaDebitoVentaDto, MotivoDebitoVenta } from "@/lib/types/ventas"
+import type {
+  CreateNotaCreditoVentaDto,
+  CreateNotaDebitoVentaDto,
+  MotivoDebitoVenta,
+} from "@/lib/types/ventas"
 
 export function useMotivosDebito(soloActivos = true) {
   const [motivos, setMotivos] = useState<MotivoDebitoVenta[]>([])
@@ -40,6 +44,17 @@ export function useMotivosDebito(soloActivos = true) {
 export function useVentasDocumentos() {
   const [error, setError] = useState<string | null>(null)
 
+  const crearNotaCredito = useCallback(async (dto: CreateNotaCreditoVentaDto): Promise<boolean> => {
+    try {
+      setError(null)
+      await apiPost<{ id: number }>("/api/ventas/devoluciones", dto)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al crear nota de crédito")
+      return false
+    }
+  }, [])
+
   const crearNotaDebito = useCallback(async (dto: CreateNotaDebitoVentaDto): Promise<boolean> => {
     try {
       setError(null)
@@ -53,6 +68,7 @@ export function useVentasDocumentos() {
 
   return {
     error,
+    crearNotaCredito,
     crearNotaDebito,
   }
 }

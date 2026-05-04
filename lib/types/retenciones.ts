@@ -1,6 +1,6 @@
 export interface RetencionesTipo {
   id: number
-  codigo: string
+  codigo?: string
   descripcion: string
   porcentaje: number
   activo: boolean

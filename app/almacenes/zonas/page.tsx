@@ -9,12 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { WmsDialogContent } from "@/components/almacenes/wms-responsive"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -76,6 +76,15 @@ export default function ZonasAlmacenPage() {
       return row.descripcion.toLowerCase().includes(term)
     })
   }, [search, zonas])
+
+  const visibleStats = useMemo(
+    () => ({
+      total: filtered.length,
+      activas: filtered.filter((row) => row.activo).length,
+      inactivas: filtered.filter((row) => !row.activo).length,
+    }),
+    [filtered]
+  )
 
   const selected = filtered.find((row) => row.id === selectedId) ?? filtered[0] ?? null
 
@@ -154,18 +163,18 @@ export default function ZonasAlmacenPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Zonas visibles"
-          value={loading ? "..." : String(filtered.length)}
+          value={loading ? "..." : String(visibleStats.total)}
           description="Maestro disponible con datos reales del backend."
         />
         <SummaryCard
           title="Activas"
-          value={loading ? "..." : String(zonas.filter((row) => row.activo).length)}
-          description="Zonas habilitadas para operación actual."
+          value={loading ? "..." : String(visibleStats.activas)}
+          description="Zonas visibles habilitadas para operación actual."
         />
         <SummaryCard
           title="Inactivas"
-          value={loading ? "..." : String(zonas.filter((row) => !row.activo).length)}
-          description="Zonas dadas de baja lógica, aún visibles para auditoría."
+          value={loading ? "..." : String(visibleStats.inactivas)}
+          description="Zonas visibles dadas de baja lógica, aún visibles para auditoría."
         />
         <SummaryCard
           title="Depósitos reales"
@@ -301,7 +310,7 @@ export default function ZonasAlmacenPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>{editingId ? "Editar zona" : "Nueva zona"}</DialogTitle>
             <DialogDescription>
@@ -328,7 +337,7 @@ export default function ZonasAlmacenPage() {
               Guardar zona
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

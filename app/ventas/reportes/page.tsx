@@ -37,10 +37,79 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { SalesTabsList } from "@/components/ventas/sales-responsive"
-import { useComprobantes } from "@/lib/hooks/useComprobantes"
+import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useItems } from "@/lib/hooks/useItems"
 import { useTerceros } from "@/lib/hooks/useTerceros"
-import type { Comprobante } from "@/lib/types/comprobantes"
+import type { Comprobante, TipoComprobante } from "@/lib/types/comprobantes"
+
+type FiscalSalesKind = "factura" | "debito" | "credito"
+
+type ReportComprobante = Comprobante & {
+  fiscalKind: FiscalSalesKind
+  signedTotal: number
+  signedNetoGravado: number
+  signedIvaRi: number
+  signedIvaRni: number
+  signedSaldo: number
+}
+
+const INVOICE_AFIP_TYPES = new Set(["1", "6", "11"])
+const DEBIT_AFIP_TYPES = new Set(["2", "7"])
+const CREDIT_AFIP_TYPES = new Set(["3", "8"])
+
+function normalizeText(value?: string | null) {
+  return (value ?? "").trim().toLowerCase()
+}
+
+function getFiscalSalesKind(
+  tipo?: TipoComprobante | null,
+  fallbackLabel?: string | null
+): FiscalSalesKind | null {
+  if (tipo && !tipo.esVenta) return null
+
+  const afipType = String(tipo?.tipoAfip ?? "").trim()
+  if (CREDIT_AFIP_TYPES.has(afipType)) return "credito"
+  if (DEBIT_AFIP_TYPES.has(afipType)) return "debito"
+  if (INVOICE_AFIP_TYPES.has(afipType)) return "factura"
+
+  const code = normalizeText(tipo?.codigo)
+  const description = `${normalizeText(tipo?.descripcion)} ${normalizeText(fallbackLabel)}`
+  const haystack = `${code} ${description}`
+
+  if (description.includes("credito") || code.startsWith("nc") || /(^|\W)nc($|\W)/.test(haystack)) {
+    return "credito"
+  }
+  if (description.includes("debito") || code.startsWith("nd") || /(^|\W)nd($|\W)/.test(haystack)) {
+    return "debito"
+  }
+  if (description.includes("factura") || code.startsWith("fac")) {
+    return "factura"
+  }
+
+  return null
+}
+
+function buildReportComprobante(
+  comprobante: Comprobante,
+  tipo?: TipoComprobante | null
+): ReportComprobante | null {
+  if (comprobante.estado === "ANULADO" || comprobante.estado === "BORRADOR") return null
+
+  const fiscalKind = getFiscalSalesKind(tipo, comprobante.tipoComprobanteDescripcion)
+  if (!fiscalKind) return null
+
+  const sign = fiscalKind === "credito" ? -1 : 1
+
+  return {
+    ...comprobante,
+    fiscalKind,
+    signedTotal: comprobante.total * sign,
+    signedNetoGravado: comprobante.netoGravado * sign,
+    signedIvaRi: comprobante.ivaRi * sign,
+    signedIvaRni: comprobante.ivaRni * sign,
+    signedSaldo: comprobante.saldo * sign,
+  }
+}
 
 function formatCurrency(value: number) {
   return value.toLocaleString("es-AR", {
@@ -96,7 +165,7 @@ function getPeriodRange(period: string) {
 }
 
 function buildTrendData(
-  comprobantes: Comprobante[],
+  comprobantes: ReportComprobante[],
   start: Date,
   end: Date,
   mode: "daily" | "weekly" | "monthly"
@@ -119,9 +188,9 @@ function buildTrendData(
       const key = fecha.toISOString().slice(0, 10)
       const bucket = bucketMap.get(key)
       if (!bucket) return
-      const costo = comprobante.netoGravado * 0.65
-      bucket.ventas += comprobante.total
-      bucket.margen += comprobante.total - costo
+      const costo = comprobante.signedNetoGravado * 0.65
+      bucket.ventas += comprobante.signedTotal
+      bucket.margen += comprobante.signedTotal - costo
     })
 
     return buckets
@@ -152,9 +221,9 @@ function buildTrendData(
       )
       const bucket = buckets[bucketIndex]
       if (!bucket) return
-      const costo = comprobante.netoGravado * 0.65
-      bucket.ventas += comprobante.total
-      bucket.margen += comprobante.total - costo
+      const costo = comprobante.signedNetoGravado * 0.65
+      bucket.ventas += comprobante.signedTotal
+      bucket.margen += comprobante.signedTotal - costo
     })
 
     return buckets
@@ -180,9 +249,9 @@ function buildTrendData(
     const key = `${fecha.getFullYear()}-${fecha.getMonth()}`
     const bucket = bucketMap.get(key)
     if (!bucket) return
-    const costo = comprobante.netoGravado * 0.65
-    bucket.ventas += comprobante.total
-    bucket.margen += comprobante.total - costo
+    const costo = comprobante.signedNetoGravado * 0.65
+    bucket.ventas += comprobante.signedTotal
+    bucket.margen += comprobante.signedTotal - costo
   })
 
   return buckets
@@ -218,6 +287,7 @@ function downloadCsv(filename: string, headers: string[], rows: Array<Array<stri
 
 export default function ReportesPage() {
   const { comprobantes } = useComprobantes({ esVenta: true })
+  const { tipos } = useComprobantesConfig()
   const { terceros } = useTerceros({ soloActivos: false })
   const { items } = useItems()
   const [periodoFilter, setPeriodoFilter] = useState("mes")
@@ -231,9 +301,19 @@ export default function ReportesPage() {
     mode,
   } = useMemo(() => getPeriodRange(periodoFilter), [periodoFilter])
 
+  const tiposById = useMemo(() => new Map(tipos.map((tipo) => [tipo.id, tipo])), [tipos])
+
   const salesComprobantes = useMemo(
-    () => comprobantes.filter((comprobante) => comprobante.estado !== "ANULADO"),
-    [comprobantes]
+    () =>
+      comprobantes.reduce<ReportComprobante[]>((acc, comprobante) => {
+        const next = buildReportComprobante(
+          comprobante,
+          tiposById.get(comprobante.tipoComprobanteId)
+        )
+        if (next) acc.push(next)
+        return acc
+      }, []),
+    [comprobantes, tiposById]
   )
 
   const filteredComprobantes = useMemo(
@@ -266,8 +346,8 @@ export default function ReportesPage() {
 
     filteredComprobantes.forEach((comprobante) => {
       const current = totals.get(comprobante.terceroId) ?? { total: 0, saldo: 0, comprobantes: 0 }
-      current.total += comprobante.total
-      current.saldo += comprobante.saldo
+      current.total += comprobante.signedTotal
+      current.saldo += comprobante.signedSaldo
       current.comprobantes += 1
       totals.set(comprobante.terceroId, current)
     })
@@ -302,10 +382,10 @@ export default function ReportesPage() {
           razonSocial: tercero?.razonSocial ?? String(comprobante.terceroId),
           cuit: tercero?.nroDocumento ?? "-",
           condicionIva: tercero?.condicionIvaDescripcion ?? "-",
-          subtotal: comprobante.netoGravado,
-          iva21: comprobante.ivaRi,
-          iva105: comprobante.ivaRni,
-          total: comprobante.total,
+          subtotal: comprobante.signedNetoGravado,
+          iva21: comprobante.signedIvaRi,
+          iva105: comprobante.signedIvaRni,
+          total: comprobante.signedTotal,
         }
       }),
     [filteredComprobantes, terceros]
@@ -396,7 +476,7 @@ export default function ReportesPage() {
   }, [terceros])
 
   const cobranzasRadar = useMemo(() => {
-    const pendientes = filteredComprobantes.filter((comprobante) => comprobante.saldo > 0)
+    const pendientes = filteredComprobantes.filter((comprobante) => comprobante.signedSaldo > 0)
 
     return pendientes
       .map((comprobante) => {
@@ -413,7 +493,7 @@ export default function ReportesPage() {
           id: comprobante.id,
           razonSocial: tercero?.razonSocial ?? `Cliente #${comprobante.terceroId}`,
           comprobante: comprobante.nroComprobante ?? String(comprobante.id),
-          saldo: comprobante.saldo,
+          saldo: comprobante.signedSaldo,
           overdueDays,
           fechaVto: comprobante.fechaVto,
           estado: comprobante.estado,
@@ -424,8 +504,8 @@ export default function ReportesPage() {
   }, [filteredComprobantes, terceros, today])
 
   const cobranzasSummary = useMemo(() => {
-    const pendientes = filteredComprobantes.filter((comprobante) => comprobante.saldo > 0)
-    const saldoPendiente = pendientes.reduce((sum, comprobante) => sum + comprobante.saldo, 0)
+    const pendientes = filteredComprobantes.filter((comprobante) => comprobante.signedSaldo > 0)
+    const saldoPendiente = pendientes.reduce((sum, comprobante) => sum + comprobante.signedSaldo, 0)
     const vencidos = pendientes.filter((comprobante) => {
       if (!comprobante.fechaVto) return false
       return new Date(comprobante.fechaVto).getTime() < today.getTime()
@@ -435,7 +515,7 @@ export default function ReportesPage() {
       saldoPendiente,
       comprobantesPendientes: pendientes.length,
       vencidos: vencidos.length,
-      saldoVencido: vencidos.reduce((sum, comprobante) => sum + comprobante.saldo, 0),
+      saldoVencido: vencidos.reduce((sum, comprobante) => sum + comprobante.signedSaldo, 0),
     }
   }, [filteredComprobantes, today])
 
@@ -466,11 +546,11 @@ export default function ReportesPage() {
   )
 
   const ingresosPeriodo = filteredComprobantes.reduce(
-    (sum, comprobante) => sum + comprobante.total,
+    (sum, comprobante) => sum + comprobante.signedTotal,
     0
   )
   const ingresosPeriodoAnterior = previousPeriodComprobantes.reduce(
-    (sum, comprobante) => sum + comprobante.total,
+    (sum, comprobante) => sum + comprobante.signedTotal,
     0
   )
   const variacion =
@@ -852,7 +932,7 @@ export default function ReportesPage() {
             <div>
               <h3 className="font-semibold">Libro IVA Ventas</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Período: {buildPeriodoLabel(start, end)} · comprobantes de venta no anulados
+                Período: {buildPeriodoLabel(start, end)} · comprobantes fiscales emitidos de venta
               </p>
             </div>
             <Button variant="outline" size="sm" onClick={handleExportLibroIva}>

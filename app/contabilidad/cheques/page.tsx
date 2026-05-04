@@ -83,7 +83,14 @@ function formatCurrency(value: number, symbol = "$") {
 }
 
 function formatDate(value?: string) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("es-AR")
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("es-AR")
 }
 
 function getDaysToDueDate(value?: string) {
@@ -439,6 +446,9 @@ export default function ChequesPage() {
   const selectedChequeStatus = activeDetailCheque ? getChequeStatus(activeDetailCheque) : null
   const selectedChequeCircuit = activeDetailCheque ? getChequeCircuit(activeDetailCheque) : null
   const selectedChequeCoverage = activeDetailCheque ? getLegacyCoverage(activeDetailCheque) : null
+  const canCreateCheque = Boolean(
+    form.cajaId && form.nroCheque.trim() && form.fechaEmision && Number(form.importe) > 0
+  )
 
   const getMonedaLabel = (monedaId?: number) => {
     if (!monedaId) return "Sin moneda asociada"
@@ -455,8 +465,9 @@ export default function ChequesPage() {
   }
 
   const handleCreate = async () => {
-    if (!form.cajaId || !form.nroCheque.trim() || !form.fechaEmision) return
-    await crear(form)
+    if (!canCreateCheque) return
+    const created = await crear(form)
+    if (!created) return
     setIsCreateOpen(false)
     setForm({
       ...EMPTY_FORM,
@@ -1082,7 +1093,9 @@ export default function ChequesPage() {
             >
               Cancelar
             </Button>
-            <Button onClick={handleCreate}>Crear cheque</Button>
+            <Button onClick={handleCreate} disabled={!canCreateCheque}>
+              Crear cheque
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

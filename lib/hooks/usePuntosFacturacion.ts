@@ -1,12 +1,14 @@
-'use client'
+"use client"
 
-import { useState, useEffect, useCallback } from 'react'
-import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api'
+import { useState, useEffect, useCallback } from "react"
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api"
 import type {
   PuntoFacturacion,
   TipoPuntoFacturacion,
   CreatePuntoFacturacionDto,
-} from '@/lib/types/puntos-facturacion'
+} from "@/lib/types/puntos-facturacion"
+
+const puntosFacturacionApiPath = "/api/PuntosFacturacion"
 
 export function usePuntosFacturacion(sucursalId?: number) {
   const [puntos, setPuntos] = useState<PuntoFacturacion[]>([])
@@ -19,25 +21,27 @@ export function usePuntosFacturacion(sucursalId?: number) {
     setError(null)
     try {
       const result = await apiGet<PuntoFacturacion[]>(
-        `/api/puntos-facturacion?sucursalId=${sucursalId}`
+        `${puntosFacturacionApiPath}?sucursalId=${sucursalId}`
       )
       setPuntos(Array.isArray(result) ? result : [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar puntos de facturación')
+      setError(e instanceof Error ? e.message : "Error al cargar puntos de facturación")
     } finally {
       setLoading(false)
     }
   }, [sucursalId])
 
-  useEffect(() => { fetchPuntos() }, [fetchPuntos])
+  useEffect(() => {
+    fetchPuntos()
+  }, [fetchPuntos])
 
   const crear = async (dto: CreatePuntoFacturacionDto): Promise<boolean> => {
     try {
-      await apiPost<{ id: number }>('/api/puntos-facturacion', dto)
+      await apiPost<{ id: number }>(puntosFacturacionApiPath, dto)
       await fetchPuntos()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al crear punto de facturación')
+      setError(e instanceof Error ? e.message : "Error al crear punto de facturación")
       return false
     }
   }
@@ -47,40 +51,40 @@ export function usePuntosFacturacion(sucursalId?: number) {
     dto: { descripcion: string; tipoPuntoFacturacionId: number }
   ): Promise<boolean> => {
     try {
-      await apiPut<void>(`/api/puntos-facturacion/${id}`, dto)
+      await apiPut<void>(`${puntosFacturacionApiPath}/${id}`, dto)
       await fetchPuntos()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al actualizar punto de facturación')
+      setError(e instanceof Error ? e.message : "Error al actualizar punto de facturación")
       return false
     }
   }
 
   const eliminar = async (id: number): Promise<boolean> => {
     try {
-      await apiDelete(`/api/puntos-facturacion/${id}`)
+      await apiDelete(`${puntosFacturacionApiPath}/${id}`)
       await fetchPuntos()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al desactivar punto de facturación')
+      setError(e instanceof Error ? e.message : "Error al desactivar punto de facturación")
       return false
     }
   }
 
-  const getProximoNumero = async (
-    puntoId: number,
-    tipoComprobanteId: number
-  ): Promise<number | null> => {
-    try {
-      const result = await apiGet<{ proximoNumero: number }>(
-        `/api/puntos-facturacion/${puntoId}/proximo-numero?tipoComprobanteId=${tipoComprobanteId}`
-      )
-      return result.proximoNumero
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al obtener próximo número')
-      return null
-    }
-  }
+  const getProximoNumero = useCallback(
+    async (puntoId: number, tipoComprobanteId: number): Promise<number | null> => {
+      try {
+        const result = await apiGet<{ proximoNumero: number }>(
+          `${puntosFacturacionApiPath}/${puntoId}/proximo-numero?tipoComprobanteId=${tipoComprobanteId}`
+        )
+        return result.proximoNumero
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Error al obtener próximo número")
+        return null
+      }
+    },
+    []
+  )
 
   return {
     puntos,
@@ -99,9 +103,9 @@ export function useTiposPuntoFacturacion() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    apiGet<TipoPuntoFacturacion[]>('/api/puntos-facturacion/tipos')
+    apiGet<TipoPuntoFacturacion[]>(`${puntosFacturacionApiPath}/tipos`)
       .then((r) => setTipos(Array.isArray(r) ? r : []))
-      .catch((e) => console.error('Error cargando tipos de punto de facturación:', e))
+      .catch((e) => console.error("Error cargando tipos de punto de facturación:", e))
       .finally(() => setLoading(false))
   }, [])
 

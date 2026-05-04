@@ -58,8 +58,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { useCrmClientes } from "@/lib/hooks/useCrm"
-import { useHdFacturacion, useHdServicios } from "@/lib/hooks/useHelpdesk"
+import { useHdClientes, useHdFacturacion, useHdServicios } from "@/lib/hooks/useHelpdesk"
 import type { HDFacturaItem, HDFacturaServicio } from "@/lib/types"
 
 const ESTADO_LABELS: Record<HDFacturaServicio["estado"], string> = {
@@ -104,9 +103,24 @@ const EMPTY_FORM: FacturaFormState = {
   notas: "",
 }
 
+const CURRENCY_CODES: HDFacturaServicio["moneda"][] = ["ARS", "USD", "EUR", "MXN"]
+
+function parseCalendarDate(value?: Date | string | null) {
+  if (!value) return null
+  if (value instanceof Date) return value
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number)
+    return new Date(year, month - 1, day)
+  }
+
+  const parsedDate = new Date(value)
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
+}
+
 function toInputDate(value?: Date | string) {
   if (!value) return ""
-  const date = new Date(value)
+  const date = parseCalendarDate(value)
   if (Number.isNaN(date.getTime())) return ""
   return date.toISOString().slice(0, 10)
 }
@@ -115,10 +129,30 @@ function formatCurrency(value: number, currency: HDFacturaServicio["moneda"] = "
   return new Intl.NumberFormat("es-AR", { style: "currency", currency }).format(value)
 }
 
+function sumByCurrency(facturas: HDFacturaServicio[]) {
+  return facturas.reduce<Record<HDFacturaServicio["moneda"], number>>(
+    (accumulator, factura) => {
+      accumulator[factura.moneda] += factura.total
+      return accumulator
+    },
+    { ARS: 0, USD: 0, EUR: 0, MXN: 0 }
+  )
+}
+
+function renderCurrencySummary(values: Record<HDFacturaServicio["moneda"], number>) {
+  const activeCurrencies = CURRENCY_CODES.filter((currency) => values[currency] > 0)
+
+  if (!activeCurrencies.length) {
+    return formatCurrency(0, "ARS")
+  }
+
+  return activeCurrencies.map((currency) => formatCurrency(values[currency], currency)).join(" • ")
+}
+
 function formatDate(value?: Date | string) {
   if (!value) return "-"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "-"
+  const date = parseCalendarDate(value)
+  if (!date) return "-"
   return date.toLocaleDateString("es-AR")
 }
 
@@ -181,7 +215,7 @@ function FacturacionContent() {
   const router = useRouter()
   const { facturas, loading, error, createFactura, updateFactura, deleteFactura, refetch } =
     useHdFacturacion()
-  const { clientes } = useCrmClientes()
+  const { clientes } = useHdClientes()
   const { servicios } = useHdServicios()
 
   const [isFormOpen, setIsFormOpen] = useState(searchParams.get("action") === "new")
@@ -226,6 +260,14 @@ function FacturacionContent() {
       return matchesSearch && matchesEstado
     })
   }, [clientes, facturas, filterEstado, searchTerm])
+
+  const totalsByCurrency = useMemo(
+    () => ({
+      facturado: sumByCurrency(facturas.filter((factura) => factura.estado !== "anulada")),
+      cobrado: sumByCurrency(facturas.filter((factura) => factura.estado === "pagada")),
+    }),
+    [facturas]
+  )
 
   const stats = useMemo(
     () => ({
@@ -521,7 +563,9 @@ function FacturacionContent() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.totalFacturado)}</div>
+            <div className="text-2xl font-bold">
+              {renderCurrencySummary(totalsByCurrency.facturado)}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -530,7 +574,9 @@ function FacturacionContent() {
             <DollarSign className="h-4 w-4 text-emerald-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.totalCobrado)}</div>
+            <div className="text-2xl font-bold">
+              {renderCurrencySummary(totalsByCurrency.cobrado)}
+            </div>
           </CardContent>
         </Card>
       </div>

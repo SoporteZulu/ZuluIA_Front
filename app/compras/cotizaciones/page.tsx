@@ -67,6 +67,9 @@ type LocalQuotationTracker = {
   buyer: string
   nextStep: string
   updatedAt: string
+  statusSnapshot?: string
+  manualStage?: boolean
+  manualNextStep?: boolean
 }
 
 type DraftQuotationItem = {
@@ -148,6 +151,11 @@ function getStatusMeta(status: string) {
   }
 }
 
+function getOperationalStatus(quote: Pick<CotizacionCompraListItem, "estado" | "estadoLegacy">) {
+  const status = (quote.estado || quote.estadoLegacy || "").toUpperCase()
+  return status === "ACEPTADA" ? "APROBADA" : status
+}
+
 function matchesTerm(quote: CotizacionCompraListItem, term: string) {
   if (term === "") return true
 
@@ -174,7 +182,7 @@ function getQuotationHealth(status: string, tracker: LocalQuotationTracker) {
 }
 
 function buildDefaultTracker(quote: CotizacionCompraListItem): LocalQuotationTracker {
-  const status = (quote.estadoLegacy || quote.estado || "").toUpperCase()
+  const status = getOperationalStatus(quote)
   return {
     quotationId: quote.id,
     stage:
@@ -191,6 +199,31 @@ function buildDefaultTracker(quote: CotizacionCompraListItem): LocalQuotationTra
           ? "Revisar el alcance y validar condiciones comerciales."
           : "Completar la decisión comercial y definir si pasa a orden.",
     updatedAt: quote.createdAt,
+    statusSnapshot: status,
+    manualStage: false,
+    manualNextStep: false,
+  }
+}
+
+function mergeTrackerWithQuote(
+  quote: CotizacionCompraListItem,
+  tracker?: LocalQuotationTracker | null
+) {
+  const defaultTracker = buildDefaultTracker(quote)
+  if (!tracker) return defaultTracker
+
+  const statusChanged = (tracker.statusSnapshot ?? "") !== defaultTracker.statusSnapshot
+
+  return {
+    ...defaultTracker,
+    ...tracker,
+    stage: statusChanged || !tracker.manualStage ? defaultTracker.stage : tracker.stage,
+    nextStep: tracker.manualNextStep && !statusChanged ? tracker.nextStep : defaultTracker.nextStep,
+    buyer: tracker.buyer || defaultTracker.buyer,
+    updatedAt: tracker.updatedAt || defaultTracker.updatedAt,
+    statusSnapshot: defaultTracker.statusSnapshot,
+    manualStage: statusChanged ? false : (tracker.manualStage ?? false),
+    manualNextStep: tracker.manualNextStep ?? false,
   }
 }
 
@@ -262,12 +295,11 @@ export default function CotizacionesCompraPage() {
     () =>
       cotizaciones.map((quote) => ({
         ...quote,
-        displayStatus: (quote.estadoLegacy || quote.estado || "").toUpperCase(),
-        tracker:
-          trackerMap.get(quote.id) ?? defaultTrackers.find((row) => row.quotationId === quote.id)!,
+        displayStatus: getOperationalStatus(quote),
+        tracker: mergeTrackerWithQuote(quote, trackerMap.get(quote.id)),
         daysToExpire: getDaysUntil(quote.fechaVencimiento),
       })),
-    [cotizaciones, defaultTrackers, trackerMap]
+    [cotizaciones, trackerMap]
   )
 
   const filteredQuotes = useMemo(() => {
@@ -280,7 +312,8 @@ export default function CotizacionesCompraPage() {
     })
   }, [quotes, search, stageFilter, statusFilter])
 
-  const selectedBase = quotes.find((quote) => quote.id === selectedId) ?? filteredQuotes[0] ?? null
+  const selectedBase =
+    selectedId === null ? null : (filteredQuotes.find((quote) => quote.id === selectedId) ?? null)
 
   useEffect(() => {
     if (!selectedId) {
@@ -305,14 +338,14 @@ export default function CotizacionesCompraPage() {
   }, [getById, selectedId])
 
   const kpis = useMemo(() => {
-    const approved = quotes.filter((quote) => quote.displayStatus === "APROBADA").length
-    const open = quotes.filter((quote) => quote.displayStatus !== "APROBADA").length
-    const expiringSoon = quotes.filter(
-      (quote) => quote.daysToExpire !== null && quote.daysToExpire <= 5
+    const approved = filteredQuotes.filter((quote) => quote.displayStatus === "APROBADA").length
+    const open = filteredQuotes.filter((quote) => quote.displayStatus !== "APROBADA").length
+    const expiringSoon = filteredQuotes.filter(
+      (quote) => quote.daysToExpire !== null && quote.daysToExpire >= 0 && quote.daysToExpire <= 5
     ).length
-    const total = quotes.reduce((acc, quote) => acc + quote.total, 0)
+    const total = filteredQuotes.reduce((acc, quote) => acc + quote.total, 0)
     return { approved, open, expiringSoon, total }
-  }, [quotes])
+  }, [filteredQuotes])
 
   const queue = useMemo(() => {
     const stageOrder: Record<TrackerStage, number> = {
@@ -333,12 +366,7 @@ export default function CotizacionesCompraPage() {
   }, [filteredQuotes])
 
   const requisitionOptions = useMemo(
-    () =>
-      requisiciones.filter(
-        (requisition) =>
-          requisition.estadoLegacy?.toUpperCase() === "APROBADA" ||
-          requisition.estado?.toUpperCase() === "APROBADA"
-      ),
+    () => requisiciones.filter((requisition) => getOperationalStatus(requisition) === "APROBADA"),
     [requisiciones]
   )
 
@@ -348,12 +376,20 @@ export default function CotizacionesCompraPage() {
     (quotationId: number, patch: Partial<LocalQuotationTracker>) => {
       setTrackers((current) => {
         const index = current.findIndex((row) => row.quotationId === quotationId)
-        const nextRow = {
-          ...(index >= 0
+        const quote = cotizaciones.find((row) => row.id === quotationId)
+        const fallbackTracker = quote
+          ? mergeTrackerWithQuote(quote, current[index] ?? null)
+          : index >= 0
             ? current[index]
-            : defaultTrackers.find((row) => row.quotationId === quotationId)!),
+            : defaultTrackers.find((row) => row.quotationId === quotationId)!
+        const nextRow = {
+          ...fallbackTracker,
           ...patch,
           updatedAt: new Date().toISOString(),
+          manualStage: patch.stage !== undefined ? true : (fallbackTracker.manualStage ?? false),
+          manualNextStep:
+            patch.nextStep !== undefined ? true : (fallbackTracker.manualNextStep ?? false),
+          statusSnapshot: fallbackTracker.statusSnapshot,
         }
 
         if (index >= 0) {
@@ -363,8 +399,14 @@ export default function CotizacionesCompraPage() {
         return [...current, nextRow]
       })
     },
-    [defaultTrackers, setTrackers]
+    [cotizaciones, defaultTrackers, setTrackers]
   )
+
+  const closeDetail = useCallback(() => {
+    setSelectedId(null)
+    setSelectedDetail(null)
+    setDetailLoading(false)
+  }, [])
 
   const openDetail = useCallback((id: number) => {
     setSelectedDetail(null)
@@ -536,7 +578,7 @@ export default function CotizacionesCompraPage() {
       await refetch()
       setCreateOpen(false)
       resetCreateForm()
-      setStatusFilter("BORRADOR")
+      setStatusFilter("todas")
     } else {
       setCreateError("No se pudo crear la cotización. Revise los datos e intente nuevamente.")
     }
@@ -664,11 +706,20 @@ export default function CotizacionesCompraPage() {
               <Input
                 className="pl-10"
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  closeDetail()
+                  setSearch(event.target.value)
+                }}
                 placeholder="Buscar proveedor, requisición o estado..."
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select
+              value={statusFilter}
+              onValueChange={(value) => {
+                closeDetail()
+                setStatusFilter(value)
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
@@ -683,7 +734,10 @@ export default function CotizacionesCompraPage() {
             </Select>
             <Select
               value={stageFilter}
-              onValueChange={(value) => setStageFilter(value as "todas" | TrackerStage)}
+              onValueChange={(value) => {
+                closeDetail()
+                setStageFilter(value as "todas" | TrackerStage)
+              }}
             >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Seguimiento" />
@@ -807,11 +861,10 @@ export default function CotizacionesCompraPage() {
       </div>
 
       <Dialog
-        open={selectedBase !== null}
+        open={selectedId !== null && selectedBase !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setSelectedId(null)
-            setSelectedDetail(null)
+            closeDetail()
           }
         }}
       >

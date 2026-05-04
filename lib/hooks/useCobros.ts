@@ -50,36 +50,42 @@ export function useCobros(options: UseCobrosOptions = {}) {
     fetchCobros()
   }, [fetchCobros])
 
-  const getById = async (id: number): Promise<CobroDetalle | null> => {
+  const getById = useCallback(async (id: number): Promise<CobroDetalle | null> => {
     try {
       return await apiGet<CobroDetalle>(`/api/cobros/${id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar cobro")
       return null
     }
-  }
+  }, [])
 
-  const registrar = async (dto: RegistrarCobroDto): Promise<boolean> => {
-    try {
-      await apiPost<{ id: number }>("/api/cobros", dto)
-      await fetchCobros()
-      return true
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al registrar cobro")
-      return false
-    }
-  }
+  const registrar = useCallback(
+    async (dto: RegistrarCobroDto): Promise<boolean> => {
+      try {
+        await apiPost<{ id: number }>("/api/cobros", dto)
+        await fetchCobros()
+        return true
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Error al registrar cobro")
+        return false
+      }
+    },
+    [fetchCobros]
+  )
 
-  const anular = async (id: number): Promise<boolean> => {
-    try {
-      await apiPost<void>(`/api/cobros/${id}/anular`, {})
-      await fetchCobros()
-      return true
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al anular cobro")
-      return false
-    }
-  }
+  const anular = useCallback(
+    async (id: number): Promise<boolean> => {
+      try {
+        await apiPost<void>(`/api/cobros/${id}/anular`, {})
+        await fetchCobros()
+        return true
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Error al anular cobro")
+        return false
+      }
+    },
+    [fetchCobros]
+  )
 
   return {
     cobros,

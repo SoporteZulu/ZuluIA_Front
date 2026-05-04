@@ -37,6 +37,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -898,30 +899,49 @@ function CustomerForm({
   }
 
   const saveSections = async (customerId: number) => {
+    const shouldPersistContactos =
+      sections.contactos.length > 0 || (customerSections?.contactos.length ?? 0) > 0
+    const shouldPersistSucursales =
+      sections.sucursalesEntrega.length > 0 || (customerSections?.sucursalesEntrega.length ?? 0) > 0
+    const shouldPersistTransportes =
+      sections.transportes.length > 0 || (customerSections?.transportes.length ?? 0) > 0
+    const shouldPersistVentanas =
+      sections.ventanasCobranza.length > 0 || (customerSections?.ventanasCobranza.length ?? 0) > 0
+
     const [profileOk, contactsOk, branchesOk, transportesOk, ventanasOk] = await Promise.all([
       updatePerfilComercial(customerId, sanitizePerfilComercial(sections.perfilComercial)),
-      updateContactos(
-        customerId,
-        sections.contactos.map((contact, index) => sanitizeContact({ ...contact, orden: index }))
-      ),
-      updateSucursalesEntrega(
-        customerId,
-        sections.sucursalesEntrega.map((branch, index) =>
-          sanitizeBranch({ ...branch, orden: index })
-        )
-      ),
-      updateTransportes(
-        customerId,
-        sections.transportes.map((transport, index) =>
-          sanitizeTransport({ ...transport, orden: index })
-        )
-      ),
-      updateVentanasCobranza(
-        customerId,
-        sections.ventanasCobranza.map((window, index) =>
-          sanitizeCollectionWindow({ ...window, orden: index })
-        )
-      ),
+      shouldPersistContactos
+        ? updateContactos(
+            customerId,
+            sections.contactos.map((contact, index) =>
+              sanitizeContact({ ...contact, orden: index })
+            )
+          )
+        : Promise.resolve(true),
+      shouldPersistSucursales
+        ? updateSucursalesEntrega(
+            customerId,
+            sections.sucursalesEntrega.map((branch, index) =>
+              sanitizeBranch({ ...branch, orden: index })
+            )
+          )
+        : Promise.resolve(true),
+      shouldPersistTransportes
+        ? updateTransportes(
+            customerId,
+            sections.transportes.map((transport, index) =>
+              sanitizeTransport({ ...transport, orden: index })
+            )
+          )
+        : Promise.resolve(true),
+      shouldPersistVentanas
+        ? updateVentanasCobranza(
+            customerId,
+            sections.ventanasCobranza.map((window, index) =>
+              sanitizeCollectionWindow({ ...window, orden: index })
+            )
+          )
+        : Promise.resolve(true),
     ])
 
     return profileOk && contactsOk && branchesOk && transportesOk && ventanasOk
@@ -3783,12 +3803,12 @@ export default function ClientesPage() {
               <span>{selectedCustomer?.razonSocial}</span>
               {selectedCustomer && activoBadge(selectedCustomer.activo)}
             </DialogTitle>
-            <p className="text-sm text-muted-foreground">
+            <DialogDescription>
               {selectedCustomer?.nroDocumento}
               {selectedCustomer?.condicionIvaDescripcion
                 ? " · " + selectedCustomer.condicionIvaDescripcion
                 : ""}
-            </p>
+            </DialogDescription>
           </DialogHeader>
           {detailLoading ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -3832,10 +3852,10 @@ export default function ClientesPage() {
             <DialogTitle>
               {editingCustomer ? "Editar: " + editingCustomer.razonSocial : "Nuevo cliente"}
             </DialogTitle>
-            <p className="text-sm text-muted-foreground">
+            <DialogDescription>
               Ficha completa de ventas con identidad, fiscal, perfil comercial, contactos, entregas,
               transportes y cobranza.
-            </p>
+            </DialogDescription>
           </DialogHeader>
           {formLoading ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -3873,10 +3893,10 @@ export default function ClientesPage() {
         <DialogContent className="w-[calc(100vw-1rem)] max-w-sm sm:w-full">
           <DialogHeader>
             <DialogTitle>¿Desactivar este cliente?</DialogTitle>
+            <DialogDescription>
+              El cliente <strong>{selectedCustomer?.razonSocial}</strong> será desactivado.
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            El cliente <strong>{selectedCustomer?.razonSocial}</strong> será desactivado.
-          </p>
           <DialogFooter className="gap-2 mt-2">
             <Button
               variant="outline"

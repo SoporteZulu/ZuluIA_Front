@@ -93,6 +93,18 @@ function RelacionesContactoContent() {
     () => tiposRelacion.filter((item) => item.activo),
     [tiposRelacion]
   )
+  const relationTypeOptions = useMemo(() => {
+    if (!editing?.tipoRelacionId) {
+      return activeRelationTypes
+    }
+
+    const currentType = relationTypesById.get(editing.tipoRelacionId)
+    if (!currentType || currentType.activo) {
+      return activeRelationTypes
+    }
+
+    return [currentType, ...activeRelationTypes]
+  }, [activeRelationTypes, editing, relationTypesById])
 
   const availableContacts = useMemo(() => {
     if (!formData.personaId || editing) return contactos
@@ -437,9 +449,10 @@ function RelacionesContactoContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Sin tipo</SelectItem>
-                  {activeRelationTypes.map((item) => (
+                  {relationTypeOptions.map((item) => (
                     <SelectItem key={item.id} value={item.id}>
                       {item.descripcion}
+                      {!item.activo ? " (inactivo)" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>

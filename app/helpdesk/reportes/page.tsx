@@ -13,32 +13,16 @@ import {
   Users,
   Wrench,
 } from "lucide-react"
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts"
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, Tooltip, XAxis, YAxis } from "recharts"
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer } from "@/components/ui/chart"
 import { Progress } from "@/components/ui/progress"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  useHdAgentes,
-  useHdClientes,
-  useHdFacturacion,
-  useHdOrdenesServicio,
-  useHdSlas,
-  useHdTickets,
-} from "@/lib/hooks/useHelpdesk"
+import { useHdReport } from "@/lib/hooks/useHelpdesk"
 
 type CurrencyCode = "ARS" | "USD" | "EUR" | "MXN"
 type CurrencyTotals = Record<CurrencyCode, number>
@@ -102,10 +86,12 @@ function formatCurrency(value: number, currency: CurrencyCode) {
   }).format(value)
 }
 
-function sumByCurrency(items: { moneda: CurrencyCode; total: number }[]) {
+function sumByCurrency(items: { moneda: string; total: number }[]) {
   return items.reduce<CurrencyTotals>(
     (accumulator, item) => {
-      accumulator[item.moneda] += item.total
+      if (currencyCodes.includes(item.moneda as CurrencyCode)) {
+        accumulator[item.moneda as CurrencyCode] += item.total
+      }
       return accumulator
     },
     { ARS: 0, USD: 0, EUR: 0, MXN: 0 }
@@ -118,23 +104,14 @@ function renderCurrencySummary(values: CurrencyTotals) {
   return entries.map((currency) => formatCurrency(values[currency], currency)).join(" • ")
 }
 
-function daysUntil(value?: string | Date | null) {
-  const date = parseDate(value)
-  if (!date) return null
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  return Math.round((target.getTime() - today.getTime()) / 86400000)
-}
-
-function getTicketStatusTone(state: keyof typeof ticketStateLabels) {
+function getTicketStatusTone(state: string) {
   if (state === "cerrado" || state === "resuelto") return "bg-emerald-500/10 text-emerald-700"
   if (state === "esperando_cliente") return "bg-amber-500/10 text-amber-700"
   if (state === "en_progreso" || state === "asignado") return "bg-sky-500/10 text-sky-700"
   return "bg-rose-500/10 text-rose-700"
 }
 
-function getPriorityTone(priority: keyof typeof priorityLabels) {
+function getPriorityTone(priority: string) {
   if (priority === "critica") return "bg-rose-500/10 text-rose-700"
   if (priority === "alta") return "bg-orange-500/10 text-orange-700"
   if (priority === "media") return "bg-amber-500/10 text-amber-700"
@@ -143,6 +120,14 @@ function getPriorityTone(priority: keyof typeof priorityLabels) {
 
 function getLegacyCoverage() {
   return "Cobertura visible: tickets, SLA, cartera, agentes, clientes y ordenes de servicio. Pendiente por contrato actual: costos por tecnico, agenda detallada, partes firmados y forecast de renovaciones."
+}
+
+function describeReportError(message: string) {
+  if (/error interno del servidor/i.test(message)) {
+    return "La API Help Desk devolvió un error interno. Revisá el backend y el esquema local antes de operar esta vista."
+  }
+
+  return message
 }
 
 function MetricCard({
@@ -170,302 +155,249 @@ function MetricCard({
   )
 }
 
+function LoadingMetricCard() {
+  return (
+    <Card>
+      <CardHeader className="space-y-0 pb-2">
+        <Skeleton className="h-4 w-28" />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Skeleton className="h-8 w-20" />
+        <Skeleton className="h-3 w-40" />
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function ReportesHDPage() {
-  const { tickets: hdTickets } = useHdTickets()
-  const { agentes: hdAgentes } = useHdAgentes()
-  const { clientes: hdClientes } = useHdClientes()
-  const { ordenes: hdOrdenesServicio } = useHdOrdenesServicio()
-  const { facturas: hdFacturas } = useHdFacturacion()
-  const { slas: hdSlas } = useHdSlas()
+  const { report, loading, error } = useHdReport()
+  const isInitialLoading = loading && !report
 
-  const clientMap = useMemo(
-    () => new Map(hdClientes.map((cliente) => [cliente.id, cliente])),
-    [hdClientes]
-  )
-  const agentMap = useMemo(
-    () => new Map(hdAgentes.map((agente) => [agente.id, agente])),
-    [hdAgentes]
-  )
-  const slaMap = useMemo(() => new Map(hdSlas.map((sla) => [sla.id, sla])), [hdSlas])
-
-  const openTickets = hdTickets.filter((ticket) => !["resuelto", "cerrado"].includes(ticket.estado))
-  const closedTickets = hdTickets.filter((ticket) =>
-    ["resuelto", "cerrado"].includes(ticket.estado)
-  )
-  const unassignedTickets = openTickets.filter((ticket) => !ticket.asignadoAId)
-  const breachedTickets = hdTickets.filter((ticket) => !ticket.cumpleSLA)
-  const ticketsWithoutSla = hdTickets.filter(
-    (ticket) => !(ticket.slaId || clientMap.get(ticket.clienteId)?.slaId)
-  )
-  const waitingCustomerTickets = hdTickets.filter((ticket) => ticket.estado === "esperando_cliente")
-  const criticalOpenTickets = openTickets.filter(
-    (ticket) => ticket.prioridad === "critica" || ticket.prioridad === "alta"
-  )
-  const slaCompliance = hdTickets.length
-    ? Math.round((hdTickets.filter((ticket) => ticket.cumpleSLA).length / hdTickets.length) * 100)
-    : 0
-
-  const averageResponse = hdTickets.filter((ticket) => ticket.tiempoRespuesta).length
-    ? Math.round(
-        hdTickets.reduce((sum, ticket) => sum + (ticket.tiempoRespuesta || 0), 0) /
-          hdTickets.filter((ticket) => ticket.tiempoRespuesta).length
-      )
-    : 0
-
-  const averageResolution = hdTickets.filter((ticket) => ticket.tiempoResolucion).length
-    ? Math.round(
-        hdTickets.reduce((sum, ticket) => sum + (ticket.tiempoResolucion || 0), 0) /
-          hdTickets.filter((ticket) => ticket.tiempoResolucion).length
-      )
-    : 0
-
-  const activeOrders = hdOrdenesServicio.filter(
-    (order) => !["completada", "cancelada"].includes(order.estado)
-  )
-  const scheduledLateOrders = hdOrdenesServicio.filter((order) => {
-    const targetDate = parseDate(order.fechaProgramada)
-    if (!targetDate) return false
-    return !["completada", "cancelada"].includes(order.estado) && targetDate < new Date()
-  })
-  const completedOrders = hdOrdenesServicio.filter((order) => order.estado === "completada")
-  const completionRate = hdOrdenesServicio.length
-    ? Math.round((completedOrders.length / hdOrdenesServicio.length) * 100)
-    : 0
-
-  const invoicesIssued = hdFacturas.filter((invoice) => invoice.estado !== "anulada")
-  const paidInvoices = hdFacturas.filter((invoice) => invoice.estado === "pagada")
-  const overdueInvoices = hdFacturas.filter(
-    (invoice) =>
-      invoice.estado === "vencida" ||
-      (invoice.estado === "emitida" && (daysUntil(invoice.fechaVencimiento) ?? 0) < 0)
-  )
-  const pendingInvoices = hdFacturas.filter((invoice) =>
-    ["emitida", "vencida"].includes(invoice.estado)
-  )
-  const issuedByCurrency = sumByCurrency(
-    invoicesIssued.map((invoice) => ({ moneda: invoice.moneda, total: invoice.total }))
-  )
-  const paidByCurrency = sumByCurrency(
-    paidInvoices.map((invoice) => ({ moneda: invoice.moneda, total: invoice.total }))
-  )
-  const pendingByCurrency = sumByCurrency(
-    pendingInvoices.map((invoice) => ({ moneda: invoice.moneda, total: invoice.total }))
-  )
-  const collectionRate = invoicesIssued.length
-    ? Math.round((paidInvoices.length / invoicesIssued.length) * 100)
-    : 0
+  const summary = report?.resumen
+  const openTickets = summary?.openTickets ?? 0
+  const closedTickets = summary?.closedTickets ?? 0
+  const unassignedTickets = summary?.unassignedTickets ?? 0
+  const breachedTickets = summary?.breachedTickets ?? 0
+  const ticketsWithoutSla = summary?.ticketsWithoutSla ?? 0
+  const waitingCustomerTickets = summary?.waitingCustomerTickets ?? 0
+  const criticalOpenTickets = summary?.criticalOpenTickets ?? 0
+  const slaCompliance = summary?.slaCompliance ?? 0
+  const averageResponse = summary?.averageResponse ?? 0
+  const averageResolution = summary?.averageResolution ?? 0
+  const activeOrders = summary?.activeOrders ?? 0
+  const scheduledLateOrders = summary?.scheduledLateOrders ?? 0
+  const completedOrders = summary?.completedOrders ?? 0
+  const completionRate = summary?.completionRate ?? 0
+  const invoicesIssued = summary?.issuedInvoices ?? 0
+  const paidInvoices = summary?.paidInvoices ?? 0
+  const overdueInvoices = summary?.overdueInvoices ?? 0
+  const pendingInvoices = summary?.pendingInvoices ?? 0
+  const collectionRate = summary?.collectionRate ?? 0
+  const issuedByCurrency = sumByCurrency(summary?.issuedByCurrency ?? [])
+  const paidByCurrency = sumByCurrency(summary?.paidByCurrency ?? [])
+  const pendingByCurrency = sumByCurrency(summary?.pendingByCurrency ?? [])
 
   const ticketsByState = useMemo(
     () =>
-      Object.entries(ticketStateLabels).map(([state, label], index) => ({
-        estado: label,
-        cantidad: hdTickets.filter((ticket) => ticket.estado === state).length,
+      (report?.ticketsByState ?? []).map((entry, index) => ({
+        estado:
+          ticketStateLabels[entry.label as keyof typeof ticketStateLabels] ??
+          entry.label.replace(/_/g, " "),
+        cantidad: entry.cantidad,
         fill: `hsl(var(--chart-${(index % 5) + 1}))`,
       })),
-    [hdTickets]
+    [report?.ticketsByState]
   )
 
   const ticketsByPriority = useMemo(
     () =>
-      Object.entries(priorityLabels).map(([priority, label]) => ({
-        prioridad: label,
-        cantidad: hdTickets.filter((ticket) => ticket.prioridad === priority).length,
+      (report?.ticketsByPriority ?? []).map((entry) => ({
+        prioridad:
+          priorityLabels[entry.label as keyof typeof priorityLabels] ??
+          entry.label.replace(/_/g, " "),
+        cantidad: entry.cantidad,
         fill:
-          priority === "critica"
+          entry.label === "critica"
             ? "#dc2626"
-            : priority === "alta"
+            : entry.label === "alta"
               ? "#ea580c"
-              : priority === "media"
+              : entry.label === "media"
                 ? "#d97706"
                 : "#16a34a",
       })),
-    [hdTickets]
+    [report?.ticketsByPriority]
   )
 
   const ordersByState = useMemo(
     () =>
-      Object.entries(orderStateLabels).map(([state, label], index) => ({
-        estado: label,
-        cantidad: hdOrdenesServicio.filter((order) => order.estado === state).length,
+      (report?.ordersByState ?? []).map((entry, index) => ({
+        estado:
+          orderStateLabels[entry.label as keyof typeof orderStateLabels] ??
+          entry.label.replace(/_/g, " "),
+        cantidad: entry.cantidad,
         fill: `hsl(var(--chart-${(index % 5) + 1}))`,
       })),
-    [hdOrdenesServicio]
+    [report?.ordersByState]
   )
 
-  const agentPerformance = useMemo(
-    () =>
-      hdAgentes
-        .map((agent) => {
-          const agentTickets = hdTickets.filter((ticket) => ticket.asignadoAId === agent.id)
-          return {
-            id: agent.id,
-            nombre: `${agent.nombre} ${agent.apellido}`,
-            estado: agent.estado,
-            abiertos: agentTickets.filter(
-              (ticket) => !["resuelto", "cerrado"].includes(ticket.estado)
-            ).length,
-            resueltos: agent.ticketsResueltos,
-            incumplimientos: agentTickets.filter((ticket) => !ticket.cumpleSLA).length,
-            promedio: agent.tiempoPromedioResolucion,
-            calificacion: agent.calificacionPromedio,
-          }
-        })
-        .sort((left, right) => right.abiertos - left.abiertos || right.resueltos - left.resueltos),
-    [hdAgentes, hdTickets]
-  )
+  const agentPerformance = report?.agentPerformance ?? []
 
   const criticalClients = useMemo(
     () =>
-      hdClientes
-        .map((client) => {
-          const clientTickets = hdTickets.filter(
-            (ticket) =>
-              ticket.clienteId === client.id && !["resuelto", "cerrado"].includes(ticket.estado)
-          )
-          const clientInvoices = hdFacturas.filter(
-            (invoice) =>
-              invoice.clienteId === client.id && ["emitida", "vencida"].includes(invoice.estado)
-          )
-          const quota = client.limiteTicketsMes
-            ? Math.round((client.ticketsUsadosMes / client.limiteTicketsMes) * 100)
-            : null
-
-          return {
-            id: client.id,
-            nombre: client.nombre,
-            tipo: client.tipoCliente,
-            contratoActivo: client.contratoActivo,
-            ticketsAbiertos: clientTickets.length,
-            ticketsCriticos: clientTickets.filter(
-              (ticket) => ticket.prioridad === "critica" || ticket.prioridad === "alta"
-            ).length,
-            coberturaSla: client.slaId
-              ? (slaMap.get(client.slaId)?.nombre ?? "SLA asignado")
-              : "Sin SLA",
-            cuota: quota,
-            pendiente: renderCurrencySummary(
-              sumByCurrency(
-                clientInvoices.map((invoice) => ({ moneda: invoice.moneda, total: invoice.total }))
-              )
-            ),
-          }
-        })
-        .filter((client) => client.ticketsAbiertos > 0 || client.pendiente !== "Sin movimientos")
+      [...(report?.criticalClients ?? [])]
+        .map((client) => ({
+          ...client,
+          pendiente: renderCurrencySummary(sumByCurrency(client.pendiente)),
+        }))
         .sort(
           (left, right) =>
             right.ticketsCriticos - left.ticketsCriticos ||
             right.ticketsAbiertos - left.ticketsAbiertos
-        )
-        .slice(0, 6),
-    [hdClientes, hdFacturas, hdTickets, slaMap]
+        ),
+    [report?.criticalClients]
   )
 
   const slaAlerts = useMemo(
     () =>
-      hdTickets
-        .map((ticket) => {
-          const client = clientMap.get(ticket.clienteId)
-          const rawPriority = ticket.prioridad
-          const rawState = ticket.estado
-          const sla = slaMap.get(ticket.slaId || client?.slaId || "")
-          const responseTarget = sla?.tiempoRespuesta
-          const resolutionTarget = sla?.tiempoResolucion
-
-          return {
-            id: ticket.id,
-            numero: ticket.numero,
-            asunto: ticket.asunto,
-            cliente: client?.nombre ?? "Cliente sin referencia",
-            prioridad: priorityLabels[rawPriority],
-            prioridadKey: rawPriority,
-            estado: ticketStateLabels[rawState],
-            estadoKey: rawState,
-            cumpleSla: ticket.cumpleSLA,
-            cobertura: sla?.nombre ?? "Sin SLA",
-            respuesta:
-              responseTarget && ticket.tiempoRespuesta
-                ? ticket.tiempoRespuesta - responseTarget
-                : null,
-            resolucion:
-              resolutionTarget && ticket.tiempoResolucion
-                ? ticket.tiempoResolucion - resolutionTarget
-                : null,
-          }
-        })
-        .filter(
-          (ticket) =>
-            !ticket.cumpleSla ||
-            ticket.cobertura === "Sin SLA" ||
-            (ticket.respuesta ?? 0) > 0 ||
-            (ticket.resolucion ?? 0) > 0
-        )
-        .sort((left, right) => Number(left.cumpleSla) - Number(right.cumpleSla))
-        .slice(0, 6),
-    [clientMap, hdTickets, slaMap]
+      (report?.slaAlerts ?? []).map((ticket) => ({
+        ...ticket,
+        prioridadKey: ticket.prioridad,
+        prioridad:
+          priorityLabels[ticket.prioridad as keyof typeof priorityLabels] ??
+          ticket.prioridad.replace(/_/g, " "),
+        estadoKey: ticket.estado,
+        estado:
+          ticketStateLabels[ticket.estado as keyof typeof ticketStateLabels] ??
+          ticket.estado.replace(/_/g, " "),
+      })),
+    [report?.slaAlerts]
   )
 
   const orderFollowUp = useMemo(
     () =>
-      hdOrdenesServicio
-        .map((order) => ({
-          id: order.id,
-          numero: order.numero,
-          estado: orderStateLabels[order.estado],
-          cliente: clientMap.get(order.clienteId)?.nombre ?? "Cliente sin referencia",
-          tecnico: order.tecnicoAsignadoId
-            ? `${agentMap.get(order.tecnicoAsignadoId)?.nombre ?? "Tecnico"} ${agentMap.get(order.tecnicoAsignadoId)?.apellido ?? ""}`.trim()
-            : "Sin tecnico",
-          programada: formatDate(order.fechaProgramada),
-          atraso: daysUntil(order.fechaProgramada),
-          duracion: formatMinutes(order.duracionReal),
-          prioridad: priorityLabels[order.prioridad],
-          prioridadKey: order.prioridad,
-        }))
-        .filter((order) => !["Completada", "Cancelada"].includes(order.estado))
-        .sort((left, right) => (left.atraso ?? 9999) - (right.atraso ?? 9999))
-        .slice(0, 6),
-    [agentMap, clientMap, hdOrdenesServicio]
+      (report?.orderFollowUp ?? []).map((order) => ({
+        ...order,
+        estadoKey: order.estado,
+        estado:
+          orderStateLabels[order.estado as keyof typeof orderStateLabels] ??
+          order.estado.replace(/_/g, " "),
+        prioridadKey: order.prioridad,
+        prioridad:
+          priorityLabels[order.prioridad as keyof typeof priorityLabels] ??
+          order.prioridad.replace(/_/g, " "),
+        programada: formatDate(order.programada),
+        duracion: formatMinutes(order.duracion ?? undefined),
+      })),
+    [report?.orderFollowUp]
   )
 
   const portfolioByClient = useMemo(
     () =>
-      hdClientes
-        .map((client) => {
-          const clientInvoices = hdFacturas.filter(
-            (invoice) =>
-              invoice.clienteId === client.id && ["emitida", "vencida"].includes(invoice.estado)
-          )
-          return {
-            id: client.id,
-            nombre: client.nombre,
-            tipo: client.tipoCliente,
-            vencidas: clientInvoices.filter((invoice) => invoice.estado === "vencida").length,
-            pendiente: renderCurrencySummary(
-              sumByCurrency(
-                clientInvoices.map((invoice) => ({ moneda: invoice.moneda, total: invoice.total }))
-              )
-            ),
-            tickets: hdTickets.filter(
-              (ticket) =>
-                ticket.clienteId === client.id && !["resuelto", "cerrado"].includes(ticket.estado)
-            ).length,
-          }
-        })
+      criticalClients
+        .map((client) => ({
+          id: client.id,
+          nombre: client.nombre,
+          tipo: client.tipo,
+          vencidas: client.pendiente === "Sin movimientos" ? 0 : 1,
+          pendiente: client.pendiente,
+          tickets: client.ticketsAbiertos,
+        }))
         .filter((client) => client.pendiente !== "Sin movimientos")
         .sort((left, right) => right.vencidas - left.vencidas || right.tickets - left.tickets)
         .slice(0, 6),
-    [hdClientes, hdFacturas, hdTickets]
+    [criticalClients]
   )
 
-  const activeAgents = hdAgentes.filter((agent) => agent.estado === "activo")
+  const activeAgents = agentPerformance.filter((agent) => agent.estado === "activo")
   const averageOpenPerAgent = activeAgents.length
-    ? Math.round(openTickets.length / activeAgents.length)
+    ? Math.round(openTickets / activeAgents.length)
     : 0
-  const averageRating = hdAgentes.length
+  const averageRating = agentPerformance.length
     ? (
-        hdAgentes.reduce((sum, agent) => sum + agent.calificacionPromedio, 0) / hdAgentes.length
+        agentPerformance.reduce((sum, agent) => sum + agent.calificacion, 0) /
+        agentPerformance.length
       ).toFixed(1)
     : "0.0"
+  const scheduledOrPausedOrders = (report?.ordersByState ?? [])
+    .filter((entry) => ["programada", "pausada"].includes(entry.label))
+    .reduce((sum, entry) => sum + entry.cantidad, 0)
+  const activeOrdersWithoutTechnician = orderFollowUp.filter(
+    (order) => order.tecnico.toLowerCase() === "sin tecnico"
+  ).length
+
+  if (error && !report && !loading) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold">Reportes Help Desk</h1>
+          <p className="text-muted-foreground">
+            Consola operativa de tickets, SLA, ordenes de servicio y cartera usando solo contratos
+            ya expuestos.
+          </p>
+          <p className="text-sm text-muted-foreground">{getLegacyCoverage()}</p>
+        </div>
+
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>No se pudo construir el reporte operativo</AlertTitle>
+          <AlertDescription>
+            <p>{describeReportError(error)}</p>
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
+
+  if (isInitialLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold">Reportes Help Desk</h1>
+          <p className="text-muted-foreground">
+            Consola operativa de tickets, SLA, ordenes de servicio y cartera usando solo contratos
+            ya expuestos.
+          </p>
+          <p className="text-sm text-muted-foreground">{getLegacyCoverage()}</p>
+        </div>
+
+        <Card className="border-dashed">
+          <CardContent className="py-4 text-sm text-muted-foreground">
+            Cargando reporte operativo desde el backend de Help Desk.
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <LoadingMetricCard key={`metric-${index}`} />
+          ))}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Card key={`secondary-${index}`}>
+              <CardHeader className="pb-3">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Skeleton className="h-8 w-20" />
+                <Skeleton className="h-3 w-44" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <Card className="border-dashed">
+          <CardContent className="space-y-4 py-6">
+            <Skeleton className="h-10 w-full" />
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Skeleton className="h-75 w-full" />
+              <Skeleton className="h-75 w-full" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -478,11 +410,21 @@ export default function ReportesHDPage() {
         <p className="text-sm text-muted-foreground">{getLegacyCoverage()}</p>
       </div>
 
+      {error && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>La carga del reporte es parcial o inconsistente</AlertTitle>
+          <AlertDescription>
+            <p>{describeReportError(error)}</p>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Tickets Abiertos"
-          value={openTickets.length}
-          hint={`${unassignedTickets.length} sin asignar • ${criticalOpenTickets.length} alta prioridad`}
+          value={openTickets}
+          hint={`${unassignedTickets} sin asignar • ${criticalOpenTickets} alta prioridad`}
           icon={Ticket}
         />
         <Card>
@@ -494,20 +436,20 @@ export default function ReportesHDPage() {
             <div className="text-2xl font-bold">{slaCompliance}%</div>
             <Progress value={slaCompliance} className="mt-2" />
             <p className="mt-2 text-xs text-muted-foreground">
-              {breachedTickets.length} fuera de SLA • {ticketsWithoutSla.length} sin configuracion
+              {breachedTickets} fuera de SLA • {ticketsWithoutSla} sin configuracion
             </p>
           </CardContent>
         </Card>
         <MetricCard
           title="Ordenes Activas"
-          value={activeOrders.length}
-          hint={`${scheduledLateOrders.length} vencidas • ${completionRate}% completadas`}
+          value={activeOrders}
+          hint={`${scheduledLateOrders} vencidas • ${completionRate}% completadas`}
           icon={Wrench}
         />
         <MetricCard
           title="Cartera Pendiente"
           value={renderCurrencySummary(pendingByCurrency)}
-          hint={`${overdueInvoices.length} facturas vencidas • ${collectionRate}% cobradas`}
+          hint={`${overdueInvoices} facturas vencidas • ${collectionRate}% cobradas`}
           icon={DollarSign}
         />
       </div>
@@ -538,7 +480,7 @@ export default function ReportesHDPage() {
             <CardTitle className="text-sm font-medium">Clientes en Espera</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{waitingCustomerTickets.length}</div>
+            <div className="text-2xl font-bold">{waitingCustomerTickets}</div>
             <p className="text-xs text-muted-foreground">
               Tickets frenados por respuesta del cliente
             </p>
@@ -563,19 +505,17 @@ export default function ReportesHDPage() {
               </CardHeader>
               <CardContent>
                 <ChartContainer config={{}} className="h-75">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={ticketsByState}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis dataKey="estado" className="text-xs" />
-                      <YAxis className="text-xs" />
-                      <Tooltip />
-                      <Bar dataKey="cantidad" radius={[4, 4, 0, 0]}>
-                        {ticketsByState.map((entry) => (
-                          <Cell key={entry.estado} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <BarChart data={ticketsByState}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis dataKey="estado" className="text-xs" />
+                    <YAxis className="text-xs" />
+                    <Tooltip />
+                    <Bar dataKey="cantidad" radius={[4, 4, 0, 0]}>
+                      {ticketsByState.map((entry) => (
+                        <Cell key={entry.estado} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
                 </ChartContainer>
               </CardContent>
             </Card>
@@ -587,25 +527,23 @@ export default function ReportesHDPage() {
               </CardHeader>
               <CardContent>
                 <ChartContainer config={{}} className="h-75">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={ticketsByPriority}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={65}
-                        outerRadius={100}
-                        paddingAngle={4}
-                        dataKey="cantidad"
-                        label={({ prioridad, cantidad }) => `${prioridad}: ${cantidad}`}
-                      >
-                        {ticketsByPriority.map((entry) => (
-                          <Cell key={entry.prioridad} fill={entry.fill} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <PieChart>
+                    <Pie
+                      data={ticketsByPriority}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={65}
+                      outerRadius={100}
+                      paddingAngle={4}
+                      dataKey="cantidad"
+                      label={({ prioridad, cantidad }) => `${prioridad}: ${cantidad}`}
+                    >
+                      {ticketsByPriority.map((entry) => (
+                        <Cell key={entry.prioridad} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
                 </ChartContainer>
               </CardContent>
             </Card>
@@ -714,13 +652,13 @@ export default function ReportesHDPage() {
             <MetricCard
               title="Agentes Activos"
               value={activeAgents.length}
-              hint={`${hdAgentes.length} agentes cargados en total`}
+              hint={`${agentPerformance.length} agentes evaluados en total`}
               icon={Users}
             />
             <MetricCard
               title="Backlog por Agente"
               value={averageOpenPerAgent}
-              hint={`${openTickets.length} tickets abiertos en cartera`}
+              hint={`${openTickets} tickets abiertos en cartera`}
               icon={TimerReset}
             />
             <MetricCard
@@ -779,29 +717,25 @@ export default function ReportesHDPage() {
           <div className="grid gap-4 md:grid-cols-4">
             <MetricCard
               title="Ordenes Totales"
-              value={hdOrdenesServicio.length}
-              hint={`${activeOrders.length} activas`}
+              value={activeOrders + completedOrders}
+              hint={`${activeOrders} activas`}
               icon={Wrench}
             />
             <MetricCard
               title="Programadas / Pausadas"
-              value={
-                hdOrdenesServicio.filter((order) =>
-                  ["programada", "pausada"].includes(order.estado)
-                ).length
-              }
-              hint={`${scheduledLateOrders.length} fuera de fecha`}
+              value={scheduledOrPausedOrders}
+              hint={`${scheduledLateOrders} fuera de fecha`}
               icon={Clock3}
             />
             <MetricCard
               title="Completadas"
-              value={completedOrders.length}
+              value={completedOrders}
               hint={`${completionRate}% del total`}
               icon={CheckCircle2}
             />
             <MetricCard
               title="Sin Tecnico"
-              value={activeOrders.filter((order) => !order.tecnicoAsignadoId).length}
+              value={activeOrdersWithoutTechnician}
               hint="Ordenes activas sin responsable asignado"
               icon={AlertTriangle}
             />
@@ -815,19 +749,17 @@ export default function ReportesHDPage() {
               </CardHeader>
               <CardContent>
                 <ChartContainer config={{}} className="h-75">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={ordersByState}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis dataKey="estado" className="text-xs" />
-                      <YAxis className="text-xs" />
-                      <Tooltip />
-                      <Bar dataKey="cantidad" radius={[4, 4, 0, 0]}>
-                        {ordersByState.map((entry) => (
-                          <Cell key={entry.estado} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <BarChart data={ordersByState}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis dataKey="estado" className="text-xs" />
+                    <YAxis className="text-xs" />
+                    <Tooltip />
+                    <Bar dataKey="cantidad" radius={[4, 4, 0, 0]}>
+                      {ordersByState.map((entry) => (
+                        <Cell key={entry.estado} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
                 </ChartContainer>
               </CardContent>
             </Card>
@@ -881,19 +813,19 @@ export default function ReportesHDPage() {
             <MetricCard
               title="Facturacion Emitida"
               value={renderCurrencySummary(issuedByCurrency)}
-              hint={`${invoicesIssued.length} comprobantes vigentes`}
+              hint={`${invoicesIssued} comprobantes vigentes`}
               icon={DollarSign}
             />
             <MetricCard
               title="Cobrado"
               value={renderCurrencySummary(paidByCurrency)}
-              hint={`${paidInvoices.length} facturas pagadas`}
+              hint={`${paidInvoices} facturas pagadas`}
               icon={CheckCircle2}
             />
             <MetricCard
               title="Pendiente"
               value={renderCurrencySummary(pendingByCurrency)}
-              hint={`${pendingInvoices.length} facturas emitidas o vencidas`}
+              hint={`${pendingInvoices} facturas emitidas o vencidas`}
               icon={FileWarning}
             />
             <Card>
@@ -958,9 +890,8 @@ export default function ReportesHDPage() {
                     Riesgo de cobranza
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    {overdueInvoices.length} facturas ya vencidas y {pendingInvoices.length} aun
-                    abiertas. La lectura se separa por moneda para evitar mezclar importes
-                    heterogeneos.
+                    {overdueInvoices} facturas ya vencidas y {pendingInvoices} aun abiertas. La
+                    lectura se separa por moneda para evitar mezclar importes heterogeneos.
                   </p>
                 </div>
                 <div className="rounded-lg border p-4">
@@ -998,17 +929,16 @@ export default function ReportesHDPage() {
           <div className="rounded-lg border p-4">
             <div className="font-medium text-foreground">Operacion</div>
             <p className="mt-2">
-              {openTickets.length} tickets abiertos contra {activeAgents.length} agentes activos. La
-              principal tension visible hoy esta en {unassignedTickets.length} tickets sin asignar y{" "}
-              {scheduledLateOrders.length} ordenes fuera de fecha.
+              {openTickets} tickets abiertos contra {activeAgents.length} agentes activos. La
+              principal tension visible hoy esta en {unassignedTickets} tickets sin asignar y{" "}
+              {scheduledLateOrders} ordenes fuera de fecha.
             </p>
           </div>
           <div className="rounded-lg border p-4">
             <div className="font-medium text-foreground">SLA</div>
             <p className="mt-2">
-              {slaCompliance}% de cumplimiento general, con {breachedTickets.length} casos fuera de
-              acuerdo y {ticketsWithoutSla.length} tickets sin cobertura identificable por ticket o
-              cliente.
+              {slaCompliance}% de cumplimiento general, con {breachedTickets} casos fuera de acuerdo
+              y {ticketsWithoutSla} tickets sin cobertura identificable por ticket o cliente.
             </p>
           </div>
           <div className="rounded-lg border p-4">
@@ -1016,15 +946,15 @@ export default function ReportesHDPage() {
             <p className="mt-2">
               Emitido: {renderCurrencySummary(issuedByCurrency)}. Pendiente:{" "}
               {renderCurrencySummary(pendingByCurrency)}. La prioridad se concentra en{" "}
-              {overdueInvoices.length} comprobantes vencidos y clientes con incidentes aun abiertos.
+              {overdueInvoices} comprobantes vencidos y clientes con incidentes aun abiertos.
             </p>
           </div>
         </CardContent>
       </Card>
 
       <div className="text-xs text-muted-foreground">
-        Tickets cerrados: {closedTickets.length} • Clientes monitoreados: {hdClientes.length} • SLAs
-        cargados: {hdSlas.length}
+        Tickets cerrados: {closedTickets} • Clientes criticos visibles: {criticalClients.length} •
+        Alertas SLA visibles: {slaAlerts.length}
       </div>
     </div>
   )

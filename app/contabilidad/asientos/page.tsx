@@ -47,12 +47,24 @@ import {
 import Loading from "./loading"
 import { useAsientos, usePlanCuentas } from "@/lib/hooks/useAsientos"
 import { useEjercicioVigente } from "@/lib/hooks/useEjercicios"
-import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 import type { Asiento, AsientoDetalle } from "@/lib/types/asientos"
 
-function fmtARS(value: number) {
+function fmtARS(value?: number | null) {
   return Number(value ?? 0).toLocaleString("es-AR", { minimumFractionDigits: 2 })
+}
+
+function hasAsientoPublishedTotals(entry: Pick<Asiento, "totalDebe" | "totalHaber">) {
+  return (
+    typeof entry.totalDebe === "number" &&
+    Number.isFinite(entry.totalDebe) &&
+    typeof entry.totalHaber === "number" &&
+    Number.isFinite(entry.totalHaber)
+  )
+}
+
+function formatAsientoTotal(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? `$${fmtARS(value)}` : "N/D"
 }
 
 function todayInputValue() {
@@ -64,12 +76,35 @@ function todayInputValue() {
   return `${year}-${month}-${day}`
 }
 
+function normalizeAsientoEstado(status?: string) {
+  return (status ?? "").trim().toLowerCase()
+}
+
+function isConsolidatedAsientoStatus(status?: string) {
+  const normalized = normalizeAsientoEstado(status)
+  return normalized === "publicado" || normalized === "contabilizado"
+}
+
+function isDraftAsientoStatus(status?: string) {
+  return normalizeAsientoEstado(status) === "borrador"
+}
+
+function isCancelledAsientoStatus(status?: string) {
+  return normalizeAsientoEstado(status) === "anulado"
+}
+
 function getStatusBadge(status: string) {
-  const normalized = status.toLowerCase()
+  const normalized = normalizeAsientoEstado(status)
 
   switch (normalized) {
     case "borrador":
       return <Badge variant="secondary">Borrador</Badge>
+    case "contabilizado":
+      return (
+        <Badge className="bg-green-500/10 text-green-700 hover:bg-green-500/10">
+          Contabilizado
+        </Badge>
+      )
     case "publicado":
       return (
         <Badge className="bg-green-500/10 text-green-700 hover:bg-green-500/10">Publicado</Badge>
@@ -117,7 +152,14 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
 }
 
 function formatDate(value?: string) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+  const leadingDateMatch = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(value)
+  if (leadingDateMatch) {
+    const [, year, month, day] = leadingDateMatch
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("es-AR")
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("es-AR")
 }
 
 function formatDateTime(value?: string) {
@@ -146,16 +188,14 @@ function getEntryAgeLabel(value?: string) {
 }
 
 function getAsientoCircuit(entry: Asiento) {
-  const normalized = entry.estado.toLowerCase()
-
-  if (normalized === "publicado") {
+  if (isConsolidatedAsientoStatus(entry.estado)) {
     return {
       label: "Libro consolidado",
       detail: "El asiento ya quedó incorporado al circuito principal del libro diario.",
     }
   }
 
-  if (normalized === "borrador") {
+  if (isDraftAsientoStatus(entry.estado)) {
     return {
       label: "Pendiente de consolidación",
       detail: "El asiento sigue editable o a validar antes de publicarse.",
@@ -169,6 +209,13 @@ function getAsientoCircuit(entry: Asiento) {
 }
 
 function getBalanceReading(entry: Asiento) {
+  if (!hasAsientoPublishedTotals(entry)) {
+    return {
+      label: "Pendiente de detalle",
+      detail: "La consulta actual no publica totales de debe y haber para este asiento.",
+    }
+  }
+
   const difference = Math.abs(Number(entry.totalDebe ?? 0) - Number(entry.totalHaber ?? 0))
 
   if (difference <= 0.005) {
@@ -222,58 +269,6 @@ function emptyLine(): DraftLine {
   }
 }
 
-type EntryTrackerStage =
-  | "relevado"
-  | "pendiente_autorizacion"
-  | "pendiente_distribucion"
-  | "cerrado"
-
-type LocalEntryTracker = {
-  entryId: number
-  stage: EntryTrackerStage
-  owner: string
-  authorizationNote: string
-  costCenterNote: string
-  nextStep: string
-  updatedAt: string
-}
-
-const ENTRY_TRACKER_STORAGE_KEY = "zuluia_contabilidad_asientos_trackers"
-
-const ENTRY_STAGE_CONFIG: Record<
-  EntryTrackerStage,
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  relevado: { label: "Relevado", variant: "outline" },
-  pendiente_autorizacion: { label: "Pendiente autorizacion", variant: "secondary" },
-  pendiente_distribucion: { label: "Pendiente distribucion", variant: "destructive" },
-  cerrado: { label: "Cerrado", variant: "default" },
-}
-
-function buildDefaultEntryTracker(entry: Asiento): LocalEntryTracker {
-  return {
-    entryId: entry.id,
-    stage: entry.estado.toLowerCase() === "publicado" ? "cerrado" : "relevado",
-    owner: "Contaduria",
-    authorizationNote: "Sin autorizacion ampliada registrada localmente.",
-    costCenterNote: "Sin distribucion adicional de centro de costo documentada.",
-    nextStep:
-      entry.estado.toLowerCase() === "publicado"
-        ? "Mantener trazabilidad y soporte documental del asiento."
-        : "Validar autorizacion y distribucion antes del cierre operativo.",
-    updatedAt: entry.createdAt || new Date().toISOString(),
-  }
-}
-
-function getEntryTrackerHealth(tracker: LocalEntryTracker) {
-  if (tracker.stage === "cerrado") return "Asiento cerrado y documentado localmente"
-  if (tracker.stage === "pendiente_distribucion")
-    return "Falta documentar distribucion por centro de costo"
-  if (tracker.stage === "pendiente_autorizacion")
-    return "Falta autorizacion o firma operativa del circuito"
-  return "Asiento relevado con seguimiento operativo pendiente"
-}
-
 function AsientosContent() {
   const [todayTimestamp] = useState(() => Date.now())
   const sucursalId = useDefaultSucursalId() ?? 1
@@ -317,11 +312,6 @@ function AsientosContent() {
   const [fecha, setFecha] = useState(todayInputValue())
   const [descripcion, setDescripcion] = useState("")
   const [lineas, setLineas] = useState<DraftLine[]>([emptyLine(), emptyLine()])
-  const {
-    rows: trackers,
-    setRows: setTrackers,
-    reset: resetTrackers,
-  } = useLegacyLocalCollection<LocalEntryTracker>(ENTRY_TRACKER_STORAGE_KEY, [])
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -337,16 +327,25 @@ function AsientosContent() {
   }, [asientos, search])
 
   const stats = useMemo(() => {
-    const publicados = filtered.filter((entry) => entry.estado.toLowerCase() === "publicado")
-    const borradores = filtered.filter((entry) => entry.estado.toLowerCase() === "borrador")
-    const anulados = filtered.filter((entry) => entry.estado.toLowerCase() === "anulado")
-    const totalDebe = filtered.reduce((acc, entry) => acc + Number(entry.totalDebe ?? 0), 0)
-    const totalHaber = filtered.reduce((acc, entry) => acc + Number(entry.totalHaber ?? 0), 0)
+    const publicados = filtered.filter((entry) => isConsolidatedAsientoStatus(entry.estado))
+    const borradores = filtered.filter((entry) => isDraftAsientoStatus(entry.estado))
+    const anulados = filtered.filter((entry) => isCancelledAsientoStatus(entry.estado))
+    const entriesWithTotals = filtered.filter(hasAsientoPublishedTotals)
+    const totalDebe = entriesWithTotals.reduce(
+      (acc, entry) => acc + Number(entry.totalDebe ?? 0),
+      0
+    )
+    const totalHaber = entriesWithTotals.reduce(
+      (acc, entry) => acc + Number(entry.totalHaber ?? 0),
+      0
+    )
 
     return {
       publicados: publicados.length,
       borradores: borradores.length,
       anulados: anulados.length,
+      entriesWithTotals: entriesWithTotals.length,
+      hasVisibleTotals: entriesWithTotals.length > 0,
       totalDebe,
       totalHaber,
     }
@@ -360,23 +359,12 @@ function AsientosContent() {
   const activeEntryCircuit = activeEntry ? getAsientoCircuit(activeEntry) : null
   const activeEntryBalance = activeEntry ? getBalanceReading(activeEntry) : null
   const activeEntryCoverage = activeEntry ? getLegacyCoverage(activeEntry) : null
-  const trackerMap = useMemo(
-    () => new Map(trackers.map((tracker) => [tracker.entryId, tracker])),
-    [trackers]
-  )
   const recentCreatedCount = filtered.filter((entry) => {
     if (!entry.createdAt) return false
     const diff = todayTimestamp - new Date(entry.createdAt).getTime()
     return diff <= 7 * 86400000
   }).length
-  const averageEntryAmount = filtered.length ? stats.totalDebe / filtered.length : 0
-  const pendingEntryTracking = useMemo(
-    () =>
-      filtered
-        .map((entry) => trackerMap.get(entry.id) ?? buildDefaultEntryTracker(entry))
-        .filter((tracker) => tracker.stage !== "cerrado").length,
-    [filtered, trackerMap]
-  )
+  const averageEntryAmount = stats.entriesWithTotals ? stats.totalDebe / stats.entriesWithTotals : 0
 
   const draftTotals = useMemo(() => {
     const totalDebe = lineas.reduce((acc, linea) => acc + Number(linea.debe || 0), 0)
@@ -388,6 +376,37 @@ function AsientosContent() {
       diferencia: Math.abs(totalDebe - totalHaber),
     }
   }, [lineas])
+
+  const planCuentaById = useMemo(
+    () => new Map(cuentas.map((cuenta) => [cuenta.id, cuenta])),
+    [cuentas]
+  )
+
+  const selectedAsientoTotals = useMemo(() => {
+    if (!selectedAsiento) return null
+    if (hasAsientoPublishedTotals(selectedAsiento)) {
+      return {
+        totalDebe: Number(selectedAsiento.totalDebe ?? 0),
+        totalHaber: Number(selectedAsiento.totalHaber ?? 0),
+        sourcedFromLines: false,
+      }
+    }
+
+    const totalDebe = selectedAsiento.lineas.reduce(
+      (acc, linea) => acc + Number(linea.debe || 0),
+      0
+    )
+    const totalHaber = selectedAsiento.lineas.reduce(
+      (acc, linea) => acc + Number(linea.haber || 0),
+      0
+    )
+
+    return {
+      totalDebe,
+      totalHaber,
+      sourcedFromLines: true,
+    }
+  }, [selectedAsiento])
 
   const resetCreateForm = () => {
     setFecha(todayInputValue())
@@ -536,13 +555,15 @@ function AsientosContent() {
     setCreateOpen(false)
   }
 
-  const originTotals = useMemo(
-    () => ({
-      totalDebe: originResults.reduce((acc, asiento) => acc + Number(asiento.totalDebe ?? 0), 0),
-      totalHaber: originResults.reduce((acc, asiento) => acc + Number(asiento.totalHaber ?? 0), 0),
-    }),
-    [originResults]
-  )
+  const originTotals = useMemo(() => {
+    const withTotals = originResults.filter(hasAsientoPublishedTotals)
+
+    return {
+      totalDebe: withTotals.reduce((acc, asiento) => acc + Number(asiento.totalDebe ?? 0), 0),
+      totalHaber: withTotals.reduce((acc, asiento) => acc + Number(asiento.totalHaber ?? 0), 0),
+      hasVisibleTotals: withTotals.length > 0,
+    }
+  }, [originResults])
 
   return (
     <div className="space-y-6">
@@ -555,10 +576,6 @@ function AsientosContent() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => resetTrackers()}>
-            <RefreshCcw className="h-4 w-4" />
-            Reiniciar seguimiento local
-          </Button>
           <Button variant="outline" onClick={() => refetch()} disabled={loading}>
             <RefreshCcw className="h-4 w-4" />
             Actualizar
@@ -614,24 +631,36 @@ function AsientosContent() {
           description={`Página ${page} de ${totalPages}. Total backend: ${totalCount}.`}
         />
         <SummaryCard
-          title="Publicados / borrador"
+          title="Consolidados / borrador"
           value={`${stats.publicados}/${stats.borradores}`}
           description={`${stats.anulados} anulados dentro del conjunto filtrado.`}
         />
         <SummaryCard
           title="Debe acumulado"
-          value={`$${fmtARS(stats.totalDebe)}`}
-          description="Suma de débitos de los asientos actualmente visibles."
+          value={stats.hasVisibleTotals ? `$${fmtARS(stats.totalDebe)}` : "No informado"}
+          description={
+            stats.hasVisibleTotals
+              ? "Suma de débitos de los asientos actualmente visibles."
+              : "La consulta paginada actual no publica débitos agregados para esta vista."
+          }
         />
         <SummaryCard
           title="Diferencia"
-          value={`$${fmtARS(Math.abs(stats.totalDebe - stats.totalHaber))}`}
-          description="Control rápido entre debe y haber del conjunto consultado."
+          value={
+            stats.hasVisibleTotals
+              ? `$${fmtARS(Math.abs(stats.totalDebe - stats.totalHaber))}`
+              : "No informado"
+          }
+          description={
+            stats.hasVisibleTotals
+              ? "Control rápido entre debe y haber del conjunto consultado."
+              : "Los totales de la página no vienen informados por el endpoint actual."
+          }
         />
         <SummaryCard
-          title="Pendientes locales"
-          value={String(pendingEntryTracking)}
-          description="Asientos con autorizacion o distribucion ampliada pendiente de documentar."
+          title="Con totales visibles"
+          value={String(stats.entriesWithTotals)}
+          description="Asientos de la página actual que ya publican debe y haber desde backend."
         />
       </div>
 
@@ -643,8 +672,12 @@ function AsientosContent() {
         />
         <SummaryCard
           title="Promedio por asiento"
-          value={`$${fmtARS(averageEntryAmount)}`}
-          description="Promedio del debe acumulado sobre la selección visible."
+          value={stats.hasVisibleTotals ? `$${fmtARS(averageEntryAmount)}` : "No informado"}
+          description={
+            stats.hasVisibleTotals
+              ? "Promedio del debe acumulado sobre la selección visible."
+              : "El promedio queda pendiente hasta que la API publique totales por asiento."
+          }
         />
         <SummaryCard
           title="Cobertura actual"
@@ -686,6 +719,7 @@ function AsientosContent() {
               <SelectContent>
                 <SelectItem value="all">Todos los estados</SelectItem>
                 <SelectItem value="BORRADOR">Borrador</SelectItem>
+                <SelectItem value="CONTABILIZADO">Contabilizado</SelectItem>
                 <SelectItem value="PUBLICADO">Publicado</SelectItem>
                 <SelectItem value="ANULADO">Anulado</SelectItem>
               </SelectContent>
@@ -829,10 +863,10 @@ function AsientosContent() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm">
-                          ${fmtARS(entry.totalDebe)}
+                          {formatAsientoTotal(entry.totalDebe)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm">
-                          ${fmtARS(entry.totalHaber)}
+                          {formatAsientoTotal(entry.totalHaber)}
                         </TableCell>
                         <TableCell
                           className="text-right"
@@ -909,26 +943,33 @@ function AsientosContent() {
                 />
                 <SummaryCard
                   title="Fecha"
-                  value={new Date(selectedAsiento.fecha).toLocaleDateString("es-AR")}
+                  value={formatDate(selectedAsiento.fecha)}
                   description={`Estado: ${selectedAsiento.estado}`}
                 />
                 <SummaryCard
                   title="Debe"
-                  value={`$${fmtARS(selectedAsiento.totalDebe)}`}
-                  description="Total deudor del asiento."
+                  value={`$${fmtARS(selectedAsientoTotals?.totalDebe)}`}
+                  description={
+                    selectedAsientoTotals?.sourcedFromLines
+                      ? "Total deudor calculado desde las líneas del asiento."
+                      : "Total deudor del asiento."
+                  }
                 />
                 <SummaryCard
                   title="Haber"
-                  value={`$${fmtARS(selectedAsiento.totalHaber)}`}
-                  description="Total acreedor del asiento."
+                  value={`$${fmtARS(selectedAsientoTotals?.totalHaber)}`}
+                  description={
+                    selectedAsientoTotals?.sourcedFromLines
+                      ? "Total acreedor calculado desde las líneas del asiento."
+                      : "Total acreedor del asiento."
+                  }
                 />
               </div>
 
               <Tabs defaultValue="lineas" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="lineas">Lineas</TabsTrigger>
                   <TabsTrigger value="circuito">Circuito</TabsTrigger>
-                  <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="lineas" className="pt-4">
@@ -943,21 +984,33 @@ function AsientosContent() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {selectedAsiento.lineas.map((linea) => (
-                        <TableRow key={linea.id}>
-                          <TableCell className="font-mono text-sm">{linea.codigoCuenta}</TableCell>
-                          <TableCell className="text-sm">{linea.denominacion}</TableCell>
-                          <TableCell className="text-right text-sm">
-                            ${fmtARS(linea.debe)}
-                          </TableCell>
-                          <TableCell className="text-right text-sm">
-                            ${fmtARS(linea.haber)}
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {linea.observacion || "-"}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {selectedAsiento.lineas.map((linea) => {
+                        const fallbackCuenta = planCuentaById.get(linea.cuentaId)
+                        const codigoCuenta =
+                          linea.codigoCuenta?.trim() ||
+                          fallbackCuenta?.codigoCuenta ||
+                          `#${linea.cuentaId}`
+                        const denominacion =
+                          linea.denominacion?.trim() ||
+                          fallbackCuenta?.denominacion ||
+                          `Cuenta #${linea.cuentaId}`
+
+                        return (
+                          <TableRow key={linea.id}>
+                            <TableCell className="font-mono text-sm">{codigoCuenta}</TableCell>
+                            <TableCell className="text-sm">{denominacion}</TableCell>
+                            <TableCell className="text-right text-sm">
+                              ${fmtARS(linea.debe)}
+                            </TableCell>
+                            <TableCell className="text-right text-sm">
+                              ${fmtARS(linea.haber)}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {linea.observacion || "-"}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </TabsContent>
@@ -983,136 +1036,6 @@ function AsientosContent() {
                       autorizaciones ampliadas ni distribucion de centros de costo del legado.
                     </AlertDescription>
                   </Alert>
-                </TabsContent>
-
-                <TabsContent value="seguimiento" className="space-y-4 pt-4">
-                  {(() => {
-                    const fallback = buildDefaultEntryTracker(selectedAsiento)
-                    const tracker = trackerMap.get(selectedAsiento.id) ?? fallback
-
-                    const updateTracker = (patch: Partial<LocalEntryTracker>) => {
-                      setTrackers((current) => {
-                        const index = current.findIndex((row) => row.entryId === selectedAsiento.id)
-                        const base = index >= 0 ? current[index] : fallback
-                        const nextRow = { ...base, ...patch, updatedAt: new Date().toISOString() }
-
-                        return index >= 0
-                          ? current.map((row, rowIndex) => (rowIndex === index ? nextRow : row))
-                          : [...current, nextRow]
-                      })
-                    }
-
-                    return (
-                      <>
-                        <Alert>
-                          <AlertCircle className="h-4 w-4" />
-                          <AlertDescription>
-                            Este seguimiento se guarda solo en el navegador actual y cubre
-                            autorizaciones, centros de costo y notas operativas del legado.
-                          </AlertDescription>
-                        </Alert>
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <Card>
-                            <CardHeader>
-                              <CardTitle className="text-base">Seguimiento local</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                              <div className="space-y-2">
-                                <Label>Estado operativo</Label>
-                                <Select
-                                  value={tracker.stage}
-                                  onValueChange={(value) =>
-                                    updateTracker({ stage: value as EntryTrackerStage })
-                                  }
-                                >
-                                  <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="Seleccionar estado" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="relevado">Relevado</SelectItem>
-                                    <SelectItem value="pendiente_autorizacion">
-                                      Pendiente autorizacion
-                                    </SelectItem>
-                                    <SelectItem value="pendiente_distribucion">
-                                      Pendiente distribucion
-                                    </SelectItem>
-                                    <SelectItem value="cerrado">Cerrado</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Responsable</Label>
-                                <Input
-                                  value={tracker.owner}
-                                  onChange={(e) => updateTracker({ owner: e.target.value })}
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Nota de autorizacion</Label>
-                                <Textarea
-                                  rows={4}
-                                  value={tracker.authorizationNote}
-                                  onChange={(e) =>
-                                    updateTracker({ authorizationNote: e.target.value })
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Nota de centro de costo</Label>
-                                <Textarea
-                                  rows={4}
-                                  value={tracker.costCenterNote}
-                                  onChange={(e) =>
-                                    updateTracker({ costCenterNote: e.target.value })
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Proximo paso</Label>
-                                <Textarea
-                                  rows={4}
-                                  value={tracker.nextStep}
-                                  onChange={(e) => updateTracker({ nextStep: e.target.value })}
-                                />
-                              </div>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader>
-                              <CardTitle className="text-base">Continuidad</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-3 text-sm">
-                              <div className="rounded-lg bg-muted/40 p-3">
-                                <p className="text-xs text-muted-foreground">Estado actual</p>
-                                <div className="mt-1 flex items-center gap-2">
-                                  <Badge variant={ENTRY_STAGE_CONFIG[tracker.stage].variant}>
-                                    {ENTRY_STAGE_CONFIG[tracker.stage].label}
-                                  </Badge>
-                                </div>
-                                <p className="mt-2 font-medium">{getEntryTrackerHealth(tracker)}</p>
-                              </div>
-                              <div className="rounded-lg bg-muted/40 p-3">
-                                <p className="text-xs text-muted-foreground">
-                                  Ultima actualizacion local
-                                </p>
-                                <p className="mt-1 font-medium">
-                                  {formatDateTime(tracker.updatedAt)}
-                                </p>
-                              </div>
-                              <div className="rounded-lg bg-muted/40 p-3">
-                                <p className="text-xs text-muted-foreground">Autorizacion</p>
-                                <p className="mt-1 font-medium">{tracker.authorizationNote}</p>
-                              </div>
-                              <div className="rounded-lg bg-muted/40 p-3">
-                                <p className="text-xs text-muted-foreground">Centro de costo</p>
-                                <p className="mt-1 font-medium">{tracker.costCenterNote}</p>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </div>
-                      </>
-                    )
-                  })()}
                 </TabsContent>
               </Tabs>
             </div>
@@ -1179,13 +1102,29 @@ function AsientosContent() {
               />
               <SummaryCard
                 title="Debe acumulado"
-                value={`$${fmtARS(originTotals.totalDebe)}`}
-                description="Suma de los débitos de los asientos encontrados."
+                value={
+                  originTotals.hasVisibleTotals
+                    ? `$${fmtARS(originTotals.totalDebe)}`
+                    : "No informado"
+                }
+                description={
+                  originTotals.hasVisibleTotals
+                    ? "Suma de los débitos de los asientos encontrados."
+                    : "La consulta por origen devolvió asientos sin totales agregados publicados."
+                }
               />
               <SummaryCard
                 title="Haber acumulado"
-                value={`$${fmtARS(originTotals.totalHaber)}`}
-                description="Suma de los créditos de los asientos encontrados."
+                value={
+                  originTotals.hasVisibleTotals
+                    ? `$${fmtARS(originTotals.totalHaber)}`
+                    : "No informado"
+                }
+                description={
+                  originTotals.hasVisibleTotals
+                    ? "Suma de los créditos de los asientos encontrados."
+                    : "La consulta por origen devolvió asientos sin totales agregados publicados."
+                }
               />
             </div>
 
@@ -1229,10 +1168,10 @@ function AsientosContent() {
                         </TableCell>
                         <TableCell>{getStatusBadge(entry.estado)}</TableCell>
                         <TableCell className="text-right font-mono text-sm">
-                          ${fmtARS(entry.totalDebe)}
+                          {formatAsientoTotal(entry.totalDebe)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm">
-                          ${fmtARS(entry.totalHaber)}
+                          {formatAsientoTotal(entry.totalHaber)}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button
@@ -1429,9 +1368,9 @@ function AsientosContent() {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                La distribucion por centros de costo y las autorizaciones ampliadas del legado se
-                documentan en el seguimiento local posterior del asiento; no forman parte del DTO
-                backend actual.
+                La distribucion por centros de costo y las autorizaciones ampliadas del legado
+                siguen fuera del DTO actual. Si ese circuito vuelve a exponerse, debe venir desde
+                backend y no desde notas persistidas solo en este navegador.
               </AlertDescription>
             </Alert>
 

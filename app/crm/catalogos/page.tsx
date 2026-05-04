@@ -109,14 +109,13 @@ function CatalogosCrmContent() {
     })
   }, [current.items, search])
 
-  const globalStats = useMemo(() => {
-    const allItems = [...tipos.tiposComunicado, ...motivos.motivos, ...intereses.intereses]
+  const visibleStats = useMemo(() => {
     return {
-      total: allItems.length,
-      activos: allItems.filter((item) => item.activo).length,
-      inactivos: allItems.filter((item) => !item.activo).length,
+      total: filtered.length,
+      activos: filtered.filter((item) => item.activo).length,
+      inactivos: filtered.filter((item) => !item.activo).length,
     }
-  }, [intereses.intereses, motivos.motivos, tipos.tiposComunicado])
+  }, [filtered])
 
   const resetForm = () => {
     setEditing(null)
@@ -186,23 +185,23 @@ function CatalogosCrmContent() {
 
       <div className="grid gap-4 md:grid-cols-3">
         <CrmStatCard
-          label="Registros CRM"
-          value={globalStats.total}
-          hint="Valores auxiliares expuestos por backend."
+          label="Registros visibles"
+          value={visibleStats.total}
+          hint="Cantidad visible en la pestaña y búsqueda actuales."
           icon={Search}
           tone="blue"
         />
         <CrmStatCard
           label="Activos"
-          value={globalStats.activos}
-          hint="Códigos disponibles para operación diaria."
+          value={visibleStats.activos}
+          hint="Códigos activos dentro de la tabla visible."
           icon={ToggleRight}
           tone="emerald"
         />
         <CrmStatCard
           label="Inactivos"
-          value={globalStats.inactivos}
-          hint="Valores reservados o fuera de uso operativo."
+          value={visibleStats.inactivos}
+          hint="Códigos inactivos dentro de la tabla visible."
           icon={ToggleLeft}
           tone="amber"
         />

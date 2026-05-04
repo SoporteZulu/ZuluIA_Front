@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import React, { Suspense, useMemo, useState } from "react"
+import React, { Suspense, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   AlertCircle,
@@ -120,6 +120,16 @@ function toDateInputValue(value?: Date) {
   return new Date(value).toISOString().split("T")[0]
 }
 
+function toDayReference(value: Date | string) {
+  const date = new Date(value)
+  date.setHours(0, 0, 0, 0)
+  return date
+}
+
+function getTodayReference() {
+  return toDayReference(new Date())
+}
+
 function getEstadoBadgeVariant(estado: CRMTask["estado"]) {
   if (estado === "completada") return "secondary"
   if (estado === "vencida") return "destructive"
@@ -179,7 +189,22 @@ function TareasContent() {
   const { usuarios } = useCrmUsuarios()
   const { oportunidades } = useCrmOportunidades()
 
-  const today = useMemo(() => new Date(), [])
+  const [today, setToday] = useState(() => getTodayReference())
+
+  useEffect(() => {
+    const now = new Date()
+    const nextMidnight = new Date(now)
+    nextMidnight.setHours(24, 0, 0, 0)
+
+    const timeoutId = window.setTimeout(
+      () => {
+        setToday(getTodayReference())
+      },
+      nextMidnight.getTime() - now.getTime() + 1000
+    )
+
+    return () => window.clearTimeout(timeoutId)
+  }, [today])
 
   const clientsMap = useMemo(
     () => new Map(clientes.map((cliente) => [cliente.id, cliente])),
@@ -241,16 +266,15 @@ function TareasContent() {
   const tasksWithContext = useMemo(() => {
     return tareas
       .map((task) => {
-        const fechaVencimiento = new Date(task.fechaVencimiento)
-        const isOverdue =
-          task.estado !== "completada" && fechaVencimiento.getTime() < today.getTime()
+        const fechaVencimiento = toDayReference(task.fechaVencimiento)
+        const daysToDue = Math.round((fechaVencimiento.getTime() - today.getTime()) / 86400000)
+        const isOverdue = task.estado !== "completada" && daysToDue < 0
         const normalizedEstado = isOverdue && task.estado !== "vencida" ? "vencida" : task.estado
         const cliente = task.clienteId ? clientsMap.get(task.clienteId) : undefined
         const responsable = usersMap.get(task.asignadoAId)
         const oportunidad = task.oportunidadId
           ? opportunitiesMap.get(task.oportunidadId)
           : undefined
-        const daysToDue = Math.ceil((fechaVencimiento.getTime() - today.getTime()) / 86400000)
 
         return {
           ...task,
@@ -302,24 +326,24 @@ function TareasContent() {
   }, [filterEstado, filterPrioridad, filterResponsable, search, tasksWithContext])
 
   const stats = useMemo(() => {
-    const abiertas = tasksWithContext.filter((task) => task.normalizedEstado !== "completada")
-    const vencidas = tasksWithContext.filter((task) => task.normalizedEstado === "vencida")
-    const enCurso = tasksWithContext.filter((task) => task.normalizedEstado === "en_curso")
-    const prioridadAlta = tasksWithContext.filter(
+    const abiertas = filteredTasks.filter((task) => task.normalizedEstado !== "completada")
+    const vencidas = filteredTasks.filter((task) => task.normalizedEstado === "vencida")
+    const enCurso = filteredTasks.filter((task) => task.normalizedEstado === "en_curso")
+    const prioridadAlta = filteredTasks.filter(
       (task) => task.prioridad === "alta" && task.normalizedEstado !== "completada"
     )
 
     return {
-      total: tasksWithContext.length,
+      total: filteredTasks.length,
       abiertas: abiertas.length,
       vencidas: vencidas.length,
       enCurso: enCurso.length,
       prioridadAlta: prioridadAlta.length,
     }
-  }, [tasksWithContext])
+  }, [filteredTasks])
 
   const responsablesCarga = useMemo(() => {
-    const openTasks = tasksWithContext.filter((task) => task.normalizedEstado !== "completada")
+    const openTasks = filteredTasks.filter((task) => task.normalizedEstado !== "completada")
     const grouped = openTasks.reduce<
       Record<string, { total: number; vencidas: number; alta: number }>
     >((accumulator, task) => {
@@ -340,10 +364,10 @@ function TareasContent() {
         ...summary,
       }))
       .sort((left, right) => right.total - left.total || right.vencidas - left.vencidas)
-  }, [tasksWithContext, usersMap])
+  }, [filteredTasks, usersMap])
 
   const clientesConBacklog = useMemo(() => {
-    const openTasks = tasksWithContext.filter(
+    const openTasks = filteredTasks.filter(
       (task) => task.normalizedEstado !== "completada" && task.clienteId
     )
     const grouped = openTasks.reduce<Record<string, { total: number; vencidas: number }>>(
@@ -367,9 +391,12 @@ function TareasContent() {
       }))
       .sort((left, right) => right.total - left.total || right.vencidas - left.vencidas)
       .slice(0, 4)
-  }, [clientsMap, tasksWithContext])
+  }, [clientsMap, filteredTasks])
 
-  const highlightedTask = tasksWithContext[0] ?? null
+  const highlightedTask = useMemo(
+    () => filteredTasks.find((task) => task.normalizedEstado !== "completada") ?? null,
+    [filteredTasks]
+  )
 
   const openNewForm = () => {
     setSelectedTask(null)
@@ -598,7 +625,7 @@ function TareasContent() {
           </CardHeader>
           <CardContent>
             <div className="text-lg font-semibold">
-              {tasksWithContext.filter((task) => task.oportunidadId).length}
+              {filteredTasks.filter((task) => task.oportunidadId).length}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               Tareas ya vinculadas a oportunidades publicadas por backend.
@@ -714,7 +741,9 @@ function TareasContent() {
                 ) : null}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No hay tareas cargadas para destacar.</p>
+              <p className="text-sm text-muted-foreground">
+                No hay tareas abiertas para destacar con los filtros actuales.
+              </p>
             )}
           </CardContent>
         </Card>
@@ -725,7 +754,7 @@ function TareasContent() {
           <CardHeader>
             <CardTitle>Backlog operativo</CardTitle>
             <CardDescription>
-              Seguimiento de tareas abiertas, responsables y relación con cliente u oportunidad.
+              Seguimiento de tareas visibles, responsables y relación con cliente u oportunidad.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

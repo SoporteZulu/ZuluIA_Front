@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { Eye, FileText, RotateCcw, Search, Filter, Edit, ClipboardCheck, Undo2 } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -53,6 +53,8 @@ import {
   type LegacyReturnResolutionLine,
 } from "@/lib/ventas-devoluciones-legacy"
 
+const INVOICE_AFIP_TYPES = new Set(["1", "6", "11"])
+
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", {
     style: "currency",
@@ -82,8 +84,30 @@ function createResolutionLine(): LegacyReturnResolutionLine {
   }
 }
 
+function normalizeText(value?: string | null) {
+  return (value ?? "").trim().toLowerCase()
+}
+
 function normalizeDocumentNumber(value?: string | null) {
   return (value ?? "").replace(/\s+/g, "").toUpperCase()
+}
+
+function isInvoiceType(tipo?: TipoComprobante | null, fallbackLabel?: string | null) {
+  if (tipo && !tipo.esVenta) return false
+
+  const afipType = String(tipo?.tipoAfip ?? "").trim()
+  const normalizedLabel = `${normalizeText(tipo?.codigo)} ${normalizeText(tipo?.descripcion)} ${normalizeText(fallbackLabel)}`
+
+  return INVOICE_AFIP_TYPES.has(afipType) || normalizedLabel.includes("factura")
+}
+
+function isDeliveryNoteType(tipo?: TipoComprobante | null, fallbackLabel?: string | null) {
+  if (tipo && !tipo.esVenta) return false
+
+  const code = normalizeText(tipo?.codigo)
+  const description = `${normalizeText(tipo?.descripcion)} ${normalizeText(fallbackLabel)}`
+
+  return description.includes("remito") || code.startsWith("rem")
 }
 
 function mapBackendEstado(estado: string): LegacySalesReturn["estado"] {
@@ -172,11 +196,17 @@ function buildLiveReturnProfile(record: {
   }
 }
 
-function isReturnCandidateDocument(document: Comprobante) {
-  const type = (document.tipoComprobanteDescripcion ?? "").toLowerCase()
-  if (document.estado === "ANULADO") return false
+function isReturnCandidateDocument(document: Comprobante, tipo?: TipoComprobante | null) {
+  if (document.estado === "ANULADO" || document.estado === "BORRADOR") return false
   if (!normalizeDocumentNumber(document.nroComprobante)) return false
-  return type.includes("factura") || type.includes("remito")
+
+  const visibleAmount = Number(document.saldo > 0 ? document.saldo : (document.total ?? 0))
+  if (visibleAmount <= 0) return false
+
+  return (
+    isInvoiceType(tipo, document.tipoComprobanteDescripcion) ||
+    isDeliveryNoteType(tipo, document.tipoComprobanteDescripcion)
+  )
 }
 
 function buildCandidateReturnRow(document: Comprobante, customerName: string): LegacySalesReturn {
@@ -642,6 +672,10 @@ export default function VentasDevolucionesPage() {
   const { tiposComprobante } = useConfiguracion()
   const { rows: legacyProfiles, setRows: setLegacyProfiles } =
     useLegacyLocalCollection<LegacyReturnProfile>("ventas-devoluciones-legacy", [])
+  const tipoComprobanteById = useMemo(
+    () => new Map(tiposComprobante.map((tipo) => [tipo.id, tipo])),
+    [tiposComprobante]
+  )
   const customerById = useMemo(
     () => new Map(clientes.map((cliente) => [cliente.id, cliente])),
     [clientes]
@@ -667,7 +701,10 @@ export default function VentasDevolucionesPage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const normalizedSearchTerm = searchTerm.toLowerCase().trim()
-  const legacyById = new Map(legacyProfiles.map((profile) => [profile.returnId, profile]))
+  const legacyById = useMemo(
+    () => new Map(legacyProfiles.map((profile) => [profile.returnId, profile])),
+    [legacyProfiles]
+  )
   const liveRows = useMemo(() => devoluciones.map(buildLiveReturnRow), [devoluciones])
   const liveProfileById = useMemo(
     () =>
@@ -678,45 +715,40 @@ export default function VentasDevolucionesPage() {
     () => new Set(devoluciones.map((record) => record.detalle.comprobanteOrigenId).filter(Boolean)),
     [devoluciones]
   )
-  const candidateRows = useMemo(
+  const candidateSourceDocuments = useMemo(
     () =>
       comprobantes
         .filter(
           (row) =>
-            isReturnCandidateDocument(row) &&
-            !liveOriginIds.has(row.id) &&
-            Number(row.total ?? 0) > 0
+            isReturnCandidateDocument(row, tipoComprobanteById.get(row.tipoComprobanteId)) &&
+            !liveOriginIds.has(row.id)
         )
-        .slice(0, 40)
-        .map((row) =>
-          buildCandidateReturnRow(
-            row,
-            customerNameById.get(row.terceroId) ?? `Cliente #${row.terceroId}`
-          )
-        ),
-    [comprobantes, customerNameById, liveOriginIds]
+        .slice(0, 40),
+    [comprobantes, liveOriginIds, tipoComprobanteById]
+  )
+  const candidateRows = useMemo(
+    () =>
+      candidateSourceDocuments.map((row) =>
+        buildCandidateReturnRow(
+          row,
+          customerNameById.get(row.terceroId) ?? `Cliente #${row.terceroId}`
+        )
+      ),
+    [candidateSourceDocuments, customerNameById]
   )
   const candidateProfileById = useMemo(
     () =>
       new Map(
-        comprobantes
-          .filter(
-            (row) =>
-              isReturnCandidateDocument(row) &&
-              !liveOriginIds.has(row.id) &&
-              Number(row.total ?? 0) > 0
-          )
-          .slice(0, 40)
-          .map((row) => [
-            `candidate-${row.id}`,
-            buildCandidateReturnProfile(
-              row,
-              customerById.get(row.terceroId) ?? null,
-              sucursalNameById.get(row.sucursalId) ?? `Sucursal #${row.sucursalId}`
-            ),
-          ])
+        candidateSourceDocuments.map((row) => [
+          `candidate-${row.id}`,
+          buildCandidateReturnProfile(
+            row,
+            customerById.get(row.terceroId) ?? null,
+            sucursalNameById.get(row.sucursalId) ?? `Sucursal #${row.sucursalId}`
+          ),
+        ])
       ),
-    [comprobantes, customerById, liveOriginIds, sucursalNameById]
+    [candidateSourceDocuments, customerById, sucursalNameById]
   )
   const visibleRows = useMemo(
     () =>
@@ -735,14 +767,17 @@ export default function VentasDevolucionesPage() {
     [comprobantes]
   )
 
-  const getProfile = (row: LegacySalesReturn) => {
-    return (
-      liveProfileById.get(row.id) ??
-      candidateProfileById.get(row.id) ??
-      legacyById.get(row.id) ??
-      buildLegacyReturnProfile(row)
-    )
-  }
+  const getProfile = useCallback(
+    (row: LegacySalesReturn) => {
+      return (
+        liveProfileById.get(row.id) ??
+        candidateProfileById.get(row.id) ??
+        legacyById.get(row.id) ??
+        buildLegacyReturnProfile(row)
+      )
+    },
+    [candidateProfileById, legacyById, liveProfileById]
+  )
 
   const isLiveRow = (row: LegacySalesReturn) => liveProfileById.has(row.id)
 
@@ -844,39 +879,56 @@ export default function VentasDevolucionesPage() {
     setEditing(null)
   }
 
-  const filtered = visibleRows.filter((row) => {
-    const profile = getProfile(row)
-    const matchesSearch =
-      normalizedSearchTerm === "" ||
-      row.id.toLowerCase().includes(normalizedSearchTerm) ||
-      row.cliente.toLowerCase().includes(normalizedSearchTerm) ||
-      row.factura.toLowerCase().includes(normalizedSearchTerm) ||
-      row.remito.toLowerCase().includes(normalizedSearchTerm) ||
-      row.motivo.toLowerCase().includes(normalizedSearchTerm) ||
-      profile.canalIngreso.toLowerCase().includes(normalizedSearchTerm) ||
-      profile.sectorResponsable.toLowerCase().includes(normalizedSearchTerm)
+  const filtered = useMemo(
+    () =>
+      visibleRows.filter((row) => {
+        const profile = getProfile(row)
+        const matchesSearch =
+          normalizedSearchTerm === "" ||
+          row.id.toLowerCase().includes(normalizedSearchTerm) ||
+          row.cliente.toLowerCase().includes(normalizedSearchTerm) ||
+          row.factura.toLowerCase().includes(normalizedSearchTerm) ||
+          row.remito.toLowerCase().includes(normalizedSearchTerm) ||
+          row.motivo.toLowerCase().includes(normalizedSearchTerm) ||
+          profile.canalIngreso.toLowerCase().includes(normalizedSearchTerm) ||
+          profile.sectorResponsable.toLowerCase().includes(normalizedSearchTerm)
 
-    const matchesEstado = filterEstado === "todos" || row.estado === filterEstado
-    const matchesModalidad = filterModalidad === "todos" || profile.modalidad === filterModalidad
+        const matchesEstado = filterEstado === "todos" || row.estado === filterEstado
+        const matchesModalidad =
+          filterModalidad === "todos" || profile.modalidad === filterModalidad
 
-    return matchesSearch && matchesEstado && matchesModalidad
-  })
+        return matchesSearch && matchesEstado && matchesModalidad
+      }),
+    [filterEstado, filterModalidad, getProfile, normalizedSearchTerm, visibleRows]
+  )
 
-  const highlighted =
-    filtered.find((row) => row.estado === "ABIERTA") ?? filtered[0] ?? visibleRows[0] ?? null
+  const hasActiveFilters =
+    normalizedSearchTerm !== "" || filterEstado !== "todos" || filterModalidad !== "todos"
 
-  const totals = {
-    total: visibleRows.length,
-    abiertas: visibleRows.filter((row) => row.estado === "ABIERTA").length,
-    aprobadas: visibleRows.filter((row) => row.estado === "APROBADA").length,
-    importe: visibleRows.reduce((sum, row) => sum + row.total, 0),
-  }
-  const configured = visibleRows.filter((row) => legacyById.has(row.id)).length
-  const withCreditNote = visibleRows.filter((row) => getProfile(row).generaNotaCredito).length
-  const withStockReentry = visibleRows.filter((row) => getProfile(row).reingresaStock).length
-  const linkedDocuments = comprobantes.filter(
-    (row) => row.estado !== "ANULADO" && (row.nroComprobante ?? "").trim() !== ""
-  ).length
+  const highlighted = filtered.find((row) => row.estado === "ABIERTA") ?? filtered[0] ?? null
+
+  const totals = useMemo(
+    () => ({
+      total: filtered.length,
+      abiertas: filtered.filter((row) => row.estado === "ABIERTA").length,
+      aprobadas: filtered.filter((row) => row.estado === "APROBADA").length,
+      importe: filtered.reduce((sum, row) => sum + row.total, 0),
+    }),
+    [filtered]
+  )
+  const configured = useMemo(
+    () => filtered.filter((row) => legacyById.has(row.id)).length,
+    [filtered, legacyById]
+  )
+  const withCreditNote = useMemo(
+    () => filtered.filter((row) => getProfile(row).generaNotaCredito).length,
+    [filtered, getProfile]
+  )
+  const withStockReentry = useMemo(
+    () => filtered.filter((row) => getProfile(row).reingresaStock).length,
+    [filtered, getProfile]
+  )
+  const linkedDocuments = candidateSourceDocuments.length
   const highlightedProfile = highlighted ? getProfile(highlighted) : null
   const highlightedFields =
     highlighted && highlightedProfile
@@ -941,6 +993,9 @@ export default function VentasDevolucionesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totals.total}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {hasActiveFilters ? "Vista filtrada" : "Visibles en la mesa actual"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -949,6 +1004,9 @@ export default function VentasDevolucionesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">{totals.abiertas}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {hasActiveFilters ? "Pendientes dentro del filtro" : "Pendientes de resolución"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -957,6 +1015,11 @@ export default function VentasDevolucionesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-600">{totals.aprobadas}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {hasActiveFilters
+                ? "Aprobadas dentro del filtro"
+                : "Respaldadas o listas para cierre"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -969,7 +1032,7 @@ export default function VentasDevolucionesPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Fichas completas</CardTitle>
+            <CardTitle className="text-sm font-medium">Fichas locales</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-sky-700">{configured}</div>
@@ -1033,8 +1096,10 @@ export default function VentasDevolucionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {configured} fichas locales siguen disponibles para completar contexto operativo, y la
-            grilla ahora usa devoluciones backend o documentos reales candidatos en lugar de filas
+            {configured > 0
+              ? `${configured} fichas locales cargadas complementan el contexto operativo de la vista actual.`
+              : "No hay fichas locales cargadas en la vista actual."}{" "}
+            La grilla usa devoluciones backend o documentos reales candidatos en lugar de filas
             semilla.
           </CardContent>
         </Card>
@@ -1056,8 +1121,8 @@ export default function VentasDevolucionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Hay {linkedDocuments} comprobantes de venta visibles para cruzar el circuito documental
-            y registrar nuevas devoluciones contra el servicio real.
+            Hay {linkedDocuments} comprobantes origen candidatos visibles para cruzar el circuito
+            documental y registrar nuevas devoluciones contra el servicio real.
           </CardContent>
         </Card>
         <Card>

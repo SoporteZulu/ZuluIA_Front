@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
@@ -62,12 +61,14 @@ import {
   type LegacyDiscountWindow,
 } from "@/lib/ventas-descuentos-legacy"
 
-const EMPTY_FORM: CreateDescuentoComercialDto = {
-  terceroId: undefined,
-  itemId: undefined,
-  porcentaje: 0,
-  desde: undefined,
-  hasta: undefined,
+function createEmptyForm(): CreateDescuentoComercialDto {
+  return {
+    terceroId: undefined,
+    itemId: undefined,
+    porcentaje: 0,
+    desde: new Date().toISOString().slice(0, 10),
+    hasta: undefined,
+  }
 }
 
 function formatDate(value?: string) {
@@ -165,9 +166,8 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
           desde: initialDiscount.desde,
           hasta: initialDiscount.hasta,
         }
-      : EMPTY_FORM
+      : createEmptyForm()
   )
-  const [activo, setActivo] = useState(initialDiscount?.activo ?? true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -188,11 +188,24 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
       return
     }
 
+    if (!form.terceroId) {
+      setError("Seleccioná un cliente para crear el descuento")
+      return
+    }
+
+    if (!form.itemId) {
+      setError("Seleccioná un producto para crear el descuento")
+      return
+    }
+
+    if (!form.desde) {
+      setError("La fecha desde es obligatoria")
+      return
+    }
+
     setSaving(true)
     setError(null)
-    const ok = initialDiscount
-      ? await actualizar(initialDiscount.id, { ...form, activo })
-      : await crear(form)
+    const ok = initialDiscount ? await actualizar(initialDiscount.id, form) : await crear(form)
     setSaving(false)
 
     if (ok) onSaved()
@@ -228,6 +241,22 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
         </SalesTabsList>
 
         <TabsContent value="principal" className="mt-4 space-y-4">
+          {!initialDiscount ? (
+            <Alert>
+              <AlertDescription>
+                El alta actual requiere cliente, producto y fecha de inicio. La cobertura más amplia
+                queda preparada para una etapa posterior del circuito comercial.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <Alert>
+              <AlertDescription>
+                La API actual solo permite editar porcentaje y vigencia. Para cambiar cliente o
+                producto, recreá la regla con el nuevo alcance.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Porcentaje</Label>
@@ -241,18 +270,16 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Cliente</Label>
+              <Label>Cliente *</Label>
               <Select
-                value={form.terceroId ? String(form.terceroId) : "__all__"}
-                onValueChange={(value) =>
-                  set("terceroId", value === "__all__" ? undefined : Number(value))
-                }
+                value={form.terceroId ? String(form.terceroId) : undefined}
+                onValueChange={(value) => set("terceroId", Number(value))}
+                disabled={Boolean(initialDiscount)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Todos los clientes" />
+                  <SelectValue placeholder="Seleccionar cliente" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__all__">Todos los clientes</SelectItem>
                   {terceros.map((tercero) => (
                     <SelectItem key={tercero.id} value={String(tercero.id)}>
                       {tercero.razonSocial}
@@ -262,18 +289,16 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
               </Select>
             </div>
             <div className="space-y-1.5 md:col-span-2">
-              <Label>Producto</Label>
+              <Label>Producto *</Label>
               <Select
-                value={form.itemId ? String(form.itemId) : "__all__"}
-                onValueChange={(value) =>
-                  set("itemId", value === "__all__" ? undefined : Number(value))
-                }
+                value={form.itemId ? String(form.itemId) : undefined}
+                onValueChange={(value) => set("itemId", Number(value))}
+                disabled={Boolean(initialDiscount)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Todos los productos" />
+                  <SelectValue placeholder="Seleccionar producto" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__all__">Todos los productos</SelectItem>
                   {items.map((item) => (
                     <SelectItem key={item.id} value={String(item.id)}>
                       {item.codigo} · {item.descripcion}
@@ -295,19 +320,19 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
                     Razón social
                   </p>
                   <p className="mt-1 font-medium wrap-break-word">
-                    {selectedCustomer?.razonSocial ?? "Todos los clientes"}
+                    {selectedCustomer?.razonSocial ?? "Pendiente de selección"}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">CUIT</p>
                   <p className="mt-1 font-medium wrap-break-word">
-                    {selectedCustomer?.nroDocumento ?? "No aplica"}
+                    {selectedCustomer?.nroDocumento ?? "Pendiente"}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">IVA</p>
                   <p className="mt-1 font-medium wrap-break-word">
-                    {selectedCustomer?.condicionIvaDescripcion ?? "No aplica"}
+                    {selectedCustomer?.condicionIvaDescripcion ?? "Pendiente"}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
@@ -333,7 +358,7 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
                   <p className="mt-1 font-medium wrap-break-word">
                     {selectedItem
                       ? `${selectedItem.codigo} · ${selectedItem.descripcion}`
-                      : "Todos los productos"}
+                      : "Pendiente de selección"}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
@@ -341,7 +366,7 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
                     Categoría
                   </p>
                   <p className="mt-1 font-medium wrap-break-word">
-                    {selectedItem?.categoriaDescripcion ?? "General"}
+                    {selectedItem?.categoriaDescripcion ?? "Pendiente"}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3">
@@ -349,14 +374,18 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
                     Precio actual
                   </p>
                   <p className="mt-1 font-medium wrap-break-word">
-                    {selectedItem ? formatMoney(selectedItem.precioVenta) : "No aplica"}
+                    {selectedItem ? formatMoney(selectedItem.precioVenta) : "Pendiente"}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3 md:col-span-2">
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                     Cobertura
                   </p>
-                  <p className="mt-1 font-medium wrap-break-word">{getDiscountScope(form)}</p>
+                  <p className="mt-1 font-medium wrap-break-word">
+                    {selectedCustomer && selectedItem
+                      ? "Cliente + producto"
+                      : "Segmentada requerida"}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -366,7 +395,7 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
         <TabsContent value="vigencia" className="mt-4 space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Desde</Label>
+              <Label>Desde *</Label>
               <Input
                 type="date"
                 value={form.desde ?? ""}
@@ -383,14 +412,12 @@ function DiscountForm({ initialDiscount, onClose, onSaved }: DiscountFormProps) 
             </div>
           </div>
           {initialDiscount ? (
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div>
-                <p className="font-medium">Regla activa</p>
-                <p className="text-sm text-muted-foreground">
-                  Permite inactivar o reactivar el descuento sin perder su referencia.
-                </p>
-              </div>
-              <Switch checked={activo} onCheckedChange={setActivo} />
+            <div className="rounded-lg border p-3 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground">Estado de activación</p>
+              <p className="mt-1">
+                El backend actual no expone inactivación independiente para descuentos comerciales.
+                La vigencia real se administra con porcentaje y fechas.
+              </p>
             </div>
           ) : null}
         </TabsContent>

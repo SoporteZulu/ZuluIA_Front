@@ -21,7 +21,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -36,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table,
   TableBody,
@@ -46,6 +45,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  WmsDetailFieldGrid,
+  WmsDialogContent,
+  WmsTabsList,
+} from "@/components/almacenes/wms-responsive"
 import { useDepositos } from "@/lib/hooks/useDepositos"
 import { useItems, useItemsConfig } from "@/lib/hooks/useItems"
 import {
@@ -82,6 +86,20 @@ const emptyTransfer = (): TransferFormState => ({
   cantidad: "",
   observacion: "",
 })
+
+function getStockDepositoActual(
+  stock: ReturnType<typeof useStockItem>["stock"],
+  depositoId?: string
+) {
+  if (!stock?.depositos?.length) return null
+
+  if (depositoId) {
+    const match = stock.depositos.find((deposito) => String(deposito.depositoId) === depositoId)
+    if (match) return match
+  }
+
+  return stock.depositos[0] ?? null
+}
 
 function formatMoney(amount: number) {
   return new Intl.NumberFormat("es-AR", {
@@ -170,6 +188,10 @@ function getStockBadge(item: Item) {
   return <Badge variant="default">Disponible</Badge>
 }
 
+function canManageStock(item: Item) {
+  return item.manejaStock
+}
+
 export default function InventarioPage() {
   const sucursalId = useDefaultSucursalId()
   const {
@@ -244,44 +266,63 @@ export default function InventarioPage() {
     return items.reduce((acc, item) => acc + (item.stock ?? 0) * Number(item.precioCosto ?? 0), 0)
   }, [items])
 
+  const visibleItemIds = useMemo(
+    () => new Set(filteredProducts.map((item) => item.id)),
+    [filteredProducts]
+  )
+
   const itemsConDatosAmpliados = useMemo(
     () =>
-      items.filter((item) =>
+      filteredProducts.filter((item) =>
         Boolean(item.codigoBarras || item.descripcionAdicional || item.codigoAfip)
       ).length,
-    [items]
+    [filteredProducts]
   )
 
   const itemsConCoberturaComprometida = useMemo(
     () =>
-      items.filter(
+      filteredProducts.filter(
         (item) => item.manejaStock && (item.stock ?? 0) > 0 && (item.stock ?? 0) <= item.stockMinimo
       ).length,
-    [items]
+    [filteredProducts]
+  )
+
+  const visibleLowStockAlerts = useMemo(
+    () => bajoMinimo.filter((item) => visibleItemIds.has(item.itemId)),
+    [bajoMinimo, visibleItemIds]
   )
 
   const featuredAlert = useMemo(() => {
     if (selectedItem) {
-      return bajoMinimo.find((item) => item.itemId === selectedItem.id) ?? bajoMinimo[0] ?? null
+      return (
+        visibleLowStockAlerts.find((item) => item.itemId === selectedItem.id) ??
+        visibleLowStockAlerts[0] ??
+        null
+      )
     }
 
-    return bajoMinimo[0] ?? null
-  }, [bajoMinimo, selectedItem])
+    return visibleLowStockAlerts[0] ?? null
+  }, [selectedItem, visibleLowStockAlerts])
 
   const featuredAlertItem = useMemo(() => {
     if (!featuredAlert) {
       return selectedItem
     }
 
-    return items.find((item) => item.id === featuredAlert.itemId) ?? selectedItem
-  }, [featuredAlert, items, selectedItem])
+    return filteredProducts.find((item) => item.id === featuredAlert.itemId) ?? selectedItem
+  }, [featuredAlert, filteredProducts, selectedItem])
 
-  const ultimoMovimientoVisible = movimientos[0] ?? null
+  const ultimoMovimientoVisible = selectedItem ? (movimientos[0] ?? null) : null
   const ultimaActualizacionStock = stock?.depositos
     ?.map((deposito) => deposito.updatedAt)
     .filter(Boolean)
     .sort()
     .at(-1)
+  const ajusteDepositoActual = getStockDepositoActual(stock, ajusteForm.depositoId)
+  const ajusteDepositoIdValue =
+    ajusteForm.depositoId || (isAjusteOpen ? String(ajusteDepositoActual?.depositoId ?? "") : "")
+  const ajusteCantidadValue =
+    ajusteForm.nuevaCantidad || (isAjusteOpen ? String(ajusteDepositoActual?.cantidad ?? "") : "")
 
   const openDetail = (item: Item) => {
     setSelectedItemId(item.id)
@@ -290,17 +331,17 @@ export default function InventarioPage() {
   }
 
   const openAjuste = (item: Item) => {
+    if (!canManageStock(item)) return
+
     setSelectedItemId(item.id)
     setActionError(null)
-    setAjusteForm({
-      depositoId: stock?.depositos?.[0] ? String(stock.depositos[0].depositoId) : "",
-      nuevaCantidad: String(item.stock ?? 0),
-      observacion: "",
-    })
+    setAjusteForm(emptyAjuste())
     setIsAjusteOpen(true)
   }
 
   const openTransfer = (item: Item) => {
+    if (!canManageStock(item)) return
+
     setSelectedItemId(item.id)
     setActionError(null)
     setTransferForm(emptyTransfer())
@@ -342,8 +383,8 @@ export default function InventarioPage() {
   const handleAjuste = async () => {
     if (!selectedItem) return
 
-    const depositoId = Number.parseInt(ajusteForm.depositoId, 10)
-    const nuevaCantidad = Number.parseFloat(ajusteForm.nuevaCantidad)
+    const depositoId = Number.parseInt(ajusteDepositoIdValue, 10)
+    const nuevaCantidad = Number.parseFloat(ajusteCantidadValue)
 
     if (Number.isNaN(depositoId) || Number.isNaN(nuevaCantidad)) {
       setActionError("Selecciona un depósito e informa una cantidad válida para el ajuste.")
@@ -465,13 +506,13 @@ export default function InventarioPage() {
         <SummaryCard
           title="Fichas ampliadas"
           value={itemsConDatosAmpliados}
-          description="Items con codigo de barras, AFIP o descripcion extendida visibles"
+          description="Items visibles con codigo de barras, AFIP o descripcion extendida"
           icon={<Package className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Cobertura comprometida"
           value={itemsConCoberturaComprometida}
-          description="Items con stock positivo pero en umbral minimo"
+          description="Items visibles con stock positivo pero en umbral minimo"
           icon={<ShieldAlert className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
@@ -489,7 +530,7 @@ export default function InventarioPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-        <Card className="border-amber-200 bg-gradient-to-br from-amber-50 via-background to-orange-50">
+        <Card className="border-amber-200 bg-linear-to-br from-amber-50 via-background to-orange-50">
           <CardHeader>
             <CardDescription>Radar operativo</CardDescription>
             <CardTitle className="text-xl">
@@ -539,7 +580,7 @@ export default function InventarioPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-sky-200 bg-gradient-to-br from-sky-50 via-background to-cyan-50">
+        <Card className="border-sky-200 bg-linear-to-br from-sky-50 via-background to-cyan-50">
           <CardHeader>
             <CardDescription>Item enfocado</CardDescription>
             <CardTitle className="text-xl">
@@ -689,89 +730,99 @@ export default function InventarioPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredProducts.map((item) => (
-                    <TableRow
-                      key={item.id}
-                      className={item.id === selectedItemId ? "bg-accent/40" : undefined}
-                      onClick={() => setSelectedItemId(item.id)}
-                    >
-                      <TableCell className="font-mono text-sm font-semibold">
-                        {item.codigo}
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <p>{item.descripcion}</p>
-                          {(item.descripcionAdicional || item.codigoBarras) && (
+                  filteredProducts.map((item) => {
+                    const stockActionsEnabled = canManageStock(item)
+
+                    return (
+                      <TableRow
+                        key={item.id}
+                        className={item.id === selectedItemId ? "bg-accent/40" : undefined}
+                        onClick={() => setSelectedItemId(item.id)}
+                      >
+                        <TableCell className="font-mono text-sm font-semibold">
+                          {item.codigo}
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <p>{item.descripcion}</p>
+                            {(item.descripcionAdicional || item.codigoBarras) && (
+                              <p className="text-xs text-muted-foreground">
+                                {item.descripcionAdicional ?? `EAN ${item.codigoBarras}`}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <Badge variant="outline">
+                              {item.categoriaDescripcion ?? "Sin categoría"}
+                            </Badge>
                             <p className="text-xs text-muted-foreground">
-                              {item.descripcionAdicional ?? `EAN ${item.codigoBarras}`}
+                              {item.unidadMedidaDescripcion ?? "Unidad no informada"}
                             </p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <Badge variant="outline">
-                            {item.categoriaDescripcion ?? "Sin categoría"}
-                          </Badge>
-                          <p className="text-xs text-muted-foreground">
-                            {item.unidadMedidaDescripcion ?? "Unidad no informada"}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <Badge variant="outline" className="text-xs">
-                            {getCatalogStatus(item)}
-                          </Badge>
-                          {item.codigoAfip && (
-                            <p className="text-xs text-muted-foreground">AFIP {item.codigoAfip}</p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">{item.stock ?? 0}</TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {item.stockMinimo}
-                      </TableCell>
-                      <TableCell>{getStockBadge(item)}</TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              openDetail(item)
-                            }}
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            Ver
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              openAjuste(item)
-                            }}
-                          >
-                            <SlidersHorizontal className="h-4 w-4 mr-2" />
-                            Ajuste
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              openTransfer(item)
-                            }}
-                          >
-                            <ArrowRightLeft className="h-4 w-4 mr-2" />
-                            Transferir
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <Badge variant="outline" className="text-xs">
+                              {getCatalogStatus(item)}
+                            </Badge>
+                            {item.codigoAfip && (
+                              <p className="text-xs text-muted-foreground">
+                                AFIP {item.codigoAfip}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {item.stock ?? 0}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {item.stockMinimo}
+                        </TableCell>
+                        <TableCell>{getStockBadge(item)}</TableCell>
+                        <TableCell>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openDetail(item)
+                              }}
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              Ver
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!stockActionsEnabled}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openAjuste(item)
+                              }}
+                            >
+                              <SlidersHorizontal className="h-4 w-4 mr-2" />
+                              Ajuste
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!stockActionsEnabled}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openTransfer(item)
+                              }}
+                            >
+                              <ArrowRightLeft className="h-4 w-4 mr-2" />
+                              Transferir
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
@@ -873,13 +924,19 @@ export default function InventarioPage() {
                         <Eye className="h-4 w-4 mr-2" />
                         Ver ficha
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => openAjuste(selectedItem)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!canManageStock(selectedItem)}
+                        onClick={() => openAjuste(selectedItem)}
+                      >
                         <SlidersHorizontal className="h-4 w-4 mr-2" />
                         Ajustar
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
+                        disabled={!canManageStock(selectedItem)}
                         onClick={() => openTransfer(selectedItem)}
                       >
                         <ArrowRightLeft className="h-4 w-4 mr-2" />
@@ -1008,7 +1065,7 @@ export default function InventarioPage() {
       </div>
 
       <Dialog open={isDetailOpen && !!selectedItem} onOpenChange={handleDetailOpenChange}>
-        <DialogContent className="max-w-2xl">
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>
               {selectedItem?.codigo} - {selectedItem?.descripcion}
@@ -1020,87 +1077,68 @@ export default function InventarioPage() {
 
           {selectedItem && (
             <Tabs defaultValue="general" className="py-2">
-              <TabsList className="grid w-full grid-cols-3">
+              <WmsTabsList className="md:grid-cols-3">
                 <TabsTrigger value="general">General</TabsTrigger>
                 <TabsTrigger value="comercial">Comercial</TabsTrigger>
                 <TabsTrigger value="circuito">Circuito</TabsTrigger>
-              </TabsList>
+              </WmsTabsList>
 
-              <TabsContent value="general" className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div>
-                  <span className="text-sm text-muted-foreground">Categoría</span>
-                  <p className="font-medium">
-                    {selectedItem.categoriaDescripcion ?? "Sin categoría"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-sm text-muted-foreground">Unidad</span>
-                  <p className="font-medium">
-                    {selectedItem.unidadMedidaDescripcion ?? "No informada"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-sm text-muted-foreground">Código de barras</span>
-                  <p className="font-medium">{selectedItem.codigoBarras ?? "-"}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-muted-foreground">Código AFIP</span>
-                  <p className="font-medium">{selectedItem.codigoAfip ?? "-"}</p>
-                </div>
-                <div className="sm:col-span-2">
-                  <span className="text-sm text-muted-foreground">Descripción adicional</span>
-                  <p className="font-medium">
-                    {selectedItem.descripcionAdicional ?? "Sin descripción adicional."}
-                  </p>
-                </div>
+              <TabsContent value="general" className="mt-4">
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    {
+                      label: "Categoría",
+                      value: selectedItem.categoriaDescripcion ?? "Sin categoría",
+                    },
+                    {
+                      label: "Unidad",
+                      value: selectedItem.unidadMedidaDescripcion ?? "No informada",
+                    },
+                    { label: "Código de barras", value: selectedItem.codigoBarras ?? "-" },
+                    { label: "Código AFIP", value: selectedItem.codigoAfip ?? "-" },
+                    {
+                      label: "Descripción adicional",
+                      value: selectedItem.descripcionAdicional ?? "Sin descripción adicional.",
+                      className: "md:col-span-2",
+                    },
+                  ]}
+                />
               </TabsContent>
 
-              <TabsContent value="comercial" className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div>
-                  <span className="text-sm text-muted-foreground">Precio costo</span>
-                  <p className="font-medium">{formatMoney(selectedItem.precioCosto)}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-muted-foreground">Precio venta</span>
-                  <p className="font-medium">{formatMoney(selectedItem.precioVenta)}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-muted-foreground">Estado de ficha</span>
-                  <p className="font-medium">{getCatalogStatus(selectedItem)}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-muted-foreground">Tipo de stock</span>
-                  <p className="font-medium">
-                    {selectedItem.manejaStock ? "Stock gestionado" : "Sin gestion de stock"}
-                  </p>
-                </div>
+              <TabsContent value="comercial" className="mt-4">
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    { label: "Precio costo", value: formatMoney(selectedItem.precioCosto) },
+                    { label: "Precio venta", value: formatMoney(selectedItem.precioVenta) },
+                    { label: "Estado de ficha", value: getCatalogStatus(selectedItem) },
+                    {
+                      label: "Tipo de stock",
+                      value: selectedItem.manejaStock ? "Stock gestionado" : "Sin gestión de stock",
+                    },
+                  ]}
+                />
               </TabsContent>
 
-              <TabsContent value="circuito" className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div>
-                  <span className="text-sm text-muted-foreground">Stock actual</span>
-                  <p className="font-medium">{selectedItem.stock ?? 0}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-muted-foreground">Cobertura</span>
-                  <p className="font-medium">{getCoverageStatus(selectedItem)}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-muted-foreground">Rango objetivo</span>
-                  <p className="font-medium">
-                    {selectedItem.stockMinimo} / {selectedItem.stockMaximo ?? "-"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-sm text-muted-foreground">Depositos visibles</span>
-                  <p className="font-medium">{stock?.depositos?.length ?? 0}</p>
-                </div>
-                <div className="sm:col-span-2">
-                  <span className="text-sm text-muted-foreground">
-                    Ultima actualizacion visible
-                  </span>
-                  <p className="font-medium">{formatDateTime(ultimaActualizacionStock)}</p>
-                </div>
+              <TabsContent value="circuito" className="mt-4">
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    { label: "Stock actual", value: selectedItem.stock ?? 0 },
+                    { label: "Cobertura", value: getCoverageStatus(selectedItem) },
+                    {
+                      label: "Rango objetivo",
+                      value: `${selectedItem.stockMinimo} / ${selectedItem.stockMaximo ?? "-"}`,
+                    },
+                    { label: "Depósitos visibles", value: stock?.depositos?.length ?? 0 },
+                    {
+                      label: "Última actualización visible",
+                      value: formatDateTime(ultimaActualizacionStock),
+                      className: "md:col-span-2",
+                    },
+                  ]}
+                />
               </TabsContent>
             </Tabs>
           )}
@@ -1110,11 +1148,11 @@ export default function InventarioPage() {
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
       <Dialog open={isAjusteOpen && !!selectedItem} onOpenChange={handleAjusteOpenChange}>
-        <DialogContent className="max-w-lg">
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Ajuste de stock</DialogTitle>
             <DialogDescription>
@@ -1126,10 +1164,17 @@ export default function InventarioPage() {
             <div className="space-y-2">
               <Label>Depósito</Label>
               <Select
-                value={ajusteForm.depositoId}
-                onValueChange={(value) =>
-                  setAjusteForm((current) => ({ ...current, depositoId: value }))
-                }
+                value={ajusteDepositoIdValue}
+                onValueChange={(value) => {
+                  const depositoActual = getStockDepositoActual(stock, value)
+                  setAjusteForm((current) => ({
+                    ...current,
+                    depositoId: value,
+                    nuevaCantidad: depositoActual
+                      ? String(depositoActual.cantidad)
+                      : current.nuevaCantidad,
+                  }))
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona un depósito" />
@@ -1148,11 +1193,15 @@ export default function InventarioPage() {
               <Input
                 type="number"
                 min="0"
-                value={ajusteForm.nuevaCantidad}
+                value={ajusteCantidadValue}
                 onChange={(event) =>
                   setAjusteForm((current) => ({ ...current, nuevaCantidad: event.target.value }))
                 }
               />
+              <p className="text-xs text-muted-foreground">
+                Se precarga la cantidad actual del depósito seleccionado para evitar ajustar con el
+                stock total del ítem.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Observación</Label>
@@ -1180,11 +1229,11 @@ export default function InventarioPage() {
               Guardar ajuste
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
       <Dialog open={isTransferOpen && !!selectedItem} onOpenChange={handleTransferOpenChange}>
-        <DialogContent className="max-w-lg">
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Transferencia entre depósitos</DialogTitle>
             <DialogDescription>
@@ -1272,7 +1321,7 @@ export default function InventarioPage() {
               Registrar transferencia
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

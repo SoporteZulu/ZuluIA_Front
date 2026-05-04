@@ -682,7 +682,7 @@ export default function CRMDashboard() {
               {oportunidadesActivas.map((opp) => {
                 const cliente = clientes.find((c) => c.id === opp.clienteId)
                 return (
-                  <Link key={opp.id} href={`/crm/oportunidades/${opp.id}`}>
+                  <Link key={opp.id} href={`/crm/oportunidades?action=edit&id=${opp.id}`}>
                     <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
                       <div className="space-y-1">
                         <p className="font-medium">{opp.titulo}</p>

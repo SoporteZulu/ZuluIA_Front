@@ -260,6 +260,16 @@ export default function MovimientosPage() {
       ? null
       : (depositos.find((deposito) => deposito.id === Number(selectedDepositoId)) ?? null)
 
+  const handleAjusteOpenChange = (open: boolean) => {
+    setActionError(null)
+    setIsAjusteOpen(open)
+  }
+
+  const handleTransferOpenChange = (open: boolean) => {
+    setActionError(null)
+    setIsTransferOpen(open)
+  }
+
   const refreshAll = async () => {
     await refetch()
   }
@@ -349,22 +359,22 @@ export default function MovimientosPage() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Actualizar
           </Button>
-          <Button variant="outline" onClick={() => setIsAjusteOpen(true)}>
+          <Button variant="outline" onClick={() => handleAjusteOpenChange(true)}>
             <SlidersHorizontal className="h-4 w-4 mr-2" />
             Registrar ajuste
           </Button>
-          <Button onClick={() => setIsTransferOpen(true)}>
+          <Button onClick={() => handleTransferOpenChange(true)}>
             <ArrowLeftRight className="h-4 w-4 mr-2" />
             Registrar transferencia
           </Button>
         </div>
       </div>
 
-      {(error || actionHookError || actionError) && (
+      {(error || actionHookError) && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Movimientos de stock</AlertTitle>
-          <AlertDescription>{actionError ?? actionHookError ?? error}</AlertDescription>
+          <AlertDescription>{actionHookError ?? error}</AlertDescription>
         </Alert>
       )}
 
@@ -694,7 +704,7 @@ export default function MovimientosPage() {
         </Card>
       </div>
 
-      <Dialog open={isAjusteOpen} onOpenChange={setIsAjusteOpen}>
+      <Dialog open={isAjusteOpen} onOpenChange={handleAjusteOpenChange}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Registrar ajuste</DialogTitle>
@@ -703,6 +713,14 @@ export default function MovimientosPage() {
               soportado por backend.
             </DialogDescription>
           </DialogHeader>
+
+          {actionError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Registrar ajuste</AlertTitle>
+              <AlertDescription>{actionError}</AlertDescription>
+            </Alert>
+          )}
 
           <div className="space-y-4 py-2">
             <div className="space-y-2">
@@ -779,7 +797,7 @@ export default function MovimientosPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAjusteOpen(false)}>
+            <Button variant="outline" onClick={() => handleAjusteOpenChange(false)}>
               Cancelar
             </Button>
             <Button disabled={actionLoading} onClick={() => void handleAjuste()}>
@@ -794,7 +812,7 @@ export default function MovimientosPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
+      <Dialog open={isTransferOpen} onOpenChange={handleTransferOpenChange}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Registrar transferencia</DialogTitle>
@@ -802,6 +820,14 @@ export default function MovimientosPage() {
               Mueve stock entre depósitos usando la operación actualmente expuesta por backend.
             </DialogDescription>
           </DialogHeader>
+
+          {actionError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Registrar transferencia</AlertTitle>
+              <AlertDescription>{actionError}</AlertDescription>
+            </Alert>
+          )}
 
           <div className="space-y-4 py-2">
             <div className="space-y-2">
@@ -901,7 +927,7 @@ export default function MovimientosPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsTransferOpen(false)}>
+            <Button variant="outline" onClick={() => handleTransferOpenChange(false)}>
               Cancelar
             </Button>
             <Button disabled={actionLoading} onClick={() => void handleTransfer()}>

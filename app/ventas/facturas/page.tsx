@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertCircle,
   Ban,
@@ -61,9 +61,19 @@ import type {
   Comprobante,
   ComprobanteDetalle,
   EmitirComprobanteDto,
+  TipoComprobante,
 } from "@/lib/types/comprobantes"
 import type { Item } from "@/lib/types/items"
 import type { Tercero } from "@/lib/types/terceros"
+
+const INVOICE_AFIP_TYPES = new Set(["1", "6", "11"])
+
+function isInvoiceType(tipo: TipoComprobante) {
+  const afipType = String(tipo.tipoAfip ?? "").trim()
+  const normalizedLabel = `${tipo.codigo} ${tipo.descripcion}`.toLowerCase()
+
+  return tipo.esVenta && (INVOICE_AFIP_TYPES.has(afipType) || normalizedLabel.includes("factura"))
+}
 
 function formatMoney(value: number) {
   return value.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
@@ -251,8 +261,8 @@ function InvoiceForm({ onClose, onSaved, emitir }: InvoiceFormProps) {
   const [lineItems, setLineItems] = useState<InvoiceFormItem[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const ventaTypes = useMemo(() => tipos.filter((tipo) => tipo.esVenta), [tipos])
-  const effectiveTipoComprobanteId = form.tipoComprobanteId || ventaTypes[0]?.id || 0
+  const invoiceTypes = useMemo(() => tipos.filter(isInvoiceType), [tipos])
+  const effectiveTipoComprobanteId = form.tipoComprobanteId || invoiceTypes[0]?.id || 0
   const effectiveSucursalId = form.sucursalId || defaultSucursalId || 0
   const {
     puntos,
@@ -268,8 +278,8 @@ function InvoiceForm({ onClose, onSaved, emitir }: InvoiceFormProps) {
   )
 
   const selectedType = useMemo(
-    () => ventaTypes.find((tipo) => tipo.id === effectiveTipoComprobanteId) ?? null,
-    [effectiveTipoComprobanteId, ventaTypes]
+    () => invoiceTypes.find((tipo) => tipo.id === effectiveTipoComprobanteId) ?? null,
+    [effectiveTipoComprobanteId, invoiceTypes]
   )
 
   const activePuntos = useMemo(
@@ -557,7 +567,7 @@ function InvoiceForm({ onClose, onSaved, emitir }: InvoiceFormProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">Seleccionar tipo</SelectItem>
-                      {ventaTypes.map((tipo) => (
+                      {invoiceTypes.map((tipo) => (
                         <SelectItem key={tipo.id} value={String(tipo.id)}>
                           {tipo.codigo} · {tipo.descripcion}
                         </SelectItem>
@@ -1318,6 +1328,7 @@ export default function FacturasPage() {
   const [detailInvoice, setDetailInvoice] = useState<ComprobanteDetalle | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const detailRequestIdRef = useRef(0)
   const [caeState, setCaeState] = useState({
     open: false,
     id: 0,
@@ -1326,7 +1337,39 @@ export default function FacturasPage() {
     qrData: "",
   })
 
-  const ventaTypes = useMemo(() => tipos.filter((tipo) => tipo.esVenta), [tipos])
+  const updateSearchTerm = useCallback(
+    (value: string) => {
+      setPage(1)
+      setSearchTerm(value)
+    },
+    [setPage]
+  )
+
+  const updateTypeFilter = useCallback(
+    (value: string) => {
+      setPage(1)
+      setTypeFilter(value)
+    },
+    [setPage]
+  )
+
+  const updateStatusFilter = useCallback(
+    (value: string) => {
+      setPage(1)
+      setStatusFilter(value)
+    },
+    [setPage]
+  )
+
+  const invoiceTypes = useMemo(() => tipos.filter(isInvoiceType), [tipos])
+  const validInvoiceTypeIds = useMemo(
+    () => new Set(invoiceTypes.map((tipo) => tipo.id)),
+    [invoiceTypes]
+  )
+  const visibleInvoices = useMemo(
+    () => comprobantes.filter((invoice) => validInvoiceTypeIds.has(invoice.tipoComprobanteId)),
+    [comprobantes, validInvoiceTypeIds]
+  )
 
   const getCustomerName = useCallback(
     (terceroId: number) =>
@@ -1354,7 +1397,7 @@ export default function FacturasPage() {
   const filtered = useMemo(() => {
     const term = searchTerm.toLowerCase().trim()
 
-    return comprobantes.filter((invoice) => {
+    return visibleInvoices.filter((invoice) => {
       const typeName = getTypeName(
         invoice.tipoComprobanteId,
         invoice.tipoComprobanteDescripcion
@@ -1372,12 +1415,13 @@ export default function FacturasPage() {
 
       return matchesSearch && matchesStatus && matchesType
     })
-  }, [comprobantes, getCustomerName, getTypeName, searchTerm, statusFilter, typeFilter])
+  }, [getCustomerName, getTypeName, searchTerm, statusFilter, typeFilter, visibleInvoices])
 
   const selectedInvoice = useMemo(
-    () => comprobantes.find((invoice) => invoice.id === selectedInvoiceId) ?? null,
-    [comprobantes, selectedInvoiceId]
+    () => visibleInvoices.find((invoice) => invoice.id === selectedInvoiceId) ?? null,
+    [selectedInvoiceId, visibleInvoices]
   )
+  const detailContextInvoice = detailInvoice ?? selectedInvoice
 
   const highlightedInvoice =
     selectedInvoice && filtered.some((invoice) => invoice.id === selectedInvoice.id)
@@ -1388,14 +1432,14 @@ export default function FacturasPage() {
 
   const kpis = useMemo(
     () => ({
-      total: comprobantes.length,
-      emitidas: comprobantes.filter((invoice) => invoice.estado === "EMITIDO").length,
-      pagadas: comprobantes.filter((invoice) => invoice.estado === "PAGADO").length,
-      anuladas: comprobantes.filter((invoice) => invoice.estado === "ANULADO").length,
-      conCae: comprobantes.filter((invoice) => Boolean(invoice.cae)).length,
-      totalFacturado: comprobantes.reduce((sum, invoice) => sum + invoice.total, 0),
+      total: filtered.length,
+      emitidas: filtered.filter((invoice) => invoice.estado === "EMITIDO").length,
+      pagadas: filtered.filter((invoice) => invoice.estado === "PAGADO").length,
+      anuladas: filtered.filter((invoice) => invoice.estado === "ANULADO").length,
+      conCae: filtered.filter((invoice) => Boolean(invoice.cae)).length,
+      totalFacturado: filtered.reduce((sum, invoice) => sum + invoice.total, 0),
     }),
-    [comprobantes]
+    [filtered]
   )
 
   const highlightedFields = highlightedInvoice
@@ -1418,14 +1462,20 @@ export default function FacturasPage() {
       ]
     : []
 
-  const loadDetail = async (invoice: Comprobante) => {
-    setSelectedInvoiceId(invoice.id)
-    setIsDetailOpen(true)
-    setLoadingDetail(true)
-    const detail = await getById(invoice.id)
-    setDetailInvoice(detail)
-    setLoadingDetail(false)
-  }
+  const loadDetail = useCallback(
+    async (invoice: Comprobante) => {
+      const requestId = detailRequestIdRef.current + 1
+      detailRequestIdRef.current = requestId
+      setSelectedInvoiceId(invoice.id)
+      setIsDetailOpen(true)
+      setLoadingDetail(true)
+      const detail = await getById(invoice.id)
+      if (detailRequestIdRef.current !== requestId) return
+      setDetailInvoice(detail)
+      setLoadingDetail(false)
+    },
+    [getById]
+  )
 
   const handleSaved = async () => {
     setIsFormOpen(false)
@@ -1438,8 +1488,7 @@ export default function FacturasPage() {
     await refetch()
 
     if (selectedInvoiceId === invoice.id) {
-      const detail = await getById(invoice.id)
-      setDetailInvoice(detail)
+      await loadDetail(invoice)
     }
   }
 
@@ -1451,8 +1500,10 @@ export default function FacturasPage() {
     await refetch()
 
     if (selectedInvoiceId === caeState.id) {
-      const detail = await getById(caeState.id)
-      setDetailInvoice(detail)
+      const currentInvoice = comprobantes.find((invoice) => invoice.id === caeState.id)
+      if (currentInvoice) {
+        await loadDetail(currentInvoice)
+      }
     }
   }
 
@@ -1569,23 +1620,23 @@ export default function FacturasPage() {
                 className="pl-10"
                 placeholder="Buscar por comprobante, cliente, tipo o CAE..."
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
+                onChange={(event) => updateSearchTerm(event.target.value)}
               />
             </div>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <Select value={typeFilter} onValueChange={updateTypeFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="Tipo" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos los tipos</SelectItem>
-                {ventaTypes.map((tipo) => (
+                {invoiceTypes.map((tipo) => (
                   <SelectItem key={tipo.id} value={String(tipo.id)}>
                     {tipo.codigo} · {tipo.descripcion}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={updateStatusFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
@@ -1847,8 +1898,10 @@ export default function FacturasPage() {
         onOpenChange={(open) => {
           setIsDetailOpen(open)
           if (!open) {
+            detailRequestIdRef.current += 1
             setSelectedInvoiceId(null)
             setDetailInvoice(null)
+            setLoadingDetail(false)
           }
         }}
       >
@@ -1857,10 +1910,12 @@ export default function FacturasPage() {
             <DialogHeader className="border-b px-6 py-5">
               <DialogTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                {selectedInvoice?.nroComprobante ?? "Detalle de factura"}
+                {detailContextInvoice?.nroComprobante ?? "Detalle de factura"}
               </DialogTitle>
               <DialogDescription>
-                {selectedInvoice ? getCustomerName(selectedInvoice.terceroId) : "Cargando..."}
+                {detailContextInvoice
+                  ? getCustomerName(detailContextInvoice.terceroId)
+                  : "Cargando..."}
               </DialogDescription>
             </DialogHeader>
 
@@ -1870,16 +1925,16 @@ export default function FacturasPage() {
                   <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
                   Cargando detalle...
                 </div>
-              ) : detailInvoice && selectedInvoice ? (
+              ) : detailInvoice && detailContextInvoice ? (
                 <InvoiceDetail
                   invoice={detailInvoice}
-                  customerName={getCustomerName(selectedInvoice.terceroId)}
-                  customer={getCustomer(selectedInvoice.terceroId)}
+                  customerName={getCustomerName(detailContextInvoice.terceroId)}
+                  customer={getCustomer(detailContextInvoice.terceroId)}
                   typeName={getTypeName(
-                    selectedInvoice.tipoComprobanteId,
-                    selectedInvoice.tipoComprobanteDescripcion
+                    detailContextInvoice.tipoComprobanteId,
+                    detailContextInvoice.tipoComprobanteDescripcion
                   )}
-                  sucursalName={getSucursalName(selectedInvoice.sucursalId)}
+                  sucursalName={getSucursalName(detailContextInvoice.sucursalId)}
                 />
               ) : (
                 <p className="py-8 text-center text-muted-foreground">
@@ -1896,12 +1951,14 @@ export default function FacturasPage() {
               >
                 Cerrar
               </Button>
-              {selectedInvoice && !selectedInvoice.cae && selectedInvoice.estado !== "ANULADO" ? (
+              {detailContextInvoice &&
+              !detailContextInvoice.cae &&
+              detailContextInvoice.estado !== "ANULADO" ? (
                 <Button
                   onClick={() =>
                     setCaeState({
                       open: true,
-                      id: selectedInvoice.id,
+                      id: detailContextInvoice.id,
                       cae: "",
                       fechaVto: "",
                       qrData: "",
@@ -1912,8 +1969,8 @@ export default function FacturasPage() {
                   Asignar CAE
                 </Button>
               ) : null}
-              {selectedInvoice && selectedInvoice.estado !== "ANULADO" ? (
-                <Button variant="destructive" onClick={() => handleAnnul(selectedInvoice)}>
+              {detailContextInvoice && detailContextInvoice.estado !== "ANULADO" ? (
+                <Button variant="destructive" onClick={() => handleAnnul(detailContextInvoice)}>
                   <Ban className="mr-2 h-4 w-4" />
                   Anular
                 </Button>

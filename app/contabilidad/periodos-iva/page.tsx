@@ -30,7 +30,14 @@ import { useEjercicioVigente } from "@/lib/hooks/useEjercicios"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 
 function formatDate(value?: string) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("es-AR")
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("es-AR")
 }
 
 function currentDateInput() {
@@ -46,10 +53,15 @@ function currentPeriodoInput() {
   return currentDateInput().slice(0, 7)
 }
 
-function formatPeriodo(periodo?: string) {
-  if (!periodo) return "Sin período"
+function normalizePeriodoKey(value?: string) {
+  return value?.slice(0, 7) ?? ""
+}
 
-  const [year, month] = periodo.split("-").map(Number)
+function formatPeriodo(periodo?: string) {
+  const periodoKey = normalizePeriodoKey(periodo)
+  if (!periodoKey) return "Sin período"
+
+  const [year, month] = periodoKey.split("-").map(Number)
   if (!year || !month) return periodo
 
   return new Date(year, month - 1, 1).toLocaleDateString("es-AR", {
@@ -72,7 +84,7 @@ function getMonthsBetween(start?: string, end?: string) {
   )
 }
 
-function getPeriodoStatus(cerrado: boolean, periodo: string) {
+function getPeriodoStatus(cerrado: boolean, periodo: string, currentPeriodoKey: string) {
   if (cerrado) {
     return {
       label: "Cerrado",
@@ -80,7 +92,7 @@ function getPeriodoStatus(cerrado: boolean, periodo: string) {
     }
   }
 
-  if (periodo === currentPeriodoInput()) {
+  if (normalizePeriodoKey(periodo) === currentPeriodoKey) {
     return {
       label: "Abierto vigente",
       detail: "Es el período corriente disponible para operación fiscal diaria.",
@@ -129,6 +141,7 @@ export default function PeriodosIvaPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [savingPeriodoId, setSavingPeriodoId] = useState<number | null>(null)
   const [selectedPeriodoId, setSelectedPeriodoId] = useState<number | null>(null)
+  const currentPeriodoKey = currentPeriodoInput()
 
   const sortedPeriodos = useMemo(
     () => [...periodos].sort((a, b) => b.periodo.localeCompare(a.periodo)),
@@ -138,7 +151,8 @@ export default function PeriodosIvaPage() {
   const abiertos = sortedPeriodos.filter((periodo) => !periodo.cerrado)
   const cerrados = sortedPeriodos.filter((periodo) => periodo.cerrado)
   const periodoActual =
-    sortedPeriodos.find((periodo) => periodo.periodo === currentPeriodoInput()) ?? null
+    sortedPeriodos.find((periodo) => normalizePeriodoKey(periodo.periodo) === currentPeriodoKey) ??
+    null
   const ultimoPeriodo = sortedPeriodos[0] ?? null
   const mesesEjercicio = getMonthsBetween(ejercicio?.fechaInicio, ejercicio?.fechaFin)
   const coberturaCalendario =
@@ -146,14 +160,18 @@ export default function PeriodosIvaPage() {
       ? `${sortedPeriodos.length}/${mesesEjercicio}`
       : String(sortedPeriodos.length)
   const pendientesCierre = abiertos.filter(
-    (periodo) => periodo.periodo !== currentPeriodoInput()
+    (periodo) => normalizePeriodoKey(periodo.periodo) !== currentPeriodoKey
   ).length
   const selectedPeriodo =
     sortedPeriodos.find((periodo) => periodo.id === selectedPeriodoId) ??
     periodoActual ??
     ultimoPeriodo
+  const periodoConsultado =
+    sortedPeriodos.find(
+      (periodo) => normalizePeriodoKey(periodo.periodo) === normalizePeriodoKey(fechaControl)
+    ) ?? null
   const selectedPeriodoStatus = selectedPeriodo
-    ? getPeriodoStatus(selectedPeriodo.cerrado, selectedPeriodo.periodo)
+    ? getPeriodoStatus(selectedPeriodo.cerrado, selectedPeriodo.periodo, currentPeriodoKey)
     : null
 
   const handleCheckEstado = async () => {
@@ -348,7 +366,9 @@ export default function PeriodosIvaPage() {
                 <ShieldCheck className="h-4 w-4" />
                 <AlertDescription>
                   {estadoFecha
-                    ? "La fecha consultada pertenece a un período IVA abierto."
+                    ? periodoConsultado && !periodoConsultado.cerrado
+                      ? `La fecha consultada cae dentro del período ${formatPeriodo(periodoConsultado.periodo)} abierto en esta sucursal.`
+                      : `El backend informó estado operativo positivo para la fecha consultada, pero no hay un período mensual abierto visible para ${formatPeriodo(fechaControl)} en la grilla actual.`
                     : "La fecha consultada no tiene un período IVA abierto en esta sucursal."}
                 </AlertDescription>
               </Alert>
@@ -471,7 +491,7 @@ export default function PeriodosIvaPage() {
 
               {sortedPeriodos.map((periodo) => {
                 const busy = savingPeriodoId === periodo.id
-                const status = getPeriodoStatus(periodo.cerrado, periodo.periodo)
+                const status = getPeriodoStatus(periodo.cerrado, periodo.periodo, currentPeriodoKey)
                 const isSelected = periodo.id === selectedPeriodo?.id
 
                 return (

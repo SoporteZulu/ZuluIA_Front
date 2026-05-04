@@ -34,8 +34,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { WmsDetailFieldGrid, WmsTabsList } from "@/components/almacenes/wms-responsive"
 import { useDepositos } from "@/lib/hooks/useDepositos"
 import { useOrdenesTrabajo } from "@/lib/hooks/useOrdenesTrabajo"
 import { useProduccion } from "@/lib/hooks/useProduccion"
@@ -108,6 +109,7 @@ export default function ProduccionPage() {
     lote: "",
     observacion: "",
   })
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const { ordenes, loading, error, refetch } = useOrdenesTrabajo({
     sucursalId: defaultSucursalId,
@@ -135,12 +137,14 @@ export default function ProduccionPage() {
   }, [ordenes, search])
 
   const selected = filtered.find((row) => row.id === selectedId) ?? filtered[0] ?? null
+  const highlightedDetail = selected ? detail : null
 
   useEffect(() => {
     if (!selected) return
 
     let active = true
     const load = async () => {
+      setActionError(null)
       setDetailBusy(true)
       const next = await getDetalleOrden(selected.id)
       if (active) {
@@ -169,16 +173,45 @@ export default function ProduccionPage() {
   const enProceso = filtered.filter((row) => row.estado === "EN_PROCESO").length
   const completadas = filtered.filter((row) => row.estado === "COMPLETADO").length
   const consumoRegistrado =
-    detail?.consumos.reduce((sum, row) => sum + row.cantidadConsumida, 0) ?? 0
-  const empaqueRegistrado = detail?.empaques.reduce((sum, row) => sum + row.cantidad, 0) ?? 0
+    highlightedDetail?.consumos.reduce((sum, row) => sum + row.cantidadConsumida, 0) ?? 0
+  const empaqueRegistrado =
+    highlightedDetail?.empaques.reduce((sum, row) => sum + row.cantidad, 0) ?? 0
 
   const handleFinalizar = async () => {
+    setActionError(null)
+
     if (!selected || !detail) return
+
+    if (!finalizeDraft.fechaFinReal) {
+      setActionError("Informá la fecha real de cierre antes de finalizar la orden.")
+      return
+    }
+
+    const cantidadProducida = finalizeDraft.cantidadProducida
+      ? Number(finalizeDraft.cantidadProducida)
+      : undefined
+
+    if (
+      finalizeDraft.cantidadProducida &&
+      (Number.isNaN(cantidadProducida) || (cantidadProducida ?? 0) <= 0)
+    ) {
+      setActionError("La cantidad producida debe ser un número mayor a cero.")
+      return
+    }
+
+    const consumosInvalidos = detail.consumos.some((consumo) => {
+      const value = Number(finalizeDraft.consumos[consumo.itemId] ?? consumo.cantidadConsumida ?? 0)
+      return Number.isNaN(value) || value < 0
+    })
+
+    if (consumosInvalidos) {
+      setActionError("Revisá los consumos del cierre: deben ser valores numéricos no negativos.")
+      return
+    }
+
     const dto: FinalizarOrdenTrabajoDto = {
       fechaFinReal: finalizeDraft.fechaFinReal,
-      cantidadProducida: finalizeDraft.cantidadProducida
-        ? Number(finalizeDraft.cantidadProducida)
-        : undefined,
+      cantidadProducida,
       consumos: detail.consumos.map((consumo) => ({
         itemId: consumo.itemId,
         cantidadConsumida: Number(
@@ -200,18 +233,26 @@ export default function ProduccionPage() {
   }
 
   const handleAjuste = async () => {
-    if (
-      !selected ||
-      !detail?.depositoOrigenId ||
-      !detail?.depositoDestinoId ||
-      !ajusteDraft.cantidad
-    )
+    setActionError(null)
+
+    if (!selected || !detail?.depositoOrigenId || !detail?.depositoDestinoId) {
+      setActionError(
+        "La orden seleccionada no expone el circuito completo de depósitos para registrar ajustes."
+      )
       return
+    }
+
+    const cantidad = Number(ajusteDraft.cantidad)
+    if (Number.isNaN(cantidad) || cantidad <= 0) {
+      setActionError("Informá una cantidad de ajuste mayor a cero.")
+      return
+    }
+
     const ok = await registrarAjuste({
       formulaId: selected.formulaId,
       depositoOrigenId: detail.depositoOrigenId,
       depositoDestinoId: detail.depositoDestinoId,
-      cantidad: Number(ajusteDraft.cantidad),
+      cantidad,
       observacion: ajusteDraft.observacion || undefined,
     })
     if (!ok) return
@@ -220,16 +261,36 @@ export default function ProduccionPage() {
       title: "Ajuste registrado",
       description: `Se registró el ajuste para la OT #${selected.id}.`,
     })
+    await refetch()
+    const next = await getDetalleOrden(selected.id)
+    setDetail(next)
   }
 
   const handleEmpaque = async () => {
-    if (!selected || !detail || !empaqueDraft.depositoId || !empaqueDraft.cantidad) return
+    setActionError(null)
+
+    if (!selected || !detail) return
+    if (!empaqueDraft.fecha) {
+      setActionError("Informá la fecha del empaque.")
+      return
+    }
+    if (!empaqueDraft.depositoId) {
+      setActionError("Seleccioná el depósito donde se registra el empaque.")
+      return
+    }
+
+    const cantidad = Number(empaqueDraft.cantidad)
+    if (Number.isNaN(cantidad) || cantidad <= 0) {
+      setActionError("La cantidad del empaque debe ser mayor a cero.")
+      return
+    }
+
     const ok = await crearOrdenEmpaque({
       ordenTrabajoId: selected.id,
-      itemId: detail.formulaId,
+      itemId: detail.itemResultadoId ?? detail.formulaId,
       depositoId: Number(empaqueDraft.depositoId),
       fecha: empaqueDraft.fecha,
-      cantidad: Number(empaqueDraft.cantidad),
+      cantidad,
       lote: empaqueDraft.lote || undefined,
       observacion: empaqueDraft.observacion || undefined,
     })
@@ -282,10 +343,10 @@ export default function ProduccionPage() {
         </AlertDescription>
       </Alert>
 
-      {error || productionError ? (
+      {error || productionError || actionError ? (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{productionError || error}</AlertDescription>
+          <AlertDescription>{actionError || productionError || error}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -455,43 +516,39 @@ export default function ProduccionPage() {
               <p className="text-sm text-muted-foreground">Cargando detalle de producción...</p>
             ) : detail ? (
               <Tabs defaultValue="circuito" className="w-full">
-                <TabsList className="grid w-full grid-cols-5">
+                <WmsTabsList className="md:grid-cols-5">
                   <TabsTrigger value="circuito">Circuito</TabsTrigger>
                   <TabsTrigger value="consumos">Consumos</TabsTrigger>
                   <TabsTrigger value="cierre">Cierre</TabsTrigger>
                   <TabsTrigger value="empaque">Empaque</TabsTrigger>
                   <TabsTrigger value="ajustes">Ajustes</TabsTrigger>
-                </TabsList>
+                </WmsTabsList>
 
                 <TabsContent value="circuito" className="space-y-4 pt-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Fórmula</p>
-                      <p className="mt-2 font-medium">{detail.formulaDescripcion}</p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Planificación</p>
-                      <p className="mt-2 font-medium">
-                        {getPlanningStatus(detail.depositoOrigenId, detail.depositoDestinoId)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Depósito origen</p>
-                      <p className="mt-2 font-medium">{detail.depositoOrigenDescripcion}</p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Depósito destino</p>
-                      <p className="mt-2 font-medium">{detail.depositoDestinoDescripcion}</p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Cantidad ordenada</p>
-                      <p className="mt-2 font-medium">{formatQty(detail.cantidad)}</p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-sm text-muted-foreground">Cantidad producida</p>
-                      <p className="mt-2 font-medium">{formatQty(detail.cantidadProducida)}</p>
-                    </div>
-                  </div>
+                  <WmsDetailFieldGrid
+                    columns="2"
+                    fields={[
+                      { label: "Fórmula", value: detail.formulaDescripcion },
+                      {
+                        label: "Item resultado",
+                        value:
+                          detail.itemResultadoDescripcion ??
+                          detail.itemResultadoCodigo ??
+                          "Sin item visible",
+                      },
+                      {
+                        label: "Planificación",
+                        value: getPlanningStatus(detail.depositoOrigenId, detail.depositoDestinoId),
+                      },
+                      { label: "Depósito origen", value: detail.depositoOrigenDescripcion },
+                      { label: "Depósito destino", value: detail.depositoDestinoDescripcion },
+                      { label: "Cantidad ordenada", value: formatQty(detail.cantidad) },
+                      {
+                        label: "Cantidad producida",
+                        value: formatQty(detail.cantidadProducida),
+                      },
+                    ]}
+                  />
                   <div className="rounded-lg border bg-muted/20 p-4 text-sm">
                     <p className="font-medium">Observación</p>
                     <p className="mt-1 text-muted-foreground">
@@ -534,65 +591,71 @@ export default function ProduccionPage() {
                 </TabsContent>
 
                 <TabsContent value="cierre" className="space-y-4 pt-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="fecha-fin-real">Fecha fin real</Label>
-                      <Input
-                        id="fecha-fin-real"
-                        type="date"
-                        value={finalizeDraft.fechaFinReal}
-                        onChange={(event) =>
-                          setFinalizeDraft((prev) => ({
-                            ...prev,
-                            fechaFinReal: event.target.value,
-                          }))
-                        }
-                      />
+                  <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="fecha-fin-real">Fecha fin real</Label>
+                        <Input
+                          id="fecha-fin-real"
+                          type="date"
+                          value={finalizeDraft.fechaFinReal}
+                          onChange={(event) =>
+                            setFinalizeDraft((prev) => ({
+                              ...prev,
+                              fechaFinReal: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="cantidad-producida">Cantidad producida</Label>
+                        <Input
+                          id="cantidad-producida"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={finalizeDraft.cantidadProducida}
+                          onChange={(event) =>
+                            setFinalizeDraft((prev) => ({
+                              ...prev,
+                              cantidadProducida: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="cantidad-producida">Cantidad producida</Label>
-                      <Input
-                        id="cantidad-producida"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={finalizeDraft.cantidadProducida}
-                        onChange={(event) =>
-                          setFinalizeDraft((prev) => ({
-                            ...prev,
-                            cantidadProducida: event.target.value,
-                          }))
-                        }
-                      />
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium">Consumos a confirmar en cierre</p>
+                      <div className="grid gap-3">
+                        {detail.consumos.map((consumo) => (
+                          <div
+                            key={consumo.id}
+                            className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_140px]"
+                          >
+                            <Label>{consumo.itemDescripcion}</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={finalizeDraft.consumos[consumo.itemId] ?? ""}
+                              onChange={(event) =>
+                                setFinalizeDraft((prev) => ({
+                                  ...prev,
+                                  consumos: {
+                                    ...prev.consumos,
+                                    [consumo.itemId]: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium">Consumos a confirmar en cierre</p>
-                    <div className="grid gap-3">
-                      {detail.consumos.map((consumo) => (
-                        <div
-                          key={consumo.id}
-                          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_140px]"
-                        >
-                          <Label>{consumo.itemDescripcion}</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={finalizeDraft.consumos[consumo.itemId] ?? ""}
-                            onChange={(event) =>
-                              setFinalizeDraft((prev) => ({
-                                ...prev,
-                                consumos: {
-                                  ...prev.consumos,
-                                  [consumo.itemId]: event.target.value,
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      El cierre persiste consumos y producción final en la misma operación de
+                      backend.
+                    </p>
                   </div>
                   <Button
                     onClick={() => void handleFinalizar()}
@@ -632,104 +695,114 @@ export default function ProduccionPage() {
                       ) : null}
                     </TableBody>
                   </Table>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="emp-fecha">Fecha</Label>
-                      <Input
-                        id="emp-fecha"
-                        type="date"
-                        value={empaqueDraft.fecha}
-                        onChange={(event) =>
-                          setEmpaqueDraft((prev) => ({ ...prev, fecha: event.target.value }))
-                        }
-                      />
+                  <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="emp-fecha">Fecha</Label>
+                        <Input
+                          id="emp-fecha"
+                          type="date"
+                          value={empaqueDraft.fecha}
+                          onChange={(event) =>
+                            setEmpaqueDraft((prev) => ({ ...prev, fecha: event.target.value }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="emp-deposito">Depósito</Label>
+                        <Select
+                          value={empaqueDraft.depositoId}
+                          onValueChange={(value) =>
+                            setEmpaqueDraft((prev) => ({ ...prev, depositoId: value }))
+                          }
+                        >
+                          <SelectTrigger id="emp-deposito" className="w-full">
+                            <SelectValue placeholder="Seleccionar depósito" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {depositos.map((deposito) => (
+                              <SelectItem key={deposito.id} value={String(deposito.id)}>
+                                {deposito.descripcion}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="emp-cantidad">Cantidad</Label>
+                        <Input
+                          id="emp-cantidad"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={empaqueDraft.cantidad}
+                          onChange={(event) =>
+                            setEmpaqueDraft((prev) => ({ ...prev, cantidad: event.target.value }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="emp-lote">Lote</Label>
+                        <Input
+                          id="emp-lote"
+                          value={empaqueDraft.lote}
+                          onChange={(event) =>
+                            setEmpaqueDraft((prev) => ({ ...prev, lote: event.target.value }))
+                          }
+                        />
+                      </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="emp-deposito">Depósito</Label>
-                      <Select
-                        value={empaqueDraft.depositoId}
-                        onValueChange={(value) =>
-                          setEmpaqueDraft((prev) => ({ ...prev, depositoId: value }))
-                        }
-                      >
-                        <SelectTrigger id="emp-deposito" className="w-full">
-                          <SelectValue placeholder="Seleccionar depósito" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {depositos.map((deposito) => (
-                            <SelectItem key={deposito.id} value={String(deposito.id)}>
-                              {deposito.descripcion}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="emp-cantidad">Cantidad</Label>
-                      <Input
-                        id="emp-cantidad"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={empaqueDraft.cantidad}
+                      <Label htmlFor="emp-observacion">Observación</Label>
+                      <Textarea
+                        id="emp-observacion"
+                        rows={3}
+                        value={empaqueDraft.observacion}
                         onChange={(event) =>
-                          setEmpaqueDraft((prev) => ({ ...prev, cantidad: event.target.value }))
-                        }
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="emp-lote">Lote</Label>
-                      <Input
-                        id="emp-lote"
-                        value={empaqueDraft.lote}
-                        onChange={(event) =>
-                          setEmpaqueDraft((prev) => ({ ...prev, lote: event.target.value }))
+                          setEmpaqueDraft((prev) => ({ ...prev, observacion: event.target.value }))
                         }
                       />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="emp-observacion">Observación</Label>
-                    <Textarea
-                      id="emp-observacion"
-                      rows={3}
-                      value={empaqueDraft.observacion}
-                      onChange={(event) =>
-                        setEmpaqueDraft((prev) => ({ ...prev, observacion: event.target.value }))
-                      }
-                    />
-                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    El empaque se registra sobre el item resultado publicado por la fórmula activa.
+                  </p>
                   <Button onClick={() => void handleEmpaque()} disabled={saving}>
                     <PackagePlus className="mr-2 h-4 w-4" /> Registrar orden de empaque
                   </Button>
                 </TabsContent>
 
                 <TabsContent value="ajustes" className="space-y-4 pt-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="ajuste-cantidad">Cantidad</Label>
-                      <Input
-                        id="ajuste-cantidad"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={ajusteDraft.cantidad}
-                        onChange={(event) =>
-                          setAjusteDraft((prev) => ({ ...prev, cantidad: event.target.value }))
-                        }
-                      />
+                  <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="ajuste-cantidad">Cantidad</Label>
+                        <Input
+                          id="ajuste-cantidad"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={ajusteDraft.cantidad}
+                          onChange={(event) =>
+                            setAjusteDraft((prev) => ({ ...prev, cantidad: event.target.value }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="ajuste-observacion">Observación</Label>
+                        <Textarea
+                          id="ajuste-observacion"
+                          rows={3}
+                          value={ajusteDraft.observacion}
+                          onChange={(event) =>
+                            setAjusteDraft((prev) => ({ ...prev, observacion: event.target.value }))
+                          }
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="ajuste-observacion">Observación</Label>
-                      <Textarea
-                        id="ajuste-observacion"
-                        rows={3}
-                        value={ajusteDraft.observacion}
-                        onChange={(event) =>
-                          setAjusteDraft((prev) => ({ ...prev, observacion: event.target.value }))
-                        }
-                      />
-                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      El ajuste se registra entre los depósitos visibles de la orden seleccionada.
+                    </p>
                   </div>
                   <Button
                     onClick={() => void handleAjuste()}

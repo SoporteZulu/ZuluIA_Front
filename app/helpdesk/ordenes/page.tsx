@@ -739,7 +739,7 @@ function OrdenesContent() {
           setFormOpen(true)
         }}
       >
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedOrder ? "Editar orden" : "Nueva orden de servicio"}</DialogTitle>
             <DialogDescription>

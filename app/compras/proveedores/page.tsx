@@ -60,8 +60,11 @@ import type { Tercero, CreateTerceroDto } from "@/lib/types/terceros"
 const EMPTY_SUPPLIER_FORM: CreateTerceroDto = {
   razonSocial: "",
   nombreFantasia: null,
+  tipoDocumentoId: null,
   nroDocumento: null,
   condicionIvaId: 0,
+  claveFiscal: null,
+  valorClaveFiscal: null,
   esCliente: false,
   esProveedor: true,
   esEmpleado: false,
@@ -95,8 +98,11 @@ function buildSupplierForm(supplier?: Tercero | null): CreateTerceroDto {
   return {
     razonSocial: supplier.razonSocial,
     nombreFantasia: supplier.nombreFantasia,
+    tipoDocumentoId: supplier.tipoDocumentoId,
     nroDocumento: supplier.nroDocumento,
     condicionIvaId: supplier.condicionIvaId,
+    claveFiscal: supplier.claveFiscal,
+    valorClaveFiscal: supplier.valorClaveFiscal,
     esCliente: false,
     esProveedor: true,
     esEmpleado: false,
@@ -173,7 +179,7 @@ function SupplierForm({
   createProveedor,
   updateProveedor,
 }: SupplierFormProps) {
-  const { condicionesIva, monedas } = useTercerosConfig()
+  const { condicionesIva, monedas, tiposDocumento } = useTercerosConfig()
   const [tab, setTab] = useState("principales")
   const [form, setForm] = useState<CreateTerceroDto>(() => buildSupplierForm(supplier))
   const legacyPreview = buildLegacySupplierOverlay(supplier)
@@ -183,6 +189,19 @@ function SupplierForm({
   })
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  const selectedCondicionIva = useMemo(
+    () => condicionesIva.find((condicion) => condicion.id === form.condicionIvaId) ?? null,
+    [condicionesIva, form.condicionIvaId]
+  )
+  const consumerFinalDocumentTypeId = useMemo(
+    () =>
+      tiposDocumento.find((tipo) => tipo.descripcion.toUpperCase().includes("CONSUMIDOR FINAL"))
+        ?.id ?? null,
+    [tiposDocumento]
+  )
+  const isConsumerFinalSelected =
+    selectedCondicionIva?.descripcion.toUpperCase().includes("CONSUMIDOR FINAL") ?? false
 
   const set = (key: keyof CreateTerceroDto, value: unknown) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -204,7 +223,19 @@ function SupplierForm({
     setSaving(true)
     setFormError(null)
 
-    const ok = supplier ? await updateProveedor(supplier.id, form) : await createProveedor(form)
+    const normalizedPayload: CreateTerceroDto = {
+      ...form,
+      tipoDocumentoId:
+        isConsumerFinalSelected && !form.nroDocumento?.trim()
+          ? (form.tipoDocumentoId ?? consumerFinalDocumentTypeId ?? null)
+          : (form.tipoDocumentoId ?? null),
+      claveFiscal: str(form.claveFiscal ?? ""),
+      valorClaveFiscal: str(form.valorClaveFiscal ?? ""),
+    }
+
+    const ok = supplier
+      ? await updateProveedor(supplier.id, normalizedPayload)
+      : await createProveedor(normalizedPayload)
 
     setSaving(false)
     if (ok) onSaved()
@@ -392,6 +423,27 @@ function SupplierForm({
               />
             </div>
             <div className="space-y-1.5">
+              <Label>Tipo de documento</Label>
+              <Select
+                value={form.tipoDocumentoId ? String(form.tipoDocumentoId) : "__none__"}
+                onValueChange={(value) =>
+                  set("tipoDocumentoId", value === "__none__" ? null : Number(value))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sin tipo</SelectItem>
+                  {tiposDocumento.map((tipoDocumento) => (
+                    <SelectItem key={tipoDocumento.id} value={String(tipoDocumento.id)}>
+                      {tipoDocumento.descripcion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label>
                 Condición IVA <span className="text-red-500">*</span>
               </Label>
@@ -410,6 +462,12 @@ function SupplierForm({
                   ))}
                 </SelectContent>
               </Select>
+              {isConsumerFinalSelected && !form.nroDocumento?.trim() ? (
+                <p className="text-xs text-muted-foreground">
+                  Si no cargás documento, se enviará el tipo “Consumidor Final” cuando exista en
+                  catálogo.
+                </p>
+              ) : null}
             </div>
             <div className="space-y-1.5">
               <Label>Nro. Ingresos Brutos</Label>
@@ -425,6 +483,22 @@ function SupplierForm({
                 value={form.nroMunicipal ?? ""}
                 onChange={(e) => set("nroMunicipal", str(e.target.value))}
                 placeholder="MUN-001"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Clave Fiscal</Label>
+              <Input
+                value={form.claveFiscal ?? ""}
+                onChange={(e) => set("claveFiscal", str(e.target.value))}
+                placeholder="Nivel de clave fiscal"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Valor Clave Fiscal</Label>
+              <Input
+                value={form.valorClaveFiscal ?? ""}
+                onChange={(e) => set("valorClaveFiscal", str(e.target.value))}
+                placeholder="Identificador o valor"
               />
             </div>
           </div>
@@ -613,9 +687,17 @@ function SupplierDetail({ supplier }: { supplier: Tercero }) {
   const fiscalFields = [
     { label: "CUIT / Documento", value: supplier.nroDocumento ?? "-" },
     {
+      label: "Tipo de documento",
+      value:
+        supplier.tipoDocumentoDescripcion ??
+        (supplier.tipoDocumentoId ? `#${supplier.tipoDocumentoId}` : "-"),
+    },
+    {
       label: "Condición IVA",
       value: supplier.condicionIvaDescripcion ?? `Cond. ${supplier.condicionIvaId}`,
     },
+    { label: "Clave Fiscal", value: supplier.claveFiscal ?? "-" },
+    { label: "Valor Clave Fiscal", value: supplier.valorClaveFiscal ?? "-" },
     { label: "Nro. Ingresos Brutos", value: supplier.nroIngresosBrutos ?? "-" },
     { label: "Nro. Municipal", value: supplier.nroMunicipal ?? "-" },
   ]

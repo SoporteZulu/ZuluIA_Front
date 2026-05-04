@@ -1,6 +1,6 @@
 "use client"
 
-import React, { Suspense, useMemo, useState } from "react"
+import React, { Suspense, useEffect, useMemo, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -93,6 +93,25 @@ const origenLabels: Record<CRMOpportunity["origen"], string> = {
   otro: "Otro",
 }
 
+function getCatalogLabel<T extends string>(
+  option: { id: string; nombre: string },
+  labels: Record<T, string>
+) {
+  const fallbackLabel = labels[option.id as T]
+  const normalizedName = option.nombre.trim()
+
+  if (!fallbackLabel) {
+    return normalizedName || option.id
+  }
+
+  if (!normalizedName) {
+    return fallbackLabel
+  }
+
+  const normalizedKey = normalizedName.toLowerCase().replace(/\s+/g, "_")
+  return normalizedKey === option.id ? fallbackLabel : normalizedName
+}
+
 const formatDate = (date?: Date | string | null) => {
   if (!date) return "Sin fecha"
   return new Intl.DateTimeFormat("es-AR", {
@@ -123,6 +142,7 @@ function OportunidadesContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const action = searchParams.get("action")
+  const opportunityIdParam = searchParams.get("id")
   const clienteIdParam = searchParams.get("clienteId")
   const [today] = useState(() => {
     const baseDate = new Date()
@@ -164,11 +184,18 @@ function OportunidadesContent() {
     [crmClients]
   )
   const usersById = useMemo(() => new Map(crmUsers.map((user) => [user.id, user])), [crmUsers])
+  const defaultResponsableId = useMemo(
+    () => crmUsers.find((user) => user.estado === "activo")?.id ?? "",
+    [crmUsers]
+  )
 
   const etapaOptions = useMemo(
     () =>
       catalogos.etapasOportunidad.length > 0
-        ? catalogos.etapasOportunidad
+        ? catalogos.etapasOportunidad.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, etapaLabels),
+          }))
         : Object.entries(etapaLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.etapasOportunidad]
   )
@@ -184,7 +211,10 @@ function OportunidadesContent() {
   const origenOptions = useMemo(
     () =>
       catalogos.origenesOportunidad.length > 0
-        ? catalogos.origenesOportunidad
+        ? catalogos.origenesOportunidad.map((option) => ({
+            ...option,
+            nombre: getCatalogLabel(option, origenLabels),
+          }))
         : Object.entries(origenLabels).map(([id, nombre]) => ({ id, nombre })),
     [catalogos.origenesOportunidad]
   )
@@ -222,12 +252,79 @@ function OportunidadesContent() {
     montoEstimado: 0,
     moneda: "USD",
     fechaApertura: new Date(),
-    responsableId: "",
+    responsableId: defaultResponsableId,
     origen: "web",
     notas: "",
   }
 
   const [formData, setFormData] = useState<Partial<CRMOpportunity>>(emptyForm)
+
+  useEffect(() => {
+    if (action !== "edit" || !opportunityIdParam) {
+      return
+    }
+
+    if (loading) {
+      return
+    }
+
+    if (selectedOpp?.id === opportunityIdParam && isFormOpen) {
+      return
+    }
+
+    const targetOpportunity = oportunidades.find((opp) => opp.id === opportunityIdParam)
+    if (!targetOpportunity) {
+      router.replace("/crm/oportunidades")
+      return
+    }
+
+    setSelectedOpp(targetOpportunity)
+    setFormData({ ...targetOpportunity })
+    setIsFormOpen(true)
+  }, [action, isFormOpen, loading, oportunidades, opportunityIdParam, router, selectedOpp?.id])
+
+  const responsableSelectOptions = useMemo(() => {
+    if (!formData.responsableId) {
+      return responsableOptions
+    }
+
+    const currentResponsable =
+      catalogos.usuarios.find((user) => user.id === formData.responsableId) ??
+      crmUsers
+        .filter((user) => user.id === formData.responsableId)
+        .map((user) => ({
+          id: user.id,
+          nombre: `${user.nombre} ${user.apellido}`,
+          rol: user.rol,
+        }))[0]
+
+    if (
+      !currentResponsable ||
+      responsableOptions.some((user) => user.id === currentResponsable.id)
+    ) {
+      return responsableOptions
+    }
+
+    return [currentResponsable, ...responsableOptions]
+  }, [catalogos.usuarios, crmUsers, formData.responsableId, responsableOptions])
+
+  useEffect(() => {
+    if (!isFormOpen || selectedOpp || !defaultResponsableId) {
+      return
+    }
+
+    setFormData((current) => {
+      if (current.responsableId) {
+        return current
+      }
+
+      return {
+        ...current,
+        clienteId: current.clienteId || clienteIdParam || "",
+        responsableId: defaultResponsableId,
+      }
+    })
+  }, [clienteIdParam, defaultResponsableId, isFormOpen, selectedOpp])
 
   const filteredOpps = oportunidades.filter((opp) => {
     const matchesSearch = opp.titulo.toLowerCase().includes(search.toLowerCase())
@@ -367,11 +464,13 @@ function OportunidadesContent() {
   }, [crmUsers, opportunityRows])
 
   const highlightedOpp = useMemo(() => {
-    const sorted = [...opportunityRows].sort(
-      (left, right) =>
-        right.score - left.score ||
-        Number(right.opp.montoEstimado ?? 0) - Number(left.opp.montoEstimado ?? 0)
-    )
+    const sorted = opportunityRows
+      .filter(({ opp }) => !["cerrado_ganado", "cerrado_perdido"].includes(opp.etapa))
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          Number(right.opp.montoEstimado ?? 0) - Number(left.opp.montoEstimado ?? 0)
+      )
     return sorted[0] ?? null
   }, [opportunityRows])
 
@@ -890,9 +989,12 @@ function OportunidadesContent() {
                 <div className="space-y-2">
                   <Label>Contacto</Label>
                   <Select
-                    value={formData.contactoPrincipalId || ""}
+                    value={formData.contactoPrincipalId || "__none__"}
                     onValueChange={(value) =>
-                      setFormData({ ...formData, contactoPrincipalId: value })
+                      setFormData({
+                        ...formData,
+                        contactoPrincipalId: value === "__none__" ? undefined : value,
+                      })
                     }
                     disabled={!formData.clienteId}
                   >
@@ -900,6 +1002,7 @@ function OportunidadesContent() {
                       <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="__none__">Sin contacto</SelectItem>
                       {clientContacts.map((contact) => (
                         <SelectItem key={contact.id} value={contact.id}>
                           {contact.nombre}
@@ -997,14 +1100,20 @@ function OportunidadesContent() {
                 <div className="space-y-2">
                   <Label>Responsable</Label>
                   <Select
-                    value={formData.responsableId || ""}
-                    onValueChange={(value) => setFormData({ ...formData, responsableId: value })}
+                    value={formData.responsableId || "__none__"}
+                    onValueChange={(value) =>
+                      setFormData({
+                        ...formData,
+                        responsableId: value === "__none__" ? undefined : value,
+                      })
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
-                      {responsableOptions.map((user) => (
+                      <SelectItem value="__none__">Sin responsable</SelectItem>
+                      {responsableSelectOptions.map((user) => (
                         <SelectItem key={user.id} value={user.id}>
                           {user.nombre}
                         </SelectItem>
@@ -1036,7 +1145,7 @@ function OportunidadesContent() {
               <div className="space-y-2">
                 <Label>Notas</Label>
                 <Textarea
-                  value={formData.notas}
+                  value={formData.notas ?? ""}
                   onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
                   rows={2}
                 />

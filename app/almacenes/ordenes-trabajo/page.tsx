@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -25,7 +24,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import {
+  WmsDetailFieldGrid,
+  WmsDialogContent,
+  WmsTabsList,
+} from "@/components/almacenes/wms-responsive"
 import {
   Table,
   TableBody,
@@ -180,18 +184,24 @@ export default function OrdenesTrabajPage() {
     [ordenes, searchTerm]
   )
 
-  const pendientes = ordenes.filter((orden) => orden.estado === "PENDIENTE").length
-  const enProceso = ordenes.filter((orden) => orden.estado === "EN_PROCESO").length
-  const completados = ordenes.filter((orden) => orden.estado === "COMPLETADO").length
-  const conCircuitoCompleto = ordenes.filter((orden) =>
-    Boolean(orden.depositoOrigenId && orden.depositoDestinoId)
-  ).length
-  const conObservacion = ordenes.filter((orden) => Boolean(orden.observacion)).length
-  const vencidas = ordenes.filter(
-    (orden) =>
-      ["PENDIENTE", "EN_PROCESO"].includes(orden.estado) &&
-      (getDaysOffset(orden.fechaFinPrevista) ?? 1) < 0
-  ).length
+  const visibleStats = useMemo(
+    () => ({
+      total: filtered.length,
+      pendientes: filtered.filter((orden) => orden.estado === "PENDIENTE").length,
+      enProceso: filtered.filter((orden) => orden.estado === "EN_PROCESO").length,
+      completados: filtered.filter((orden) => orden.estado === "COMPLETADO").length,
+      conCircuitoCompleto: filtered.filter((orden) =>
+        Boolean(orden.depositoOrigenId && orden.depositoDestinoId)
+      ).length,
+      conObservacion: filtered.filter((orden) => Boolean(orden.observacion)).length,
+      vencidas: filtered.filter(
+        (orden) =>
+          ["PENDIENTE", "EN_PROCESO"].includes(orden.estado) &&
+          (getDaysOffset(orden.fechaFinPrevista) ?? 1) < 0
+      ).length,
+    }),
+    [filtered]
+  )
 
   const selected = useMemo(
     () => filtered.find((orden) => orden.id === selectedId) ?? filtered[0] ?? null,
@@ -214,22 +224,41 @@ export default function OrdenesTrabajPage() {
 
   const handleCreate = async () => {
     setActionError(null)
-    if (!draft.formulaId || !draft.fecha || !draft.cantidad) {
-      setActionError("Completá fórmula, fecha y cantidad para generar la orden.")
+
+    if (!draft.formulaId || !draft.fecha) {
+      setActionError("Completá fórmula y fecha para generar la orden.")
+      return
+    }
+
+    const formulaId = Number(draft.formulaId)
+    const cantidad = Number(draft.cantidad)
+
+    if (Number.isNaN(formulaId) || formulaId <= 0) {
+      setActionError("Seleccioná una fórmula válida para crear la orden.")
+      return
+    }
+
+    if (Number.isNaN(cantidad) || cantidad <= 0) {
+      setActionError("La cantidad planificada debe ser mayor a cero.")
+      return
+    }
+
+    if (draft.fechaFinPrevista && draft.fechaFinPrevista < draft.fecha) {
+      setActionError("La fecha de fin prevista no puede ser anterior a la fecha de inicio.")
       return
     }
 
     setSaving(true)
     const ok = await crear({
       sucursalId: defaultSucursalId,
-      formulaId: Number(draft.formulaId),
+      formulaId,
       depositoOrigenId:
         draft.depositoOrigenId === "none" ? undefined : Number(draft.depositoOrigenId),
       depositoDestinoId:
         draft.depositoDestinoId === "none" ? undefined : Number(draft.depositoDestinoId),
       fecha: draft.fecha,
       fechaFinPrevista: draft.fechaFinPrevista || undefined,
-      cantidad: Number(draft.cantidad),
+      cantidad,
       observacion: draft.observacion || undefined,
     })
     setSaving(false)
@@ -274,12 +303,30 @@ export default function OrdenesTrabajPage() {
 
   const handleFinalizar = async () => {
     if (!selected) return
+
+    setActionError(null)
+
+    if (!finalizeDraft.fechaFinReal) {
+      setActionError("Informá la fecha real para finalizar la orden.")
+      return
+    }
+
+    const cantidadProducida = finalizeDraft.cantidadProducida
+      ? Number(finalizeDraft.cantidadProducida)
+      : undefined
+
+    if (
+      finalizeDraft.cantidadProducida &&
+      (Number.isNaN(cantidadProducida) || (cantidadProducida ?? 0) <= 0)
+    ) {
+      setActionError("La cantidad producida debe ser un número mayor a cero.")
+      return
+    }
+
     setSaving(true)
     const ok = await finalizar(selected.id, {
       fechaFinReal: finalizeDraft.fechaFinReal,
-      cantidadProducida: finalizeDraft.cantidadProducida
-        ? Number(finalizeDraft.cantidadProducida)
-        : undefined,
+      cantidadProducida,
     })
     setSaving(false)
     if (!ok) return
@@ -317,42 +364,42 @@ export default function OrdenesTrabajPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="Totales"
-          value={String(totalCount)}
-          description={`Sucursal ${defaultSucursalId} con filtros aplicados.`}
+          title="Órdenes visibles"
+          value={String(visibleStats.total)}
+          description={`Vista actual sobre ${totalCount} órdenes consultadas en backend.`}
         />
         <SummaryCard
           title="Pendientes"
-          value={String(pendientes)}
-          description="Órdenes esperando inicio de producción."
+          value={String(visibleStats.pendientes)}
+          description="Órdenes visibles esperando inicio de producción."
         />
         <SummaryCard
           title="En proceso"
-          value={String(enProceso)}
-          description="Órdenes actualmente en ejecución."
+          value={String(visibleStats.enProceso)}
+          description="Órdenes visibles actualmente en ejecución."
         />
         <SummaryCard
           title="Completadas"
-          value={String(completados)}
-          description="Órdenes ya finalizadas o cerradas."
+          value={String(visibleStats.completados)}
+          description="Órdenes visibles ya finalizadas o cerradas."
         />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Circuito completo"
-          value={String(conCircuitoCompleto)}
-          description="Órdenes con depósito origen y destino visibles."
+          value={String(visibleStats.conCircuitoCompleto)}
+          description="Órdenes visibles con depósito origen y destino definidos."
         />
         <SummaryCard
           title="Con observación"
-          value={String(conObservacion)}
-          description="Órdenes con contexto operativo registrado."
+          value={String(visibleStats.conObservacion)}
+          description="Órdenes visibles con contexto operativo registrado."
         />
         <SummaryCard
           title="Vencidas"
-          value={String(vencidas)}
-          description="Pendientes o en proceso con fin previsto vencido."
+          value={String(visibleStats.vencidas)}
+          description="Pendientes o en proceso visibles con fin previsto vencido."
         />
         <SummaryCard
           title="Estado seleccionado"
@@ -641,7 +688,7 @@ export default function OrdenesTrabajPage() {
       </div>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent>
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Detalle de orden de trabajo</DialogTitle>
             <DialogDescription>
@@ -652,71 +699,68 @@ export default function OrdenesTrabajPage() {
             <p className="text-sm text-muted-foreground">Cargando detalle...</p>
           ) : detail ? (
             <Tabs defaultValue="general">
-              <TabsList className="grid w-full grid-cols-3">
+              <WmsTabsList className="md:grid-cols-3">
                 <TabsTrigger value="general">General</TabsTrigger>
                 <TabsTrigger value="circuito">Circuito</TabsTrigger>
                 <TabsTrigger value="fechas">Fechas</TabsTrigger>
-              </TabsList>
+              </WmsTabsList>
 
-              <TabsContent value="general" className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Fórmula</span>
-                  <p className="text-sm font-medium">{getFormulaName(detail.formulaId)}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Estado</span>
-                  <p className="text-sm font-medium">{detail.estado}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Cantidad</span>
-                  <p className="text-sm font-medium">{detail.cantidad}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Estado operativo</span>
-                  <p className="text-sm font-medium">{getOperationalStatus(detail)}</p>
-                </div>
+              <TabsContent value="general" className="mt-4">
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    { label: "Fórmula", value: getFormulaName(detail.formulaId) },
+                    { label: "Estado", value: detail.estado },
+                    { label: "Cantidad", value: detail.cantidad },
+                    { label: "Estado operativo", value: getOperationalStatus(detail) },
+                  ]}
+                />
               </TabsContent>
 
-              <TabsContent value="circuito" className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Depósito origen</span>
-                  <p className="text-sm font-medium">{getDepositoName(detail.depositoOrigenId)}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Depósito destino</span>
-                  <p className="text-sm font-medium">{getDepositoName(detail.depositoDestinoId)}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3 sm:col-span-2">
-                  <span className="mb-1 block text-xs text-muted-foreground">Planificación</span>
-                  <p className="text-sm font-medium">{getPlanningStatus(detail)}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3 sm:col-span-2">
-                  <span className="mb-1 block text-xs text-muted-foreground">Observación</span>
-                  <p className="text-sm font-medium">{detail.observacion ?? "Sin observación"}</p>
-                </div>
+              <TabsContent value="circuito" className="mt-4">
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    {
+                      label: "Depósito origen",
+                      value: getDepositoName(detail.depositoOrigenId),
+                    },
+                    {
+                      label: "Depósito destino",
+                      value: getDepositoName(detail.depositoDestinoId),
+                    },
+                    {
+                      label: "Planificación",
+                      value: getPlanningStatus(detail),
+                      className: "md:col-span-2",
+                    },
+                    {
+                      label: "Observación",
+                      value: detail.observacion ?? "Sin observación",
+                      className: "md:col-span-2",
+                    },
+                  ]}
+                />
               </TabsContent>
 
-              <TabsContent value="fechas" className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Fecha inicio</span>
-                  <p className="text-sm font-medium">{formatDateTime(detail.fecha)}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Fin previsto</span>
-                  <p className="text-sm font-medium">{formatDateTime(detail.fechaFinPrevista)}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Fin real</span>
-                  <p className="text-sm font-medium">{formatDateTime(detail.fechaFinReal)}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Desvío</span>
-                  <p className="text-sm font-medium">
-                    {detail.fechaFinPrevista
-                      ? `${getDaysOffset(detail.fechaFinPrevista) ?? 0} días`
-                      : "Sin fecha prevista"}
-                  </p>
-                </div>
+              <TabsContent value="fechas" className="mt-4 space-y-4">
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    { label: "Fecha inicio", value: formatDateTime(detail.fecha) },
+                    {
+                      label: "Fin previsto",
+                      value: formatDateTime(detail.fechaFinPrevista),
+                    },
+                    { label: "Fin real", value: formatDateTime(detail.fechaFinReal) },
+                    {
+                      label: "Desvío",
+                      value: detail.fechaFinPrevista
+                        ? `${getDaysOffset(detail.fechaFinPrevista) ?? 0} días`
+                        : "Sin fecha prevista",
+                    },
+                  ]}
+                />
                 <div className="rounded-lg border p-3 sm:col-span-2">
                   <p className="text-sm text-muted-foreground">Circuito productivo ampliado</p>
                   <p className="mt-2 text-sm font-medium">
@@ -739,11 +783,28 @@ export default function OrdenesTrabajPage() {
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open)
+          if (!open) {
+            setActionError(null)
+            setDraft({
+              formulaId: "",
+              depositoOrigenId: "none",
+              depositoDestinoId: "none",
+              fecha: new Date().toISOString().slice(0, 10),
+              fechaFinPrevista: "",
+              cantidad: "",
+              observacion: "",
+            })
+          }
+        }}
+      >
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Nueva orden de trabajo</DialogTitle>
             <DialogDescription>
@@ -752,6 +813,15 @@ export default function OrdenesTrabajPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <WmsDetailFieldGrid
+              columns="2"
+              fields={[
+                { label: "Sucursal", value: defaultSucursalId },
+                { label: "Fórmulas visibles", value: formulas.length },
+                { label: "Depósitos visibles", value: depositos.length },
+                { label: "Estado inicial", value: "Pendiente" },
+              ]}
+            />
             <div className="space-y-2">
               <Label htmlFor="formula">Fórmula</Label>
               <Select
@@ -867,11 +937,23 @@ export default function OrdenesTrabajPage() {
               {saving ? "Guardando..." : "Crear orden"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
-      <Dialog open={finalizeOpen} onOpenChange={setFinalizeOpen}>
-        <DialogContent>
+      <Dialog
+        open={finalizeOpen}
+        onOpenChange={(open) => {
+          setFinalizeOpen(open)
+          if (!open) {
+            setActionError(null)
+            setFinalizeDraft({
+              fechaFinReal: new Date().toISOString().slice(0, 10),
+              cantidadProducida: "",
+            })
+          }
+        }}
+      >
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Finalizar orden</DialogTitle>
             <DialogDescription>
@@ -879,6 +961,15 @@ export default function OrdenesTrabajPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <WmsDetailFieldGrid
+              columns="2"
+              fields={[
+                { label: "Orden", value: selected ? `#${selected.id}` : "-" },
+                { label: "Fórmula", value: selected ? getFormulaName(selected.formulaId) : "-" },
+                { label: "Cantidad planificada", value: selected?.cantidad ?? "-" },
+                { label: "Estado actual", value: selected?.estado ?? "-" },
+              ]}
+            />
             <div className="space-y-2">
               <Label htmlFor="fecha-fin-real">Fecha fin real</Label>
               <Input
@@ -913,7 +1004,7 @@ export default function OrdenesTrabajPage() {
               {saving ? "Guardando..." : "Finalizar orden"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

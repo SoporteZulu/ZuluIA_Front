@@ -195,19 +195,26 @@ export default function UsuariosPage() {
     })
   }, [usuarios, searchTerm, filterRol, filterEstado])
 
+  const visibleUserIds = useMemo(
+    () => new Set(filteredUsers.map((user) => user.id)),
+    [filteredUsers]
+  )
+
   const stats = useMemo(() => {
-    const activos = usuarios.filter((u) => u.estado === "activo").length
-    const admins = usuarios.filter((u) => u.rol === "administrador").length
-    const comerciales = usuarios.filter((u) => u.rol === "comercial").length
-    const seguimientosPendientes = tareas.filter((tarea) =>
-      ["pendiente", "en_curso", "vencida"].includes(tarea.estado)
+    const activos = filteredUsers.filter((u) => u.estado === "activo").length
+    const admins = filteredUsers.filter((u) => u.rol === "administrador").length
+    const comerciales = filteredUsers.filter((u) => u.rol === "comercial").length
+    const seguimientosPendientes = tareas.filter(
+      (tarea) =>
+        visibleUserIds.has(tarea.asignadoAId) &&
+        ["pendiente", "en_curso", "vencida"].includes(tarea.estado)
     ).length
-    return { total: usuarios.length, activos, admins, comerciales, seguimientosPendientes }
-  }, [usuarios, tareas])
+    return { total: filteredUsers.length, activos, admins, comerciales, seguimientosPendientes }
+  }, [filteredUsers, tareas, visibleUserIds])
 
   const roleCoverage = useMemo(() => {
     return roleOptions.map(({ id: rol }) => {
-      const usuariosRol = usuarios.filter((usuario) => usuario.rol === rol)
+      const usuariosRol = filteredUsers.filter((usuario) => usuario.rol === rol)
       const activosRol = usuariosRol.filter((usuario) => usuario.estado === "activo").length
       const ids = new Set(usuariosRol.map((usuario) => usuario.id))
 
@@ -228,10 +235,10 @@ export default function UsuariosPage() {
         ).length,
       }
     })
-  }, [usuarios, oportunidades, roleOptions, tareas])
+  }, [filteredUsers, oportunidades, roleOptions, tareas])
 
   const userRadar = useMemo(() => {
-    return usuarios
+    return filteredUsers
       .map((user) => {
         const cartera = clientes.filter((cliente) => cliente.responsableId === user.id)
         const oportunidadesAbiertas = oportunidades.filter(
@@ -278,17 +285,22 @@ export default function UsuariosPage() {
         }
         return right.tareasPendientes - left.tareasPendientes
       })
-  }, [usuarios, clientes, oportunidades, tareas, campanas, interacciones])
+  }, [filteredUsers, clientes, oportunidades, tareas, campanas, interacciones])
 
   const recentUsers = useMemo(() => {
-    return [...usuarios]
+    return [...filteredUsers]
       .sort(
         (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
       )
       .slice(0, 5)
-  }, [usuarios])
+  }, [filteredUsers])
 
   const hasActiveFilters = filterRol !== "todos" || filterEstado !== "todos" || searchTerm !== ""
+  const campaignsWithVisibleResponsible = useMemo(() => {
+    return campanas.filter(
+      (campana) => campana.responsableId && visibleUserIds.has(campana.responsableId)
+    ).length
+  }, [campanas, visibleUserIds])
 
   const resetForm = () => {
     setFormData({
@@ -468,12 +480,16 @@ export default function UsuariosPage() {
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Usuarios</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                {hasActiveFilters ? "Usuarios Visibles" : "Total Usuarios"}
+              </CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.total}</div>
-              <p className="text-xs text-muted-foreground">registrados en el sistema</p>
+              <p className="text-xs text-muted-foreground">
+                {hasActiveFilters ? "coinciden con el corte actual" : "registrados en el sistema"}
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -485,8 +501,10 @@ export default function UsuariosPage() {
               <div className="text-2xl font-bold">{stats.activos}</div>
               <p className="text-xs text-muted-foreground">
                 {stats.total
-                  ? `${((stats.activos / stats.total) * 100).toFixed(0)}% del total`
-                  : "Sin usuarios visibles"}
+                  ? `${((stats.activos / stats.total) * 100).toFixed(0)}% del ${hasActiveFilters ? "corte actual" : "total"}`
+                  : hasActiveFilters
+                    ? "Sin usuarios en el corte actual"
+                    : "Sin usuarios visibles"}
               </p>
             </CardContent>
           </Card>
@@ -497,7 +515,9 @@ export default function UsuariosPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.admins}</div>
-              <p className="text-xs text-muted-foreground">con acceso total</p>
+              <p className="text-xs text-muted-foreground">
+                {hasActiveFilters ? "dentro del corte actual" : "con acceso total"}
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -507,7 +527,9 @@ export default function UsuariosPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.comerciales}</div>
-              <p className="text-xs text-muted-foreground">equipo de ventas</p>
+              <p className="text-xs text-muted-foreground">
+                {hasActiveFilters ? "dentro del corte actual" : "equipo de ventas"}
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -615,9 +637,7 @@ export default function UsuariosPage() {
               </div>
               <div className="rounded-lg border bg-muted/30 p-4">
                 <p className="text-sm font-medium">Campañas con responsable</p>
-                <p className="mt-1 text-2xl font-semibold">
-                  {campanas.filter((campana) => campana.responsableId).length}
-                </p>
+                <p className="mt-1 text-2xl font-semibold">{campaignsWithVisibleResponsible}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Acciones comerciales ya asociadas a usuarios CRM activos o históricos.
                 </p>

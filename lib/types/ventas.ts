@@ -52,3 +52,23 @@ export interface CreateNotaDebitoVentaDto {
   plazoDias?: number | null
   emitir?: boolean
 }
+
+export interface CreateNotaCreditoVentaDto {
+  sucursalId: number
+  puntoFacturacionId?: number | null
+  tipoComprobanteId: number
+  fecha: string
+  fechaVencimiento?: string | null
+  terceroId: number
+  monedaId: number
+  cotizacion: number
+  percepciones: number
+  observacion?: string | null
+  comprobanteOrigenId?: number | null
+  items: VentaDocumentoItemInput[]
+  reingresaStock?: boolean
+  acreditaCuentaCorriente?: boolean
+  motivoDevolucion?: number
+  observacionDevolucion?: string | null
+  autorizadorDevolucionId?: number | null
+}

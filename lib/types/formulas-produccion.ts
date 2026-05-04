@@ -35,3 +35,22 @@ export interface CreateFormulaProduccionDto {
   observacion?: string | null
   componentes?: { itemId: number; cantidad: number }[]
 }
+
+export interface UpdateFormulaProduccionDto {
+  descripcion: string
+  cantidadProducida: number
+  observacion?: string | null
+}
+
+export interface FormulaProduccionHistorial {
+  id: number
+  formulaId: number
+  version: number
+  codigo: string
+  descripcion: string
+  cantidadResultado: number
+  motivo?: string | null
+  snapshotJson?: string | null
+  createdAt?: string
+  createdBy?: string | number | null
+}

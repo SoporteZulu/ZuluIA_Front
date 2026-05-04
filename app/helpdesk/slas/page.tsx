@@ -364,7 +364,7 @@ function SLAsContent() {
                     <Input
                       id="multCritica"
                       type="number"
-                      step="0.1"
+                      step="0.01"
                       value={formData.prioridadCriticaMultiplier}
                       onChange={(e) =>
                         setFormData({
@@ -381,7 +381,7 @@ function SLAsContent() {
                     <Input
                       id="multAlta"
                       type="number"
-                      step="0.1"
+                      step="0.01"
                       value={formData.prioridadAltaMultiplier}
                       onChange={(e) =>
                         setFormData({
@@ -398,7 +398,7 @@ function SLAsContent() {
                     <Input
                       id="multMedia"
                       type="number"
-                      step="0.1"
+                      step="0.01"
                       value={formData.prioridadMediaMultiplier}
                       onChange={(e) =>
                         setFormData({
@@ -415,7 +415,7 @@ function SLAsContent() {
                     <Input
                       id="multBaja"
                       type="number"
-                      step="0.1"
+                      step="0.01"
                       value={formData.prioridadBajaMultiplier}
                       onChange={(e) =>
                         setFormData({

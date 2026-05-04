@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Progress } from "@/components/ui/progress"
 import {
   Plus,
@@ -76,15 +77,57 @@ const estadoColors: Record<string, string> = {
 }
 
 const tipoLabels: Record<string, string> = {
+  abono: "Abono",
   mantenimiento: "Mantenimiento",
   soporte: "Soporte",
   suscripcion: "Suscripcion",
   proyecto: "Proyecto",
 }
 
-function getDaysToEnd(value: Date) {
-  const end = new Date(value)
-  if (Number.isNaN(end.getTime())) return null
+function humanizeLabel(value?: string | null) {
+  if (!value) return "-"
+
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ")
+}
+
+function getTipoLabel(tipo?: string | null) {
+  if (!tipo) return "Sin tipo"
+  return tipoLabels[tipo] ?? humanizeLabel(tipo)
+}
+
+function parseCalendarDate(value?: Date | string | null) {
+  if (!value) return null
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number)
+    return new Date(year, month - 1, day)
+  }
+
+  const parsedDate = new Date(value)
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
+}
+
+function toInputDate(value?: Date | string | null) {
+  const parsedDate = parseCalendarDate(value)
+  if (!parsedDate) return ""
+
+  const year = parsedDate.getFullYear()
+  const month = String(parsedDate.getMonth() + 1).padStart(2, "0")
+  const day = String(parsedDate.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function getDaysToEnd(value: Date | string) {
+  const end = parseCalendarDate(value)
+  if (!end) return null
 
   const today = new Date()
   const base = new Date(today.getFullYear(), today.getMonth(), today.getDate())
@@ -113,7 +156,7 @@ function ContratosContent() {
     numero: "",
     clienteId: "",
     nombre: "",
-    tipo: "soporte",
+    tipo: "abono",
     estado: "activo",
     fechaInicio: new Date(),
     fechaFin: new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
@@ -137,9 +180,25 @@ function ContratosContent() {
     [crmClients]
   )
   const slaById = useMemo(() => new Map(slas.map((sla) => [sla.id, sla])), [slas])
-  const serviceById = useMemo(
-    () => new Map(servicios.map((servicio) => [servicio.id, servicio])),
+  const serviceByReference = useMemo(
+    () =>
+      servicios.reduce((map, servicio) => {
+        map.set(servicio.id, servicio)
+        map.set(servicio.codigo, servicio)
+        return map
+      }, new Map<string, (typeof servicios)[number]>()),
     [servicios]
+  )
+  const serviciosDisponibles = useMemo(
+    () =>
+      servicios.filter(
+        (servicio) =>
+          servicio.estado === "activo" ||
+          (formData.serviciosIncluidos ?? []).some(
+            (serviceRef) => serviceRef === servicio.id || serviceRef === servicio.codigo
+          )
+      ),
+    [formData.serviciosIncluidos, servicios]
   )
 
   const filteredContratos = useMemo(() => {
@@ -165,7 +224,7 @@ function ContratosContent() {
           ? Math.min((contrato.horasConsumidas / contrato.horasIncluidas) * 100, 100)
           : null
         const serviciosNombres = (contrato.serviciosIncluidos ?? [])
-          .map((serviceId) => serviceById.get(serviceId)?.nombre)
+          .map((serviceRef) => serviceByReference.get(serviceRef)?.nombre)
           .filter(Boolean)
 
         return {
@@ -189,7 +248,7 @@ function ContratosContent() {
         (a, b) =>
           b.criticidad - a.criticidad || (a.diasRestantes ?? 9999) - (b.diasRestantes ?? 9999)
       )
-  }, [clientById, filteredContratos, serviceById, slaById])
+  }, [clientById, filteredContratos, serviceByReference, slaById])
 
   const stats = useMemo(() => {
     return {
@@ -221,7 +280,7 @@ function ContratosContent() {
         numero: `CON-2024-${String(nextNum).padStart(3, "0")}`,
         clienteId: "",
         nombre: "",
-        tipo: "soporte",
+        tipo: "abono",
         estado: "activo",
         fechaInicio: new Date(),
         fechaFin: new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
@@ -258,6 +317,23 @@ function ContratosContent() {
     setDeleteId(null)
   }
 
+  const toggleServicioIncluido = (servicioId: string, servicioCodigo: string, checked: boolean) => {
+    setFormData((current) => {
+      const nextServicios = (current.serviciosIncluidos ?? []).filter(
+        (serviceRef) => serviceRef !== servicioId && serviceRef !== servicioCodigo
+      )
+
+      if (checked) {
+        nextServicios.push(servicioCodigo)
+      }
+
+      return {
+        ...current,
+        serviciosIncluidos: nextServicios,
+      }
+    })
+  }
+
   const clearFilters = () => {
     setSearchTerm("")
     setFilterEstado("all")
@@ -270,8 +346,9 @@ function ContratosContent() {
     return new Intl.NumberFormat("es-AR", { style: "currency", currency: "USD" }).format(value)
   }
 
-  const formatDate = (date: Date) => {
-    return new Date(date).toLocaleDateString("es-AR")
+  const formatDate = (date?: Date | string | null) => {
+    const parsedDate = parseCalendarDate(date)
+    return parsedDate ? parsedDate.toLocaleDateString("es-AR") : "-"
   }
 
   return (
@@ -394,7 +471,7 @@ function ContratosContent() {
                       <p className="font-medium">{item.contrato.nombre}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {item.cliente?.nombre || "Cliente no encontrado"} ·{" "}
-                        {tipoLabels[item.contrato.tipo]}
+                        {getTipoLabel(item.contrato.tipo)}
                       </p>
                     </div>
                     <Badge className={estadoColors[item.contrato.estado]}>
@@ -561,6 +638,7 @@ function ContratosContent() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="abono">Abono</SelectItem>
                 <SelectItem value="mantenimiento">Mantenimiento</SelectItem>
                 <SelectItem value="soporte">Soporte</SelectItem>
                 <SelectItem value="suscripcion">Suscripcion</SelectItem>
@@ -620,7 +698,7 @@ function ContratosContent() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{tipoLabels[contrato.tipo]}</Badge>
+                      <Badge variant="outline">{getTipoLabel(contrato.tipo)}</Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm">
@@ -755,6 +833,7 @@ function ContratosContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="abono">Abono</SelectItem>
                     <SelectItem value="soporte">Soporte</SelectItem>
                     <SelectItem value="mantenimiento">Mantenimiento</SelectItem>
                     <SelectItem value="suscripcion">Suscripcion</SelectItem>
@@ -790,13 +869,9 @@ function ContratosContent() {
                 <Input
                   id="fechaInicio"
                   type="date"
-                  value={
-                    formData.fechaInicio
-                      ? new Date(formData.fechaInicio).toISOString().split("T")[0]
-                      : ""
-                  }
+                  value={toInputDate(formData.fechaInicio)}
                   onChange={(e) =>
-                    setFormData({ ...formData, fechaInicio: new Date(e.target.value) })
+                    setFormData({ ...formData, fechaInicio: e.target.value || undefined })
                   }
                 />
               </div>
@@ -805,10 +880,10 @@ function ContratosContent() {
                 <Input
                   id="fechaFin"
                   type="date"
-                  value={
-                    formData.fechaFin ? new Date(formData.fechaFin).toISOString().split("T")[0] : ""
+                  value={toInputDate(formData.fechaFin)}
+                  onChange={(e) =>
+                    setFormData({ ...formData, fechaFin: e.target.value || undefined })
                   }
-                  onChange={(e) => setFormData({ ...formData, fechaFin: new Date(e.target.value) })}
                 />
               </div>
             </div>
@@ -911,6 +986,46 @@ function ContratosContent() {
                 rows={3}
                 placeholder="Terminos y condiciones del contrato..."
               />
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label>Servicios incluidos</Label>
+                <p className="text-sm text-muted-foreground">
+                  La API de contratos persiste esta relación por código de servicio.
+                </p>
+              </div>
+              <div className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">
+                {serviciosDisponibles.length > 0 ? (
+                  serviciosDisponibles.map((servicio) => {
+                    const checked = (formData.serviciosIncluidos ?? []).some(
+                      (serviceRef) => serviceRef === servicio.id || serviceRef === servicio.codigo
+                    )
+
+                    return (
+                      <label
+                        key={servicio.id}
+                        className="flex items-start gap-3 rounded-md border p-3 text-sm"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(value) =>
+                            toggleServicioIncluido(servicio.id, servicio.codigo, value === true)
+                          }
+                        />
+                        <div className="space-y-1">
+                          <div className="font-medium">{servicio.nombre}</div>
+                          <div className="text-muted-foreground">{servicio.codigo}</div>
+                        </div>
+                      </label>
+                    )
+                  })
+                ) : (
+                  <p className="text-sm text-muted-foreground sm:col-span-2">
+                    No hay servicios visibles para asociar al contrato.
+                  </p>
+                )}
+              </div>
             </div>
 
             <DialogFooter>

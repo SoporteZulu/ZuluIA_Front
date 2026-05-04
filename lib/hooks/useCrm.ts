@@ -159,6 +159,14 @@ function normalizeString(value?: string | null): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
+function normalizeAvatarUrl(value?: string | null): string | undefined {
+  const normalized = normalizeString(value)
+  if (!normalized) return undefined
+  if (normalized.startsWith("/")) return normalized
+  if (normalized.includes("example.com")) return undefined
+  return normalized
+}
+
 function normalizeEmail(value?: string | null): string {
   return normalizeString(value) ?? ""
 }
@@ -248,6 +256,7 @@ function mapUsuario(item: CRMUser): CRMUser {
   return {
     ...item,
     email: normalizeEmail(item.email),
+    avatar: normalizeAvatarUrl(item.avatar),
     createdAt: parseDateTime(item.createdAt) ?? new Date(),
     updatedAt: parseDateTime(item.updatedAt) ?? parseDateTime(item.createdAt) ?? new Date(),
   }
@@ -1012,59 +1021,74 @@ export function useCrmSegmentos() {
     void fetchSegmentos()
   }, [fetchSegmentos])
 
-  async function createSegmento(dto: Omit<CRMSegment, "id" | "createdAt" | "updatedAt">) {
-    const created = mapSegmento(
-      await apiPost<CRMSegment>("/api/crm/segmentos", segmentoPayload(dto))
-    )
-    setItems((current) => [created, ...current])
-    return created
-  }
+  const createSegmento = useCallback(
+    async (dto: Omit<CRMSegment, "id" | "createdAt" | "updatedAt">) => {
+      const created = mapSegmento(
+        await apiPost<CRMSegment>("/api/crm/segmentos", segmentoPayload(dto))
+      )
+      setItems((current) => [created, ...current])
+      return created
+    },
+    [setItems]
+  )
 
-  async function updateSegmento(id: string, dto: Partial<CRMSegment>) {
-    const updated = mapSegmento(
-      await apiPut<CRMSegment>(`/api/crm/segmentos/${id}`, segmentoPayload(dto))
-    )
-    setItems((current) => current.map((item) => (item.id === id ? updated : item)))
-    return updated
-  }
+  const updateSegmento = useCallback(
+    async (id: string, dto: Partial<CRMSegment>) => {
+      const updated = mapSegmento(
+        await apiPut<CRMSegment>(`/api/crm/segmentos/${id}`, segmentoPayload(dto))
+      )
+      setItems((current) => current.map((item) => (item.id === id ? updated : item)))
+      return updated
+    },
+    [setItems]
+  )
 
-  async function deleteSegmento(id: string) {
-    await apiDelete(`/api/crm/segmentos/${id}`)
-    setItems((current) => current.filter((item) => item.id !== id))
-  }
+  const deleteSegmento = useCallback(
+    async (id: string) => {
+      await apiDelete(`/api/crm/segmentos/${id}`)
+      setItems((current) => current.filter((item) => item.id !== id))
+    },
+    [setItems]
+  )
 
-  async function getMiembros(id: string) {
+  const getMiembros = useCallback(async (id: string) => {
     const response = await apiGet<CrmSegmentoMiembro[]>(`/api/crm/segmentos/${id}/miembros`)
     return response.map(mapSegmentoMiembro)
-  }
+  }, [])
 
-  async function addMiembro(id: string, clienteId: string) {
-    const response = await apiPost<CrmSegmentoMiembro[]>(`/api/crm/segmentos/${id}/miembros`, {
-      clienteId,
-    })
-    await fetchSegmentos()
-    return response.map(mapSegmentoMiembro)
-  }
+  const addMiembro = useCallback(
+    async (id: string, clienteId: string) => {
+      const response = await apiPost<CrmSegmentoMiembro[]>(`/api/crm/segmentos/${id}/miembros`, {
+        clienteId,
+      })
+      await fetchSegmentos()
+      return response.map(mapSegmentoMiembro)
+    },
+    [fetchSegmentos]
+  )
 
-  async function removeMiembro(id: string, clienteId: string) {
-    await apiDelete(`/api/crm/segmentos/${id}/miembros/${clienteId}`)
-    await fetchSegmentos()
-  }
+  const removeMiembro = useCallback(
+    async (id: string, clienteId: string) => {
+      await apiDelete(`/api/crm/segmentos/${id}/miembros/${clienteId}`)
+      await fetchSegmentos()
+    },
+    [fetchSegmentos]
+  )
 
-  async function previewSegmento(
-    criterios: CRMSegment["criterios"],
-    tipoSegmento: CRMSegment["tipoSegmento"]
-  ) {
-    const response = await apiPost<CrmSegmentoPreviewResult>("/api/crm/segmentos/preview", {
-      criterios,
-      tipoSegmento,
-    })
+  const previewSegmento = useCallback(
+    async (criterios: CRMSegment["criterios"], tipoSegmento: CRMSegment["tipoSegmento"]) => {
+      const response = await apiPost<CrmSegmentoPreviewResult>("/api/crm/segmentos/preview", {
+        criterios,
+        tipoSegmento,
+      })
 
-    return {
-      cantidadClientes: response.cantidadClientes,
-      clientes: response.clientes.map(mapSegmentoMiembro),
-    }
-  }
+      return {
+        cantidadClientes: response.cantidadClientes,
+        clientes: response.clientes.map(mapSegmentoMiembro),
+      }
+    },
+    []
+  )
 
   return {
     segmentos: items,

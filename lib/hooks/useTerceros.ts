@@ -103,9 +103,9 @@ export function useTerceros(options: UseTercerosOptions = {}) {
 
   const updateTercero = async (id: number, dto: UpdateTerceroDto): Promise<Tercero | null> => {
     try {
-      const updated = await apiPut<Tercero>(`/api/terceros/${id}`, dto)
+      const updated = await apiPut<Tercero | void>(`/api/terceros/${id}`, dto)
       await fetchTerceros()
-      return updated
+      return updated ?? ({ id } as Tercero)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al actualizar cliente")
       return null

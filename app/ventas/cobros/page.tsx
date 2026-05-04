@@ -94,11 +94,34 @@ function formatMoney(value: number) {
 }
 
 function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+
+  const isoDateMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+  if (isoDateMatch) {
+    const [, year, month, day] = isoDateMatch
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("es-AR")
+  }
+
+  return new Date(value).toLocaleDateString("es-AR")
 }
 
 function parseAmount(value: string) {
-  const normalized = value.replace(/\./g, "").replace(",", ".").trim()
+  const trimmed = value.trim()
+  if (trimmed === "") return 0
+
+  const hasDot = trimmed.includes(".")
+  const hasComma = trimmed.includes(",")
+  let normalized = trimmed
+
+  if (hasDot && hasComma) {
+    normalized =
+      trimmed.lastIndexOf(",") > trimmed.lastIndexOf(".")
+        ? trimmed.replace(/\./g, "").replace(/,/g, ".")
+        : trimmed.replace(/,/g, "")
+  } else if (hasComma) {
+    normalized = trimmed.replace(/\./g, "").replace(/,/g, ".")
+  }
+
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : 0
 }
@@ -166,7 +189,7 @@ export default function CobrosVentasPage() {
     hasta,
     setHasta,
   } = useCobros({ sucursalId })
-  const { cajas } = useCajas(sucursalId)
+  const { cajas, loading: loadingCajas, error: cajasError } = useCajas(sucursalId)
   const { formasPago } = useConfiguracion()
   const { comprobantes } = useComprobantes({ esVenta: true, sucursalId })
   const { terceros } = useTerceros({ soloActivos: false, sucursalId: sucursalId ?? null })
@@ -187,10 +210,20 @@ export default function CobrosVentasPage() {
   const [loadingCartera, setLoadingCartera] = useState<Record<number, boolean>>({})
 
   const clientes = useMemo(() => terceros.filter((row) => row.esCliente), [terceros])
+  const chequeFormaPagoIds = useMemo(
+    () =>
+      new Set(
+        formasPago
+          .filter((row) => row.descripcion.toLowerCase().includes("cheque"))
+          .map((row) => row.id)
+      ),
+    [formasPago]
+  )
   const customerMap = useMemo(() => new Map(clientes.map((row) => [row.id, row])), [clientes])
   const sucursalMap = useMemo(() => new Map(sucursales.map((row) => [row.id, row])), [sucursales])
   const currentCustomer = form.terceroId ? customerMap.get(Number(form.terceroId)) : null
   const currentSucursal = sucursalId ? (sucursalMap.get(sucursalId) ?? null) : null
+  const missingCashboxes = Boolean(sucursalId && !loadingCajas && cajas.length === 0)
 
   const pendingDocs = useMemo(
     () =>
@@ -204,8 +237,16 @@ export default function CobrosVentasPage() {
   )
 
   const activeCajaIds = useMemo(
-    () => Array.from(new Set(form.medios.map((medio) => Number(medio.cajaId)).filter(Boolean))),
-    [form.medios]
+    () =>
+      Array.from(
+        new Set(
+          form.medios
+            .filter((medio) => chequeFormaPagoIds.has(Number(medio.formaPagoId)))
+            .map((medio) => Number(medio.cajaId))
+            .filter(Boolean)
+        )
+      ),
+    [chequeFormaPagoIds, form.medios]
   )
 
   useEffect(() => {
@@ -228,6 +269,12 @@ export default function CobrosVentasPage() {
       cancelled = true
     }
   }, [activeCajaIds, carteraByCaja, getCartera, loadingCartera])
+
+  useEffect(() => {
+    if (isFormOpen && error) {
+      setFormError(error)
+    }
+  }, [error, isFormOpen])
 
   const totals = useMemo(
     () => ({
@@ -276,6 +323,14 @@ export default function CobrosVentasPage() {
   const formWarnings = useMemo(() => {
     const warnings: string[] = []
     if (!form.terceroId) warnings.push("Falta seleccionar el cliente del recibo.")
+    if (missingCashboxes) {
+      warnings.push(
+        `La sucursal ${currentSucursal?.descripcion ?? "operativa"} no tiene cajas disponibles para registrar cobros.`
+      )
+    }
+    if (cajasError) {
+      warnings.push(cajasError)
+    }
     if (!form.medios.some((row) => parseAmount(row.importe) > 0)) {
       warnings.push("Cargá al menos un medio de cobro con importe válido.")
     }
@@ -295,11 +350,14 @@ export default function CobrosVentasPage() {
     })
     return Array.from(new Set(warnings))
   }, [
+    cajasError,
+    currentSucursal?.descripcion,
     form.imputaciones,
     form.medios,
     form.terceroId,
     formTotals.imputaciones,
     formTotals.medios,
+    missingCashboxes,
     pendingDocs,
   ])
 
@@ -315,6 +373,9 @@ export default function CobrosVentasPage() {
         if (row.id !== id) return row
         const next = { ...row, ...patch }
         if (patch.cajaId && patch.cajaId !== row.cajaId) {
+          next.chequeId = ""
+        }
+        if (patch.formaPagoId && !chequeFormaPagoIds.has(Number(patch.formaPagoId))) {
           next.chequeId = ""
         }
         return next
@@ -354,6 +415,10 @@ export default function CobrosVentasPage() {
   const handleSave = async () => {
     if (!sucursalId) {
       setFormError("No hay sucursal operativa disponible.")
+      return
+    }
+    if (missingCashboxes) {
+      setFormError("La sucursal operativa no tiene cajas disponibles para registrar cobros.")
       return
     }
     if (!form.terceroId) {
@@ -420,10 +485,20 @@ export default function CobrosVentasPage() {
       return
     }
 
+    const primaryCurrencyId =
+      mediosValidos
+        .map((row) => cajas.find((item) => item.id === Number(row.cajaId))?.monedaId)
+        .find((value): value is number => Number.isFinite(value ?? NaN)) ??
+      currentCustomer?.monedaId ??
+      1
+
     const dto: RegistrarCobroDto = {
       sucursalId,
       terceroId: Number(form.terceroId),
       fecha: form.fecha,
+      monedaId: primaryCurrencyId,
+      cotizacion: 1,
+      observacion: form.observacion.trim() || undefined,
       medios: mediosValidos.map((row) => {
         const selectedCaja = cajas.find((item) => item.id === Number(row.cajaId))
         return {
@@ -435,13 +510,10 @@ export default function CobrosVentasPage() {
           chequeId: row.chequeId ? Number(row.chequeId) : undefined,
         }
       }),
-      imputaciones:
-        form.imputaciones.length > 0
-          ? form.imputaciones.map((row) => ({
-              comprobanteId: Number(row.comprobanteId),
-              importe: parseAmount(row.importe),
-            }))
-          : undefined,
+      comprobantesAImputar: form.imputaciones.map((row) => ({
+        comprobanteId: Number(row.comprobanteId),
+        importe: parseAmount(row.importe),
+      })),
     }
 
     setSaving(true)
@@ -959,7 +1031,9 @@ export default function CobrosVentasPage() {
                   {form.medios.map((medio, index) => {
                     const cajaId = Number(medio.cajaId)
                     const cartera = cajaId ? (carteraByCaja[cajaId] ?? []) : []
-                    const isLoadingCartera = cajaId ? loadingCartera[cajaId] : false
+                    const requiresChequeCartera = chequeFormaPagoIds.has(Number(medio.formaPagoId))
+                    const isLoadingCartera =
+                      requiresChequeCartera && cajaId ? loadingCartera[cajaId] : false
                     return (
                       <div key={medio.id} className="rounded-lg border p-4">
                         <div className="mb-3 flex items-center justify-between gap-2">
@@ -1024,18 +1098,24 @@ export default function CobrosVentasPage() {
                                   importe: cheque ? String(cheque.importe) : medio.importe,
                                 })
                               }}
-                              disabled={!medio.cajaId || cartera.length === 0}
+                              disabled={
+                                !requiresChequeCartera || !medio.cajaId || cartera.length === 0
+                              }
                             >
                               <SelectTrigger>
                                 <SelectValue
                                   placeholder={
-                                    !medio.cajaId
-                                      ? "Primero seleccione caja"
-                                      : isLoadingCartera
-                                        ? "Cargando cartera..."
-                                        : cartera.length === 0
-                                          ? "Sin cheques disponibles"
-                                          : "Cheque opcional"
+                                    !medio.formaPagoId
+                                      ? "Seleccione forma de pago"
+                                      : !requiresChequeCartera
+                                        ? "Solo disponible para cheques"
+                                        : !medio.cajaId
+                                          ? "Primero seleccione caja"
+                                          : isLoadingCartera
+                                            ? "Cargando cartera..."
+                                            : cartera.length === 0
+                                              ? "Sin cheques disponibles"
+                                              : "Cheque opcional"
                                   }
                                 />
                               </SelectTrigger>
@@ -1247,7 +1327,10 @@ export default function CobrosVentasPage() {
             >
               Cancelar
             </Button>
-            <Button onClick={handleSave} disabled={saving}>
+            <Button
+              onClick={handleSave}
+              disabled={saving || missingCashboxes || Boolean(cajasError)}
+            >
               {saving ? "Guardando..." : "Registrar cobro"}
             </Button>
           </div>

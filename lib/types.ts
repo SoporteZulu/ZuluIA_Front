@@ -555,7 +555,7 @@ export interface HDServicio extends BaseEntity {
   categoriaId: string
   duracionEstimada: number // en minutos
   precioBase: number
-  tipoPrecio: "fijo" | "por_hora" | "por_proyecto" | "escalonado"
+  tipoPrecio: "mensual" | "evento" | "fijo" | "por_hora" | "por_proyecto" | "escalonado"
   requiereRecursos?: string[]
   garantiaDias?: number
   condiciones?: string
@@ -620,6 +620,7 @@ export interface HDHorarioOperacion {
 
 // Help Desk Module - Clientes Help Desk
 export interface HDCliente extends BaseEntity {
+  terceroId?: string
   codigo: string
   nombre: string
   tipoCliente: "vip" | "estandar" | "basico"
@@ -682,10 +683,10 @@ export interface HDContrato extends BaseEntity {
   numero: string
   clienteId: string
   nombre: string
-  tipo: "mantenimiento" | "soporte" | "suscripcion" | "proyecto"
+  tipo: "abono" | "mantenimiento" | "soporte" | "suscripcion" | "proyecto"
   estado: "activo" | "pausado" | "vencido" | "cancelado"
-  fechaInicio: Date
-  fechaFin: Date
+  fechaInicio: Date | string
+  fechaFin: Date | string
   valorMensual?: number
   valorTotal?: number
   serviciosIncluidos: string[]
@@ -715,7 +716,7 @@ export interface HDAgente extends BaseEntity {
   email: string
   telefono?: string
   departamentoId?: string
-  rol: "administrador" | "supervisor" | "agente" | "tecnico"
+  rol: "administrador" | "supervisor" | "coordinador" | "agente" | "tecnico"
   estado: "activo" | "inactivo" | "vacaciones"
   avatar?: string
   habilidades?: string[]
@@ -731,6 +732,151 @@ export interface HDDepartamento extends BaseEntity {
   responsableId?: string
   email?: string
   ticketsPendientes: number
+}
+
+export interface HDDashboardSummary {
+  totalTickets: number
+  totalAbiertos: number
+  totalPausados: number
+  totalVencidos: number
+  totalCriticos: number
+  totalEscalados: number
+  totalSinAsignar: number
+  minutosMinimosRestantes?: number | null
+  severidadDominante?: string | null
+}
+
+export interface HDAgentSlaDashboard {
+  id: string
+  nombre: string
+  departamentoId?: string | null
+  abiertos: number
+  vencidos: number
+  criticos: number
+  escalados: number
+  pausados: number
+  minutosMinimosRestantes?: number | null
+}
+
+export interface HDDepartmentSlaDashboard {
+  id: string
+  nombre: string
+  abiertos: number
+  vencidos: number
+  criticos: number
+  escalados: number
+  pausados: number
+  sinAsignar: number
+  minutosMinimosRestantes?: number | null
+}
+
+export interface HDSegmentedDashboard {
+  agentes: HDAgentSlaDashboard[]
+  departamentos: HDDepartmentSlaDashboard[]
+}
+
+export interface HDCurrencyTotal {
+  moneda: string
+  total: number
+}
+
+export interface HDCountByLabel {
+  label: string
+  cantidad: number
+}
+
+export interface HDAgentPerformance {
+  id: string
+  nombre: string
+  estado: string
+  abiertos: number
+  resueltos: number
+  incumplimientos: number
+  promedio: number
+  calificacion: number
+}
+
+export interface HDCriticalClient {
+  id: string
+  nombre: string
+  tipo: string
+  contratoActivo: boolean
+  ticketsAbiertos: number
+  ticketsCriticos: number
+  coberturaSla: string
+  cuota?: number | null
+  pendiente: HDCurrencyTotal[]
+}
+
+export interface HDSlaAlert {
+  id: string
+  numero: string
+  asunto: string
+  cliente: string
+  prioridad: string
+  estado: string
+  cumpleSla: boolean
+  cobertura: string
+  respuesta?: number | null
+  resolucion?: number | null
+  fechaObjetivoRespuesta?: Date | string | null
+  fechaObjetivoResolucion?: Date | string | null
+  slaPausado: boolean
+  severidad: string
+  prioridadAutomatica: string
+  minutosRestantes?: number | null
+  escalado: boolean
+  reasignacionSugerida: boolean
+  prioridadEscalada: string
+}
+
+export interface HDOrderFollowUp {
+  id: string
+  numero: string
+  estado: string
+  cliente: string
+  tecnico: string
+  programada?: Date | string | null
+  atraso?: number | null
+  duracion?: number | null
+  prioridad: string
+}
+
+export interface HDReportSummary {
+  totalTickets: number
+  openTickets: number
+  closedTickets: number
+  unassignedTickets: number
+  breachedTickets: number
+  ticketsWithoutSla: number
+  waitingCustomerTickets: number
+  criticalOpenTickets: number
+  slaCompliance: number
+  averageResponse: number
+  averageResolution: number
+  activeOrders: number
+  scheduledLateOrders: number
+  completedOrders: number
+  completionRate: number
+  issuedInvoices: number
+  paidInvoices: number
+  overdueInvoices: number
+  pendingInvoices: number
+  collectionRate: number
+  issuedByCurrency: HDCurrencyTotal[]
+  paidByCurrency: HDCurrencyTotal[]
+  pendingByCurrency: HDCurrencyTotal[]
+}
+
+export interface HDReport {
+  resumen: HDReportSummary
+  ticketsByState: HDCountByLabel[]
+  ticketsByPriority: HDCountByLabel[]
+  ordersByState: HDCountByLabel[]
+  agentPerformance: HDAgentPerformance[]
+  criticalClients: HDCriticalClient[]
+  slaAlerts: HDSlaAlert[]
+  orderFollowUp: HDOrderFollowUp[]
 }
 
 // Navigation types

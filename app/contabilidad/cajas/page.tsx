@@ -53,10 +53,10 @@ import type { Caja, CreateCajaDto, TipoCaja } from "@/lib/types/cajas"
 
 const EMPTY_FORM: CreateCajaDto = {
   sucursalId: 0,
-  tipoCajaId: 0,
-  nombre: "",
+  tipoId: 0,
   descripcion: "",
-  monedaId: undefined,
+  monedaId: 0,
+  esCaja: true,
 }
 
 function buildForm(caja?: Caja | null, selectedSucursalId?: number): CreateCajaDto {
@@ -66,10 +66,42 @@ function buildForm(caja?: Caja | null, selectedSucursalId?: number): CreateCajaD
 
   return {
     sucursalId: caja.sucursalId,
-    tipoCajaId: caja.tipoCajaId,
-    nombre: caja.nombre,
-    descripcion: caja.descripcion ?? "",
-    monedaId: caja.monedaId,
+    tipoId: caja.tipoCajaId,
+    descripcion: caja.descripcion ?? caja.nombre,
+    monedaId: caja.monedaId ?? 0,
+    esCaja: caja.esCaja ?? true,
+    banco: caja.banco,
+    nroCuenta: caja.nroCuenta,
+    cbu: caja.cbu,
+    usuarioId: caja.usuarioId,
+  }
+}
+
+function resolveCajaTipo(caja: Caja, tipos: TipoCaja[]) {
+  if (caja.tipoCajaId) {
+    const matched = tipos.find((tipo) => tipo.id === caja.tipoCajaId)
+    if (matched) {
+      return matched
+    }
+  }
+
+  if (typeof caja.esCaja === "boolean") {
+    return tipos.find((tipo) => tipo.esCaja === caja.esCaja)
+  }
+
+  return undefined
+}
+
+function normalizeVisibleCaja(caja: Caja, tipos: TipoCaja[]): Caja {
+  const resolvedTipo = resolveCajaTipo(caja, tipos)
+
+  return {
+    ...caja,
+    tipoCajaId: caja.tipoCajaId || resolvedTipo?.id || 0,
+    tipoCajaDescripcion:
+      caja.tipoCajaDescripcion ??
+      resolvedTipo?.descripcion ??
+      (caja.esCaja ? "CAJA" : "CUENTA BANCARIA"),
   }
 }
 
@@ -92,7 +124,14 @@ function formatCurrency(value?: number, symbol = "$") {
 }
 
 function formatDate(value?: string) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("es-AR")
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("es-AR")
 }
 
 function getCajaStatus(caja: Caja) {
@@ -163,12 +202,16 @@ function getLegacyCoverage(caja: Caja) {
     caja.monedaId ? 1 : 0,
     caja.fechaApertura ? 1 : 0,
     typeof caja.saldoInicial === "number" ? 1 : 0,
+    caja.banco ? 1 : 0,
+    caja.nroCuenta ? 1 : 0,
+    caja.cbu ? 1 : 0,
   ].reduce((sum, value) => sum + value, 0)
 
   if (available >= 4) {
     return {
       label: "Cobertura amplia",
-      detail: "La caja expone saldos, apertura, moneda y descripción dentro del contrato actual.",
+      detail:
+        "La caja expone saldos, apertura, moneda, descripción y puede incluir datos bancarios base dentro del contrato actual.",
     }
   }
 
@@ -176,14 +219,14 @@ function getLegacyCoverage(caja: Caja) {
     return {
       label: "Cobertura parcial",
       detail:
-        "Hay datos operativos suficientes para seguimiento, pero faltan bloques bancarios del legado.",
+        "Hay datos operativos suficientes para seguimiento, pero permisos y relaciones auxiliares del legado siguen pendientes.",
     }
   }
 
   return {
     label: "Cobertura mínima",
     detail:
-      "La API actual sólo expone el núcleo maestro y deja afuera atributos bancarios históricos.",
+      "La API actual expone el núcleo maestro, pero todavía no publica permisos operativos ni relaciones auxiliares históricas.",
   }
 }
 
@@ -230,13 +273,55 @@ function CajaForm({ caja, selectedSucursalId, onClose, onSaved }: CajaFormProps)
     getTipos().then(setTipos)
   }, [getTipos])
 
-  const set = (key: keyof CreateCajaDto, value: string | number | undefined) => {
+  useEffect(() => {
+    if (!caja || !tipos.length) {
+      return
+    }
+
+    const resolvedTipo = resolveCajaTipo(caja, tipos)
+    if (!resolvedTipo) {
+      return
+    }
+
+    setForm((current) => {
+      if (current.tipoId === resolvedTipo.id && current.esCaja === resolvedTipo.esCaja) {
+        return current
+      }
+
+      return {
+        ...current,
+        tipoId: resolvedTipo.id,
+        esCaja: resolvedTipo.esCaja,
+      }
+    })
+  }, [caja, tipos])
+
+  useEffect(() => {
+    if (!monedas.length) {
+      return
+    }
+
+    setForm((current) => {
+      if (current.monedaId) {
+        return current
+      }
+
+      const monedaId = caja?.monedaId ?? monedas[0]?.id ?? 0
+      if (!monedaId) {
+        return current
+      }
+
+      return { ...current, monedaId }
+    })
+  }, [caja?.monedaId, monedas])
+
+  const set = (key: keyof CreateCajaDto, value: string | number | boolean | undefined) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
   const handleSave = async () => {
-    if (!form.sucursalId || !form.tipoCajaId || !form.nombre.trim()) {
-      setError("Sucursal, tipo y nombre son obligatorios")
+    if (!form.sucursalId || !form.tipoId || !form.descripcion.trim() || !form.monedaId) {
+      setError("Sucursal, tipo, nombre y moneda son obligatorios")
       return
     }
 
@@ -287,8 +372,17 @@ function CajaForm({ caja, selectedSucursalId, onClose, onSaved }: CajaFormProps)
             <div className="space-y-1.5">
               <Label>Tipo de Caja</Label>
               <Select
-                value={form.tipoCajaId ? String(form.tipoCajaId) : ""}
-                onValueChange={(value) => set("tipoCajaId", Number(value))}
+                value={form.tipoId ? String(form.tipoId) : ""}
+                onValueChange={(value) => {
+                  const nextTipoId = Number(value)
+                  const selectedTipo = tipos.find((tipo) => tipo.id === nextTipoId)
+
+                  setForm((current) => ({
+                    ...current,
+                    tipoId: nextTipoId,
+                    esCaja: selectedTipo?.esCaja ?? current.esCaja,
+                  }))
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar tipo" />
@@ -305,24 +399,21 @@ function CajaForm({ caja, selectedSucursalId, onClose, onSaved }: CajaFormProps)
             <div className="space-y-1.5">
               <Label>Nombre</Label>
               <Input
-                value={form.nombre}
-                onChange={(e) => set("nombre", e.target.value)}
+                value={form.descripcion}
+                onChange={(e) => set("descripcion", e.target.value)}
                 placeholder="Caja principal"
               />
             </div>
             <div className="space-y-1.5">
               <Label>Moneda</Label>
               <Select
-                value={form.monedaId ? String(form.monedaId) : "__none__"}
-                onValueChange={(value) =>
-                  set("monedaId", value === "__none__" ? undefined : Number(value))
-                }
+                value={form.monedaId ? String(form.monedaId) : ""}
+                onValueChange={(value) => set("monedaId", Number(value))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar moneda" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">Sin moneda</SelectItem>
                   {monedas.map((moneda) => (
                     <SelectItem key={moneda.id} value={String(moneda.id)}>
                       {moneda.descripcion} ({moneda.simbolo})
@@ -332,11 +423,36 @@ function CajaForm({ caja, selectedSucursalId, onClose, onSaved }: CajaFormProps)
               </Select>
             </div>
             <div className="space-y-1.5 md:col-span-2">
-              <Label>Descripción</Label>
-              <Textarea
-                value={form.descripcion ?? ""}
-                onChange={(e) => set("descripcion", e.target.value)}
-                rows={4}
+              <Label>Cobertura del contrato</Label>
+              <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                El contrato actual usa un único campo descriptivo para la caja. El nombre visible se
+                guarda en ese mismo valor, ya admite banco, número de cuenta y CBU, y deja todavía
+                fuera permisos operativos y asociaciones auxiliares.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Banco</Label>
+              <Input
+                value={form.banco ?? ""}
+                onChange={(e) => set("banco", e.target.value || undefined)}
+                placeholder="Entidad bancaria"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Número de cuenta</Label>
+              <Input
+                value={form.nroCuenta ?? ""}
+                onChange={(e) => set("nroCuenta", e.target.value || undefined)}
+                placeholder="000-000000/0"
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>CBU</Label>
+              <Input
+                value={form.cbu ?? ""}
+                onChange={(e) => set("cbu", e.target.value || undefined)}
+                placeholder="CBU o identificador bancario"
               />
             </div>
           </div>
@@ -375,19 +491,19 @@ function CajaForm({ caja, selectedSucursalId, onClose, onSaved }: CajaFormProps)
             <CardContent className="pt-6 text-sm text-muted-foreground">
               <div className="space-y-3">
                 <p>
-                  El modelo vigente todavía no expone banco, CBU, cuenta, permisos de
-                  entrada/salida/tesorería ni vínculos de formas de pago. La pantalla los deja
-                  identificados para la próxima fase de integración.
+                  El modelo vigente ya expone banco, CBU y número de cuenta. Lo que sigue fuera del
+                  contrato son los permisos de entrada/salida/tesorería y los vínculos explícitos
+                  con formas de pago.
                 </p>
                 <DetailFieldGrid
                   fields={[
                     {
                       label: "Visible hoy",
-                      value: "Sucursal, tipo, nombre, descripción y moneda.",
+                      value: "Sucursal, tipo, nombre, descripción, moneda y datos bancarios base.",
                     },
                     {
                       label: "Pendiente del contrato",
-                      value: "Datos bancarios y relaciones auxiliares del maestro legacy.",
+                      value: "Permisos operativos y relaciones auxiliares del maestro legacy.",
                     },
                   ]}
                 />
@@ -442,6 +558,9 @@ function CajaDetail({
     { label: "Saldo Actual", value: formatCurrency(caja.saldoActual) },
     { label: "Fecha Apertura", value: formatDate(caja.fechaApertura) },
     { label: "Moneda", value: monedaLabel },
+    { label: "Banco", value: caja.banco ?? "Sin banco visible" },
+    { label: "Número de cuenta", value: caja.nroCuenta ?? "Sin cuenta visible" },
+    { label: "CBU", value: caja.cbu ?? "Sin CBU visible" },
   ]
 
   const circuitoFields = [
@@ -505,7 +624,8 @@ function CajaDetail({
               <p className="mt-2">
                 El formulario legacy de cajas y cuentas bancarias incluía banco, número de cuenta,
                 CBU, banderas de entrada/salida/tesorería, sucursales múltiples y formas de pago. El
-                contrato actual no las expone todavía y esta vista las deja documentadas.
+                contrato actual ya cubre los datos bancarios base, pero todavía no expone permisos
+                operativos ni asociaciones auxiliares, y esta vista los deja documentados.
               </p>
             </div>
           </CardContent>
@@ -533,10 +653,21 @@ export default function CajasPage() {
   const [detailCajaId, setDetailCajaId] = useState<number | null>(null)
   const [tipos, setTipos] = useState<TipoCaja[]>([])
 
-  const selectedCaja = useMemo(
-    () => cajas.find((caja) => caja.id === selectedCajaId) ?? null,
-    [cajas, selectedCajaId]
+  const visibleCajas = useMemo(
+    () => cajas.map((caja) => normalizeVisibleCaja(caja, tipos)),
+    [cajas, tipos]
   )
+
+  const selectedCaja = useMemo(
+    () => visibleCajas.find((caja) => caja.id === selectedCajaId) ?? null,
+    [selectedCajaId, visibleCajas]
+  )
+
+  useEffect(() => {
+    if (!selectedSucursalId && defaultSucursalId) {
+      setSelectedSucursalId(defaultSucursalId)
+    }
+  }, [defaultSucursalId, selectedSucursalId])
 
   useEffect(() => {
     getTipos().then(setTipos)
@@ -545,7 +676,7 @@ export default function CajasPage() {
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
 
-    return cajas.filter((caja) => {
+    return visibleCajas.filter((caja) => {
       const matchesSearch =
         !term ||
         caja.nombre.toLowerCase().includes(term) ||
@@ -563,7 +694,7 @@ export default function CajasPage() {
 
       return matchesSearch && matchesStatus && matchesType
     })
-  }, [cajas, searchTerm, statusFilter, typeFilter])
+  }, [searchTerm, statusFilter, typeFilter, visibleCajas])
 
   const detailCaja = useMemo(() => {
     if (!filtered.length) {
@@ -736,7 +867,7 @@ export default function CajasPage() {
             <div className="rounded-lg border p-3 text-sm">
               <p className="text-muted-foreground">Gap legacy identificado</p>
               <p className="mt-1 font-medium">
-                Banco, CBU y formas de pago siguen fuera del contrato
+                Permisos operativos y formas de pago siguen fuera del contrato
               </p>
               <p className="mt-2 text-muted-foreground">
                 Esta vista prioriza exponer lo que sí existe hoy sin fabricar atributos no

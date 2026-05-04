@@ -9,12 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { WmsDialogContent } from "@/components/almacenes/wms-responsive"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -155,6 +155,10 @@ export default function ConteosAlmacenesPage() {
   const divergence = Math.round(
     filtered.reduce((sum, row) => sum + row.divergenciaPct, 0) / Math.max(filtered.length, 1)
   )
+  const hasDepositoOption = form.deposito
+    ? depositos.some((deposito) => deposito.descripcion === form.deposito)
+    : false
+  const hasZonaOption = form.zona ? zonas.some((zona) => zona.descripcion === form.zona) : false
 
   const openCreate = () => {
     setEditingId(null)
@@ -440,7 +444,7 @@ export default function ConteosAlmacenesPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{editingId ? "Editar conteo" : "Nuevo conteo"}</DialogTitle>
             <DialogDescription>
@@ -459,6 +463,9 @@ export default function ConteosAlmacenesPage() {
                     <SelectValue placeholder="Seleccionar depósito" />
                   </SelectTrigger>
                   <SelectContent>
+                    {form.deposito && !hasDepositoOption ? (
+                      <SelectItem value={form.deposito}>{form.deposito} (registrado)</SelectItem>
+                    ) : null}
                     {depositos.map((deposito) => (
                       <SelectItem key={deposito.id} value={deposito.descripcion}>
                         {deposito.descripcion}
@@ -477,6 +484,9 @@ export default function ConteosAlmacenesPage() {
                     <SelectValue placeholder="Seleccionar zona" />
                   </SelectTrigger>
                   <SelectContent>
+                    {form.zona && !hasZonaOption ? (
+                      <SelectItem value={form.zona}>{form.zona} (registrada)</SelectItem>
+                    ) : null}
                     {zonas.map((zona) => (
                       <SelectItem key={zona.id} value={zona.descripcion}>
                         {zona.descripcion}
@@ -591,7 +601,7 @@ export default function ConteosAlmacenesPage() {
               Guardar conteo
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

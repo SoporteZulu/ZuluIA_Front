@@ -152,15 +152,15 @@ export default function AjustesCompraPage() {
       (item) => matchesTerm(item, term) && (typeFilter === "todos" || item.tipo === typeFilter)
     )
   }, [adjustments, search, typeFilter])
-  const selected = adjustments.find((item) => item.id === selectedId) ?? filtered[0] ?? null
-  const kpis = useMemo(
+  const selected = filtered.find((item) => item.id === selectedId) ?? null
+  const visibleKpis = useMemo(
     () => ({
-      draft: adjustments.filter((item) => item.estado === "BORRADOR").length,
-      applied: adjustments.filter((item) => item.estado === "APLICADO").length,
-      creditLinked: adjustments.filter((item) => item.requiereNotaCredito).length,
-      total: adjustments.reduce((acc, item) => acc + item.total, 0),
+      draft: filtered.filter((item) => item.estado === "BORRADOR").length,
+      applied: filtered.filter((item) => item.estado === "APLICADO").length,
+      creditLinked: filtered.filter((item) => item.requiereNotaCredito).length,
+      total: filtered.reduce((acc, item) => acc + item.total, 0),
     }),
-    [adjustments]
+    [filtered]
   )
   const updateTracker = (adjustmentId: number, patch: Partial<LocalAdjustmentTracker>) =>
     setTrackers((current) => {
@@ -213,14 +213,14 @@ export default function AjustesCompraPage() {
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Borrador</p>
-            <p className="mt-2 text-2xl font-bold">{loading ? "..." : kpis.draft}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? "..." : visibleKpis.draft}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Aplicados</p>
             <p className="mt-2 text-2xl font-bold text-emerald-600">
-              {loading ? "..." : kpis.applied}
+              {loading ? "..." : visibleKpis.applied}
             </p>
           </CardContent>
         </Card>
@@ -228,14 +228,16 @@ export default function AjustesCompraPage() {
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Vinculados a NC</p>
             <p className="mt-2 text-2xl font-bold text-amber-600">
-              {loading ? "..." : kpis.creditLinked}
+              {loading ? "..." : visibleKpis.creditLinked}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Monto visible</p>
-            <p className="mt-2 text-2xl font-bold">{loading ? "..." : formatMoney(kpis.total)}</p>
+            <p className="mt-2 text-2xl font-bold">
+              {loading ? "..." : formatMoney(visibleKpis.total)}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -325,7 +327,10 @@ export default function AjustesCompraPage() {
           </Table>
         </CardContent>
       </Card>
-      <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelectedId(null)}>
+      <Dialog
+        open={selectedId !== null && selected !== null}
+        onOpenChange={(open) => !open && setSelectedId(null)}
+      >
         <DialogContent className="max-w-5xl">
           <DialogHeader>
             <DialogTitle>{selected ? `Ajuste AJ-${selected.id}` : "Ajuste"}</DialogTitle>

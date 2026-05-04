@@ -27,6 +27,8 @@ export interface ComprobanteItem {
   depositoId?: number | null
   depositoDescripcion?: string | null
   comprobanteItemOrigenId?: number | null
+  cantidadDocumentoOrigen?: number | null
+  precioDocumentoOrigen?: number | null
 }
 
 export interface Comprobante {
@@ -66,6 +68,11 @@ export interface ComprobanteDetalle extends Comprobante {
   observacionDevolucion?: string | null
   reingresaStock?: boolean
   acreditaCuentaCorriente?: boolean
+  cuentaCorrienteDebe?: number | null
+  cuentaCorrienteHaber?: number | null
+  cuentaCorrienteSaldoPosterior?: number | null
+  cuentaCorrienteDescripcion?: string | null
+  cuentaCorrienteRegistradaAt?: string | null
   items: ComprobanteItem[]
 }
 

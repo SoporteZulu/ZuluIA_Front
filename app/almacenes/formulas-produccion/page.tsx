@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -16,7 +15,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  WmsDetailFieldGrid,
+  WmsDialogContent,
+  WmsTabsList,
+} from "@/components/almacenes/wms-responsive"
 import {
   Table,
   TableBody,
@@ -26,8 +31,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useFormulasProduccion } from "@/lib/hooks/useFormulasProduccion"
-import type { FormulaProduccion } from "@/lib/types/formulas-produccion"
-import { AlertCircle, Eye, Plus, RefreshCcw, Search } from "lucide-react"
+import type { FormulaProduccion, FormulaProduccionHistorial } from "@/lib/types/formulas-produccion"
+import { AlertCircle, Eye, Pencil, Plus, RefreshCcw, Search } from "lucide-react"
 
 type ComponentDraft = {
   itemId: string
@@ -76,15 +81,37 @@ function getComponentCoverage(formula: FormulaProduccion) {
   return "Formula extendida"
 }
 
+function formatHistoryTimestamp(value?: string) {
+  if (!value) return "Sin fecha visible"
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("es-AR")
+}
+
 export default function FormulasProduccionPage() {
   const [soloActivas, setSoloActivas] = useState(false)
-  const { formulas, loading, error, getById, crear, activar, desactivar, refetch } =
-    useFormulasProduccion(soloActivas)
+  const {
+    formulas,
+    loading,
+    error,
+    getById,
+    getHistorial,
+    crear,
+    actualizar,
+    activar,
+    desactivar,
+    refetch,
+  } = useFormulasProduccion(soloActivas)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detail, setDetail] = useState<FormulaProduccion | null>(null)
+  const [detailHistory, setDetailHistory] = useState<FormulaProduccionHistorial[]>([])
+  const [detailHistoryLoading, setDetailHistoryLoading] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editingFormulaId, setEditingFormulaId] = useState<number | null>(null)
+  const [editSaving, setEditSaving] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [busyStateId, setBusyStateId] = useState<number | null>(null)
@@ -95,6 +122,12 @@ export default function FormulasProduccionPage() {
     itemProductoId: "",
     cantidadProducida: "",
     activa: true,
+    observacion: "",
+  })
+  const [editDraft, setEditDraft] = useState({
+    descripcion: "",
+    cantidadProducida: "",
+    observacion: "",
   })
   const [componentes, setComponentes] = useState<ComponentDraft[]>([emptyComponent()])
 
@@ -112,15 +145,23 @@ export default function FormulasProduccionPage() {
     [formulas, searchTerm]
   )
 
-  const activas = formulas.filter((formula) => formula.activa).length
-  const totalComponentes = formulas.reduce(
-    (sum, formula) => sum + (formula.componentes?.length ?? 0),
-    0
-  )
-  const promedioComponentes =
-    formulas.length > 0 ? (totalComponentes / formulas.length).toFixed(1) : "0.0"
-  const conCodigo = formulas.filter((formula) => Boolean(formula.codigo)).length
-  const extendidas = formulas.filter((formula) => (formula.componentes?.length ?? 0) >= 3).length
+  const visibleStats = useMemo(() => {
+    const activas = filtered.filter((formula) => formula.activa).length
+    const totalComponentes = filtered.reduce(
+      (sum, formula) => sum + (formula.componentes?.length ?? 0),
+      0
+    )
+
+    return {
+      total: filtered.length,
+      activas,
+      totalComponentes,
+      promedioComponentes:
+        filtered.length > 0 ? (totalComponentes / filtered.length).toFixed(1) : "0.0",
+      conCodigo: filtered.filter((formula) => Boolean(formula.codigo)).length,
+      extendidas: filtered.filter((formula) => (formula.componentes?.length ?? 0) >= 3).length,
+    }
+  }, [filtered])
 
   const selected = useMemo(
     () => filtered.find((formula) => formula.id === selectedId) ?? null,
@@ -133,9 +174,25 @@ export default function FormulasProduccionPage() {
   const handleOpenDetail = async (id: number) => {
     setDetailOpen(true)
     setDetailLoading(true)
-    const data = await getById(id)
+    setDetailHistoryLoading(true)
+    const [data, history] = await Promise.all([getById(id), getHistorial(id)])
     setDetail(data)
+    setDetailHistory(history)
     setDetailLoading(false)
+    setDetailHistoryLoading(false)
+  }
+
+  const openEdit = (formula: FormulaProduccion | null) => {
+    if (!formula) return
+
+    setEditingFormulaId(formula.id)
+    setEditDraft({
+      descripcion: formula.descripcion,
+      cantidadProducida: String(formula.cantidadProducida),
+      observacion: formula.observacion ?? "",
+    })
+    setActionError(null)
+    setEditOpen(true)
   }
 
   const addComponent = () => {
@@ -163,6 +220,7 @@ export default function FormulasProduccionPage() {
       itemProductoId: "",
       cantidadProducida: "",
       activa: true,
+      observacion: "",
     })
     setComponentes([emptyComponent()])
   }
@@ -182,6 +240,45 @@ export default function FormulasProduccionPage() {
       return
     }
 
+    const itemProductoId = Number(draft.itemProductoId)
+    const cantidadProducida = Number(draft.cantidadProducida)
+
+    if (Number.isNaN(itemProductoId) || itemProductoId <= 0) {
+      setActionError("El producto final debe ser un identificador numérico válido.")
+      return
+    }
+
+    if (Number.isNaN(cantidadProducida) || cantidadProducida <= 0) {
+      setActionError("La cantidad producida debe ser mayor a cero.")
+      return
+    }
+
+    const incompleteComponents = componentes.filter((component) => {
+      const started = Boolean(component.itemId || component.cantidad)
+      if (!started) {
+        return false
+      }
+
+      const itemId = Number(component.itemId)
+      const cantidad = Number(component.cantidad)
+
+      return (
+        !component.itemId ||
+        !component.cantidad ||
+        Number.isNaN(itemId) ||
+        itemId <= 0 ||
+        Number.isNaN(cantidad) ||
+        cantidad <= 0
+      )
+    })
+
+    if (incompleteComponents.length > 0) {
+      setActionError(
+        "Revisá los componentes: cada línea iniciada debe tener item y cantidad válida mayor a cero."
+      )
+      return
+    }
+
     const componentesValidos = componentes
       .filter((component) => component.itemId && component.cantidad)
       .map((component) => ({
@@ -196,11 +293,12 @@ export default function FormulasProduccionPage() {
 
     setSaving(true)
     const createdId = await crear({
-      codigo: draft.codigo,
+      codigo: draft.codigo.trim(),
       descripcion: draft.descripcion.trim(),
-      itemProductoId: Number(draft.itemProductoId),
-      cantidadProducida: Number(draft.cantidadProducida),
+      itemProductoId,
+      cantidadProducida,
       activa: draft.activa,
+      observacion: draft.observacion.trim() || null,
       componentes: componentesValidos,
     })
     setSaving(false)
@@ -215,6 +313,53 @@ export default function FormulasProduccionPage() {
     setSelectedId(createdId)
   }
 
+  const handleEdit = async () => {
+    if (!editingFormulaId) return
+
+    setActionError(null)
+
+    if (!editDraft.descripcion.trim()) {
+      setActionError("La descripción sigue siendo obligatoria para actualizar la fórmula.")
+      return
+    }
+
+    const cantidad = Number(editDraft.cantidadProducida)
+    if (Number.isNaN(cantidad) || cantidad <= 0) {
+      setActionError("La cantidad producida debe ser mayor a cero para actualizar la fórmula.")
+      return
+    }
+
+    setEditSaving(true)
+    const ok = await actualizar(editingFormulaId, {
+      descripcion: editDraft.descripcion.trim(),
+      cantidadProducida: cantidad,
+      observacion: editDraft.observacion.trim() || null,
+    })
+
+    if (!ok) {
+      setActionError("No se pudo actualizar la fórmula de producción.")
+      setEditSaving(false)
+      return
+    }
+
+    if (detail?.id === editingFormulaId) {
+      setDetailLoading(true)
+      setDetailHistoryLoading(true)
+      const [nextDetail, nextHistory] = await Promise.all([
+        getById(editingFormulaId),
+        getHistorial(editingFormulaId),
+      ])
+      setDetail(nextDetail)
+      setDetailHistory(nextHistory)
+      setDetailLoading(false)
+      setDetailHistoryLoading(false)
+    }
+
+    setEditSaving(false)
+    setEditOpen(false)
+    setEditingFormulaId(null)
+  }
+
   const handleToggleEstado = async (formula: FormulaProduccion) => {
     setBusyStateId(formula.id)
     setActionError(null)
@@ -227,6 +372,21 @@ export default function FormulasProduccionPage() {
           ? "No se pudo desactivar la fórmula seleccionada."
           : "No se pudo activar la fórmula seleccionada."
       )
+      setBusyStateId(null)
+      return
+    }
+
+    if (detail?.id === formula.id) {
+      setDetailLoading(true)
+      setDetailHistoryLoading(true)
+      const [nextDetail, nextHistory] = await Promise.all([
+        getById(formula.id),
+        getHistorial(formula.id),
+      ])
+      setDetail(nextDetail)
+      setDetailHistory(nextHistory)
+      setDetailLoading(false)
+      setDetailHistoryLoading(false)
     }
 
     setBusyStateId(null)
@@ -263,25 +423,23 @@ export default function FormulasProduccionPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="Total fórmulas"
-          value={String(formulas.length)}
-          description={
-            soloActivas ? "Vista sólo de fórmulas activas." : "Incluye activas e inactivas."
-          }
+          title="Fórmulas visibles"
+          value={String(visibleStats.total)}
+          description={`Vista actual sobre ${formulas.length} fórmulas cargadas en la consulta.`}
         />
         <SummaryCard
           title="Activas"
-          value={String(activas)}
-          description="Disponibles para planificar órdenes de trabajo."
+          value={String(visibleStats.activas)}
+          description="Fórmulas visibles disponibles para planificar órdenes de trabajo."
         />
         <SummaryCard
           title="Componentes totales"
-          value={String(totalComponentes)}
+          value={String(visibleStats.totalComponentes)}
           description="Relaciones componente-producto cargadas en la vista actual."
         />
         <SummaryCard
           title="Promedio de componentes"
-          value={promedioComponentes}
+          value={visibleStats.promedioComponentes}
           description="Cantidad media de insumos por fórmula visible."
         />
       </div>
@@ -289,12 +447,12 @@ export default function FormulasProduccionPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Con codigo"
-          value={String(conCodigo)}
-          description="Formulas con identificacion visible del legado tecnico."
+          value={String(visibleStats.conCodigo)}
+          description="Formulas visibles con identificacion del legado tecnico."
         />
         <SummaryCard
           title="Extendidas"
-          value={String(extendidas)}
+          value={String(visibleStats.extendidas)}
           description="Formulas con tres o mas componentes visibles."
         />
         <SummaryCard
@@ -426,8 +584,8 @@ export default function FormulasProduccionPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline">{filtered.length} visibles</Badge>
-              <Badge variant="outline">{extendidas} extendidas</Badge>
-              <Badge variant="outline">{conCodigo} con código</Badge>
+              <Badge variant="outline">{visibleStats.extendidas} extendidas</Badge>
+              <Badge variant="outline">{visibleStats.conCodigo} con código</Badge>
             </div>
           </div>
           <div className="flex items-center gap-3 rounded-lg border p-3">
@@ -561,6 +719,10 @@ export default function FormulasProduccionPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => openEdit(selected)}>
+                    <Pencil className="h-4 w-4" />
+                    Editar datos base
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={() => void handleToggleEstado(selected)}
@@ -646,7 +808,7 @@ export default function FormulasProduccionPage() {
       </div>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent>
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Detalle de fórmula de producción</DialogTitle>
             <DialogDescription>
@@ -657,38 +819,40 @@ export default function FormulasProduccionPage() {
             <p className="text-sm text-muted-foreground">Cargando detalle...</p>
           ) : detail ? (
             <Tabs defaultValue="general">
-              <TabsList className="grid w-full grid-cols-3">
+              <WmsTabsList className="md:grid-cols-4">
                 <TabsTrigger value="general">General</TabsTrigger>
                 <TabsTrigger value="componentes">Componentes</TabsTrigger>
                 <TabsTrigger value="circuito">Circuito</TabsTrigger>
-              </TabsList>
+                <TabsTrigger value="historial">Historial</TabsTrigger>
+              </WmsTabsList>
 
               <TabsContent value="general" className="mt-4 space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg bg-muted/40 p-3">
-                    <span className="mb-1 block text-xs text-muted-foreground">Código</span>
-                    <p className="text-sm font-medium">{detail.codigo ?? "-"}</p>
-                  </div>
-                  <div className="rounded-lg bg-muted/40 p-3">
-                    <span className="mb-1 block text-xs text-muted-foreground">Producto</span>
-                    <p className="text-sm font-medium">#{detail.itemProductoId}</p>
-                    {detail.itemProductoDescripcion ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {detail.itemProductoDescripcion}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="rounded-lg bg-muted/40 p-3">
-                    <span className="mb-1 block text-xs text-muted-foreground">
-                      Cantidad producida
-                    </span>
-                    <p className="text-sm font-medium">{detail.cantidadProducida}</p>
-                  </div>
-                  <div className="rounded-lg bg-muted/40 p-3">
-                    <span className="mb-1 block text-xs text-muted-foreground">Estado</span>
-                    <p className="text-sm font-medium">{detail.activa ? "Activa" : "Inactiva"}</p>
-                  </div>
-                </div>
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    { label: "Código", value: detail.codigo ?? "-" },
+                    {
+                      label: "Producto",
+                      value: (
+                        <>
+                          <span className="block">#{detail.itemProductoId}</span>
+                          {detail.itemProductoDescripcion ? (
+                            <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                              {detail.itemProductoDescripcion}
+                            </span>
+                          ) : null}
+                        </>
+                      ),
+                    },
+                    { label: "Cantidad producida", value: detail.cantidadProducida },
+                    { label: "Estado", value: detail.activa ? "Activa" : "Inactiva" },
+                    {
+                      label: "Observación",
+                      value: detail.observacion ?? "Sin observaciones visibles",
+                      className: "md:col-span-2",
+                    },
+                  ]}
+                />
               </TabsContent>
 
               <TabsContent value="componentes" className="mt-4 space-y-2">
@@ -711,27 +875,54 @@ export default function FormulasProduccionPage() {
                 )}
               </TabsContent>
 
-              <TabsContent value="circuito" className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">Estado tecnico</span>
-                  <p className="text-sm font-medium">{getFormulaStatus(detail)}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3">
-                  <span className="mb-1 block text-xs text-muted-foreground">
-                    Cobertura de insumos
-                  </span>
-                  <p className="text-sm font-medium">{getComponentCoverage(detail)}</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-3 sm:col-span-2">
-                  <span className="mb-1 block text-xs text-muted-foreground">
-                    Lectura operativa
-                  </span>
-                  <p className="text-sm font-medium">
-                    {detail.activa
-                      ? "Formula disponible para planificacion y ordenes de trabajo visibles."
-                      : "Formula fuera del circuito activo, mantenida solo para consulta tecnica."}
+              <TabsContent value="circuito" className="mt-4">
+                <WmsDetailFieldGrid
+                  columns="2"
+                  fields={[
+                    { label: "Estado técnico", value: getFormulaStatus(detail) },
+                    { label: "Cobertura de insumos", value: getComponentCoverage(detail) },
+                    {
+                      label: "Lectura operativa",
+                      value: detail.activa
+                        ? "Fórmula disponible para planificación y órdenes de trabajo visibles."
+                        : "Fórmula fuera del circuito activo, mantenida solo para consulta técnica.",
+                      className: "md:col-span-2",
+                    },
+                  ]}
+                />
+              </TabsContent>
+
+              <TabsContent value="historial" className="mt-4 space-y-3">
+                {detailHistoryLoading ? (
+                  <p className="text-sm text-muted-foreground">Cargando historial...</p>
+                ) : detailHistory.length ? (
+                  detailHistory.map((entry) => (
+                    <div key={entry.id} className="rounded-lg bg-muted/40 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">
+                            Versión {entry.version} · {entry.descripcion || "Sin descripción"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {entry.motivo ?? "Sin motivo informado"} ·{" "}
+                            {formatHistoryTimestamp(entry.createdAt)}
+                          </p>
+                        </div>
+                        <Badge variant="outline">{entry.cantidadResultado}</Badge>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {entry.codigo ? `Código ${entry.codigo}` : "Sin código histórico visible"}
+                        {entry.createdBy !== null && entry.createdBy !== undefined
+                          ? ` · usuario ${entry.createdBy}`
+                          : ""}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No hay historial visible para la fórmula seleccionada.
                   </p>
-                </div>
+                )}
               </TabsContent>
             </Tabs>
           ) : (
@@ -740,15 +931,91 @@ export default function FormulasProduccionPage() {
             </p>
           )}
           <DialogFooter>
+            {detail ? (
+              <Button variant="outline" onClick={() => openEdit(detail)}>
+                <Pencil className="h-4 w-4" />
+                Editar datos base
+              </Button>
+            ) : null}
             <Button variant="outline" onClick={() => setDetailOpen(false)}>
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-2xl">
+      <Dialog
+        open={editOpen}
+        onOpenChange={(open) => {
+          setEditOpen(open)
+          if (!open) {
+            setEditingFormulaId(null)
+            setActionError(null)
+          }
+        }}
+      >
+        <WmsDialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>Editar datos base de la fórmula</DialogTitle>
+            <DialogDescription>
+              El backend hoy permite ajustar descripción, cantidad producida y observación. La
+              composición de componentes sigue en solo lectura en esta iteración.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-descripcion">Descripción</Label>
+              <Input
+                id="edit-descripcion"
+                value={editDraft.descripcion}
+                onChange={(e) => setEditDraft((prev) => ({ ...prev, descripcion: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-cantidad">Cantidad producida</Label>
+              <Input
+                id="edit-cantidad"
+                type="number"
+                min="0"
+                step="0.01"
+                value={editDraft.cantidadProducida}
+                onChange={(e) =>
+                  setEditDraft((prev) => ({ ...prev, cantidadProducida: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-observacion">Observación</Label>
+              <Textarea
+                id="edit-observacion"
+                value={editDraft.observacion}
+                onChange={(e) => setEditDraft((prev) => ({ ...prev, observacion: e.target.value }))}
+                placeholder="Contexto técnico u operativo visible para esta versión"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void handleEdit()} disabled={editSaving}>
+              {editSaving ? "Guardando..." : "Guardar cambios"}
+            </Button>
+          </DialogFooter>
+        </WmsDialogContent>
+      </Dialog>
+
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open)
+          if (!open) {
+            resetCreate()
+            setActionError(null)
+          }
+        }}
+      >
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Nueva fórmula de producción</DialogTitle>
             <DialogDescription>
@@ -817,6 +1084,19 @@ export default function FormulasProduccionPage() {
                 </p>
               </div>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="observacion">Observación</Label>
+              <Textarea
+                id="observacion"
+                value={draft.observacion}
+                onChange={(e) => setDraft((prev) => ({ ...prev, observacion: e.target.value }))}
+                placeholder="Notas técnicas, equivalencias del legado o contexto operativo"
+              />
+              <p className="text-xs text-muted-foreground">
+                Conviene dejar aquí la referencia técnica que el usuario reconocía en el circuito
+                anterior.
+              </p>
+            </div>
             <div className="flex items-center gap-3 rounded-lg border p-3">
               <Switch
                 id="formula-activa"
@@ -875,7 +1155,7 @@ export default function FormulasProduccionPage() {
               {saving ? "Guardando..." : "Crear fórmula"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

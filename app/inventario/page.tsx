@@ -232,25 +232,24 @@ export default function InventarioPage() {
     },
     {
       title: "Marcas",
-      description:
-        "Maestro visible de marcas y lineas comerciales mientras no exista endpoint dedicado.",
+      description: "Maestro real de marcas comerciales con cobertura directa sobre productos.",
       icon: Layers3,
       href: "/inventario/marcas",
-      stats: "Cobertura local de marcas legacy para completar la ficha comercial",
+      stats: "Alta, edicion y estado sincronizados con el backend comercial",
     },
     {
       title: "Unidades",
-      description: "Unidades de medida con uso real del catalogo y overlay operativo.",
+      description: "Unidades de medida reales con uso operativo sobre el catalogo activo.",
       icon: Ruler,
       href: "/inventario/unidades",
       stats: `${items.filter((item) => item.unidadMedidaId).length} items ya usan una unidad publicada`,
     },
     {
       title: "Atributos",
-      description: "Bloques de validacion y atributos heredados para catalogo, logistica y fiscal.",
+      description: "Definiciones reales de atributos para catalogo, logistica y datos fiscales.",
       icon: FolderTree,
       href: "/inventario/atributos",
-      stats: "Paridad visible del maestro extendido sin inventar backend dinamico",
+      stats: "Maestro sincronizado; los valores por item se administran desde Productos",
     },
   ]
 

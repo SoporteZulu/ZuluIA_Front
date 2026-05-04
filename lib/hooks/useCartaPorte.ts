@@ -24,6 +24,8 @@ interface UseCartaPorteOptions {
   hasta?: string
 }
 
+const CARTA_PORTE_API_BASE = "/api/CartaPorte"
+
 function normalizeEstado(value: unknown): EstadoCartaPorte {
   const normalized = String(value ?? "")
     .trim()
@@ -93,7 +95,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
       if (options.desde) params.set("desde", options.desde)
       if (options.hasta) params.set("hasta", options.hasta)
 
-      const result = await apiGet<CartaPortePaged>(`/api/carta-porte?${params.toString()}`)
+        const result = await apiGet<CartaPortePaged>(`${CARTA_PORTE_API_BASE}?${params.toString()}`)
       const items = Array.isArray(result) ? result : (result.items ?? [])
       setCartas(Array.isArray(items) ? items.map(normalizeCarta) : [])
       setTotalCount(Array.isArray(result) ? items.length : (result.totalCount ?? items.length))
@@ -119,7 +121,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const getById = async (id: number): Promise<CartaPorte | null> => {
     try {
-      const result = await apiGet<CartaPorte>(`/api/carta-porte/${id}`)
+        const result = await apiGet<CartaPorte>(`${CARTA_PORTE_API_BASE}/${id}`)
       return normalizeCarta(result)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar carta de porte")
@@ -129,7 +131,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const crear = async (dto: CreateCartaPorteDto): Promise<number | null> => {
     try {
-      const result = await apiPost<{ id: number }>("/api/carta-porte", dto)
+        const result = await apiPost<{ id: number }>(CARTA_PORTE_API_BASE, dto)
       await fetchCartas()
       return Number(result?.id ?? 0) || null
     } catch (e) {
@@ -140,7 +142,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const asignarCtg = async (id: number, nroCtg: string): Promise<boolean> => {
     try {
-      await apiPost<void>(`/api/carta-porte/${id}/asignar-ctg`, { nroCtg })
+        await apiPost<void>(`${CARTA_PORTE_API_BASE}/${id}/asignar-ctg`, { nroCtg })
       await fetchCartas()
       return true
     } catch (e) {
@@ -151,8 +153,8 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const getOrdenCarga = async (id: number): Promise<OrdenCarga | null> => {
     try {
-      const result = await apiGet<OrdenCarga>(`/api/carta-porte/${id}/orden-carga`)
-      return normalizeOrdenCarga(result)
+        const result = await apiGet<OrdenCarga | null>(`${CARTA_PORTE_API_BASE}/${id}/orden-carga`)
+      return result ? normalizeOrdenCarga(result) : null
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar la orden de carga")
       return null
@@ -161,7 +163,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const crearOrdenCarga = async (id: number, dto: CrearOrdenCargaDto): Promise<boolean> => {
     try {
-      await apiPost(`/api/carta-porte/${id}/orden-carga`, dto)
+        await apiPost(`${CARTA_PORTE_API_BASE}/${id}/orden-carga`, dto)
       await fetchCartas()
       return true
     } catch (e) {
@@ -172,7 +174,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const solicitarCtg = async (id: number, dto: SolicitarCtgCartaPorteDto): Promise<boolean> => {
     try {
-      await apiPost(`/api/carta-porte/${id}/ctg/solicitar`, dto)
+        await apiPost(`${CARTA_PORTE_API_BASE}/${id}/ctg/solicitar`, dto)
       await fetchCartas()
       return true
     } catch (e) {
@@ -183,7 +185,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const reintentarCtg = async (id: number, dto: SolicitarCtgCartaPorteDto): Promise<boolean> => {
     try {
-      await apiPost(`/api/carta-porte/${id}/ctg/reintentar`, dto)
+        await apiPost(`${CARTA_PORTE_API_BASE}/${id}/ctg/reintentar`, dto)
       await fetchCartas()
       return true
     } catch (e) {
@@ -194,7 +196,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const consultarCtg = async (id: number, dto: ConsultarCtgCartaPorteDto): Promise<boolean> => {
     try {
-      await apiPost(`/api/carta-porte/${id}/ctg/consultar`, dto)
+        await apiPost(`${CARTA_PORTE_API_BASE}/${id}/ctg/consultar`, dto)
       await fetchCartas()
       return true
     } catch (e) {
@@ -205,7 +207,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const confirmar = async (id: number): Promise<boolean> => {
     try {
-      await apiPost(`/api/carta-porte/${id}/confirmar`, {})
+        await apiPost(`${CARTA_PORTE_API_BASE}/${id}/confirmar`, {})
       await fetchCartas()
       return true
     } catch (e) {
@@ -216,7 +218,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const anular = async (id: number, dto: AnularCartaPorteDto): Promise<boolean> => {
     try {
-      await apiPost(`/api/carta-porte/${id}/anular`, dto)
+        await apiPost(`${CARTA_PORTE_API_BASE}/${id}/anular`, dto)
       await fetchCartas()
       return true
     } catch (e) {
@@ -227,7 +229,7 @@ export function useCartaPorte(options: UseCartaPorteOptions = {}) {
 
   const getHistorial = async (id: number): Promise<CartaPorteEvento[]> => {
     try {
-      const result = await apiGet<CartaPorteEvento[]>(`/api/carta-porte/${id}/historial`)
+      const result = await apiGet<CartaPorteEvento[]>(`${CARTA_PORTE_API_BASE}/${id}/historial`)
       return Array.isArray(result) ? result.map(normalizeEvento) : []
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar historial de carta de porte")

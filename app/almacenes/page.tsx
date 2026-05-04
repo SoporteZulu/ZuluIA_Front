@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import React, { useState } from "react"
+import React, { type ComponentType, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,6 @@ import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -31,24 +30,44 @@ import {
   ArrowRight,
   Boxes,
   CheckCircle,
+  ClipboardList,
   Clock,
   AlertCircle,
   Eye,
+  Factory,
+  FlaskConical,
+  MapPinned,
+  Network,
+  PackageCheck,
   Plus,
+  Truck,
   Warehouse,
 } from "lucide-react"
+import { WmsDialogContent } from "@/components/almacenes/wms-responsive"
 import { useDepositos } from "@/lib/hooks/useDepositos"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
-import { useComprobantes } from "@/lib/hooks/useComprobantes"
+import { useComprobantes, useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useStockActions, useStockResumen } from "@/lib/hooks/useStock"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
 import { useTerceros } from "@/lib/hooks/useTerceros"
+import type { TipoComprobante } from "@/lib/types/comprobantes"
 import {
   getOrdenCompraRecepcionLabel,
   getOrdenCompraRecepcionProgress,
   isOrdenCompraRecepcionAbierta,
   isOrdenCompraRecepcionParcial,
 } from "@/lib/utils"
+
+function normalizeText(value?: string | null) {
+  return (value ?? "").trim().toLowerCase()
+}
+
+function isDeliveryNoteType(tipo?: TipoComprobante | null, fallbackLabel?: string | null) {
+  const code = normalizeText(tipo?.codigo)
+  const description = `${normalizeText(tipo?.descripcion)} ${normalizeText(fallbackLabel)}`
+
+  return description.includes("remito") || code.startsWith("rem")
+}
 
 function getSalidaStatusLabel(estado: string) {
   switch ((estado ?? "").toUpperCase()) {
@@ -71,12 +90,49 @@ function getCoverageLabel(stockActual: number, stockMinimo: number) {
   return "Cobertura baja con remanente"
 }
 
+function QuickLinkCard({
+  title,
+  description,
+  href,
+  icon: Icon,
+  color,
+  iconColor,
+}: {
+  title: string
+  description: string
+  href: string
+  icon: ComponentType<{ className?: string }>
+  color: string
+  iconColor: string
+}) {
+  return (
+    <Card className={`transition-colors ${color}`}>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Icon className={`h-4 w-4 ${iconColor}`} />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex items-center justify-between gap-4">
+        <p className="text-sm text-muted-foreground">{description}</p>
+        <Button asChild size="sm" variant="outline" className="bg-transparent">
+          <Link href={href}>
+            Abrir
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Link>
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function AlmacenesPage() {
   const defaultSucursalId = useDefaultSucursalId()
   const { resumen, bajoMinimo, loading, refetch } = useStockResumen(defaultSucursalId)
   const { depositos } = useDepositos()
   const { ordenes } = useOrdenesCompra()
   const { comprobantes } = useComprobantes({ esVenta: true })
+  const { tipos } = useComprobantesConfig()
   const { terceros } = useTerceros()
   const { ajustar, loading: adjusting, error: adjustError } = useStockActions()
   const [selectedAlert, setSelectedAlert] = useState<string | null>(null)
@@ -91,9 +147,25 @@ export default function AlmacenesPage() {
     totalDepositos: resumen?.totalDepositos ?? depositos.length,
   }
 
+  const tipoComprobanteById = React.useMemo(
+    () => new Map(tipos.map((tipo) => [tipo.id, tipo])),
+    [tipos]
+  )
+
   const recepcionesAbiertas = ordenes.filter(isOrdenCompraRecepcionAbierta)
   const recepcionesParciales = recepcionesAbiertas.filter(isOrdenCompraRecepcionParcial).length
-  const salidasActivas = comprobantes.filter((c) => c.estado === "BORRADOR")
+  const salidasActivas = React.useMemo(
+    () =>
+      comprobantes.filter(
+        (comprobante) =>
+          comprobante.estado === "BORRADOR" &&
+          isDeliveryNoteType(
+            tipoComprobanteById.get(comprobante.tipoComprobanteId),
+            comprobante.tipoComprobanteDescripcion
+          )
+      ),
+    [comprobantes, tipoComprobanteById]
+  )
   const alertasCriticas = bajoMinimo.filter((item) => item.stockActual <= 0).length
   const alertasReposicion = bajoMinimo.filter((item) => item.stockActual > 0).length
   const depositosConCobertura = kpis.totalDepositos > 0 && kpis.totalItemsConStock > 0
@@ -116,6 +188,119 @@ export default function AlmacenesPage() {
       .join(" · ")
     return destination || "Destino no informado"
   }
+
+  const circuitLinks = [
+    {
+      title: "Inventario",
+      description: "Stock por depósito, movimientos, ajustes y transferencias con lectura real.",
+      href: "/almacenes/inventario",
+      icon: Boxes,
+      color: "border-sky-200 bg-sky-50 hover:bg-sky-100",
+      iconColor: "text-sky-700",
+    },
+    {
+      title: "Recepciones",
+      description: "Ingreso sobre órdenes de compra, remitos y saldo pendiente visible.",
+      href: "/almacenes/recepciones",
+      icon: PackageCheck,
+      color: "border-emerald-200 bg-emerald-50 hover:bg-emerald-100",
+      iconColor: "text-emerald-700",
+    },
+    {
+      title: "Picking",
+      description: "Preparación, confirmación, despacho y trazabilidad de transferencias.",
+      href: "/almacenes/picking",
+      icon: ClipboardList,
+      color: "border-amber-200 bg-amber-50 hover:bg-amber-100",
+      iconColor: "text-amber-700",
+    },
+    {
+      title: "Carta de porte",
+      description: "Circuito documental con CTG, orden de carga e historial de eventos.",
+      href: "/almacenes/carta-porte",
+      icon: Warehouse,
+      color: "border-orange-200 bg-orange-50 hover:bg-orange-100",
+      iconColor: "text-orange-700",
+    },
+  ]
+
+  const masterLinks = [
+    {
+      title: "Plantas",
+      description: "Depósitos reales, defaults y cobertura operativa por sucursal.",
+      href: "/almacenes/plantas",
+      icon: Warehouse,
+      color: "border-slate-200 bg-slate-50 hover:bg-slate-100",
+      iconColor: "text-slate-700",
+    },
+    {
+      title: "Regiones",
+      description: "Jerarquía regional, integradoras y lectura territorial del WMS.",
+      href: "/almacenes/regiones",
+      icon: Network,
+      color: "border-cyan-200 bg-cyan-50 hover:bg-cyan-100",
+      iconColor: "text-cyan-700",
+    },
+    {
+      title: "Zonas",
+      description: "Sectorización física visible hoy en backend para el circuito logístico.",
+      href: "/almacenes/zonas",
+      icon: MapPinned,
+      color: "border-violet-200 bg-violet-50 hover:bg-violet-100",
+      iconColor: "text-violet-700",
+    },
+    {
+      title: "Conteos",
+      description: "Agenda cíclica, divergencias visibles y seguimiento de auditoría operativa.",
+      href: "/almacenes/conteos",
+      icon: Clock,
+      color: "border-lime-200 bg-lime-50 hover:bg-lime-100",
+      iconColor: "text-lime-700",
+    },
+  ]
+
+  const extendedLinks = [
+    {
+      title: "Reportes",
+      description: "Consolidado transversal de stock, movimientos, regiones y conteos.",
+      href: "/almacenes/reportes",
+      icon: Eye,
+      color: "border-rose-200 bg-rose-50 hover:bg-rose-100",
+      iconColor: "text-rose-700",
+    },
+    {
+      title: "Producción",
+      description: "Consumos, cierre, ajustes y empaques sobre órdenes productivas reales.",
+      href: "/almacenes/produccion",
+      icon: Factory,
+      color: "border-fuchsia-200 bg-fuchsia-50 hover:bg-fuchsia-100",
+      iconColor: "text-fuchsia-700",
+    },
+    {
+      title: "Órdenes de trabajo",
+      description: "Planificación productiva con circuitos, fechas y vínculo directo a producción.",
+      href: "/almacenes/ordenes-trabajo",
+      icon: ClipboardList,
+      color: "border-indigo-200 bg-indigo-50 hover:bg-indigo-100",
+      iconColor: "text-indigo-700",
+    },
+    {
+      title: "Fórmulas",
+      description: "Recetas técnicas, historial y edición de datos base publicados por backend.",
+      href: "/almacenes/formulas-produccion",
+      icon: FlaskConical,
+      color: "border-teal-200 bg-teal-50 hover:bg-teal-100",
+      iconColor: "text-teal-700",
+    },
+    {
+      title: "Transportistas",
+      description: "Legajos operativos, unidad visible y estado del circuito documental/logístico.",
+      href: "/almacenes/transportistas",
+      icon: Truck,
+      color: "border-stone-200 bg-stone-50 hover:bg-stone-100",
+      iconColor: "text-stone-700",
+    },
+  ]
 
   const openAdjustDialog = () => {
     if (!highlightedAlert) return
@@ -189,8 +374,8 @@ export default function AlmacenesPage() {
                 <p className="text-xs uppercase tracking-wide text-sky-900/70">Salida visible</p>
                 <p className="mt-2 text-sm font-semibold text-sky-950">
                   {salidasActivas.length > 0
-                    ? "Documentos borrador en curso"
-                    : "Sin salidas en foco"}
+                    ? "Remitos WMS en preparación"
+                    : "Sin salidas WMS en foco"}
                 </p>
               </div>
             </div>
@@ -220,7 +405,7 @@ export default function AlmacenesPage() {
                   <p className="text-sm font-medium">Recepción y despacho</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {recepcionesAbiertas.length} ingresos abiertos y {salidasActivas.length} salidas
-                    visibles.
+                    WMS visibles.
                   </p>
                 </div>
                 <Warehouse className="h-5 w-5 text-sky-700" />
@@ -337,44 +522,42 @@ export default function AlmacenesPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        {[
-          {
-            title: "Regiones",
-            description:
-              "Mapa funcional por planta y responsable para cerrar la estructura visible del WMS.",
-            href: "/almacenes/regiones",
-          },
-          {
-            title: "Zonas",
-            description: "Zonas fisicas, criticidad y capacidad visible por deposito.",
-            href: "/almacenes/zonas",
-          },
-          {
-            title: "Conteos",
-            description: "Planes de conteo ciclico y divergencias de auditoria en modo lectura.",
-            href: "/almacenes/conteos",
-          },
-          {
-            title: "Reportes WMS",
-            description: "Consolidado de movimientos, alertas y cobertura operacional.",
-            href: "/almacenes/reportes",
-          },
-          {
-            title: "Producción",
-            description: "Consumos, ingresos y ajustes productivos vinculados a órdenes reales.",
-            href: "/almacenes/produccion",
-          },
-        ].map((section) => (
-          <Link key={section.href} href={section.href}>
-            <Card className="h-full transition-colors hover:border-primary/40 hover:bg-primary/5">
-              <CardHeader>
-                <CardTitle className="text-base">{section.title}</CardTitle>
-                <CardDescription>{section.description}</CardDescription>
-              </CardHeader>
-            </Card>
-          </Link>
-        ))}
+      <div className="grid gap-6 xl:grid-cols-3">
+        <Card className="border-slate-200 bg-linear-to-br from-white via-white to-sky-50">
+          <CardHeader>
+            <CardDescription>Circuito operativo</CardDescription>
+            <CardTitle className="text-xl">Frentes de ejecución WMS</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            {circuitLinks.map((section) => (
+              <QuickLinkCard key={section.href} {...section} />
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 bg-linear-to-br from-white via-white to-stone-50">
+          <CardHeader>
+            <CardDescription>Maestros y control</CardDescription>
+            <CardTitle className="text-xl">Base estructural de Almacenes</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            {masterLinks.map((section) => (
+              <QuickLinkCard key={section.href} {...section} />
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 bg-linear-to-br from-white via-white to-amber-50">
+          <CardHeader>
+            <CardDescription>Producción y soporte</CardDescription>
+            <CardTitle className="text-xl">Circuitos complementarios</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            {extendedLinks.map((section) => (
+              <QuickLinkCard key={section.href} {...section} />
+            ))}
+          </CardContent>
+        </Card>
       </div>
 
       {highlightedAlert ? (
@@ -562,7 +745,7 @@ export default function AlmacenesPage() {
               {salidasActivas.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
-                    No hay salidas activas visibles en el lote actual.
+                    No hay remitos WMS activos visibles en el lote actual.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -666,24 +849,24 @@ export default function AlmacenesPage() {
           <CardHeader>
             <CardTitle>Salidas en preparacion</CardTitle>
             <CardDescription>
-              Documentos borrador visibles como ordenes de salida activas.
+              Remitos WMS en borrador visibles como salidas operativas.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             <p>
-              El tablero muestra comprobantes en borrador como salidas pendientes dentro del
+              El tablero muestra remitos reales en borrador como salidas pendientes dentro del
               circuito actual.
             </p>
             <p>
-              Esto recupera visibilidad operativa del modulo sin alterar backend ni contratos
-              documentales.
+              Esto evita mezclar pedidos, facturas u otros borradores comerciales con el flujo WMS
+              de preparación y despacho.
             </p>
           </CardContent>
         </Card>
       </div>
 
       <Dialog open={isAdjustOpen} onOpenChange={setIsAdjustOpen}>
-        <DialogContent>
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Ajuste rápido de stock</DialogTitle>
             <DialogDescription>
@@ -731,7 +914,7 @@ export default function AlmacenesPage() {
               {adjusting ? "Ajustando..." : "Confirmar ajuste"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

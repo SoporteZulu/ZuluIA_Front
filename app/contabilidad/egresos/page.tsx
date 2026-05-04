@@ -1,20 +1,22 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
-import { ArrowUpRight, Eye, RefreshCw, Search, ShieldAlert, Wallet } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import {
+  ArrowUpRight,
+  CreditCard,
+  Eye,
+  Landmark,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  Wallet,
+} from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -31,114 +33,68 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  legacyAccountingExpenses,
-  type LegacyAccountingExpense,
-} from "@/lib/contabilidad-legacy-data"
-import { useLegacyLocalCollection } from "@/lib/hooks/useLegacyLocalCollection"
 import { useCajas } from "@/lib/hooks/useCajas"
 import { usePagos } from "@/lib/hooks/usePagos"
 import { useDefaultSucursalId } from "@/lib/hooks/useSucursales"
+import type { Pago, PagoDetalle } from "@/lib/types/pagos"
 
-type ExpenseStage = "relevado" | "pendiente_rendicion" | "pendiente_asiento" | "cerrado"
-
-type LocalExpenseTracker = {
-  expenseId: string
-  stage: ExpenseStage
-  owner: string
-  nextStep: string
-  updatedAt: string
-}
-
-const EXPENSE_TRACKER_STORAGE_KEY = "zuluia_contabilidad_egresos_trackers"
-
-const STATUS_CONFIG: Record<
-  LegacyAccountingExpense["estado"],
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  REGISTRADO: { label: "Registrado", variant: "secondary" },
-  APLICADO: { label: "Aplicado", variant: "default" },
-  OBSERVADO: { label: "Observado", variant: "destructive" },
-}
-
-const STAGE_CONFIG: Record<
-  ExpenseStage,
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  relevado: { label: "Relevado", variant: "outline" },
-  pendiente_rendicion: { label: "Pendiente de rendicion", variant: "destructive" },
-  pendiente_asiento: { label: "Pendiente de asiento", variant: "secondary" },
-  cerrado: { label: "Cerrado", variant: "default" },
-}
-
-const DEFAULT_TRACKERS: LocalExpenseTracker[] = legacyAccountingExpenses.map((item) => ({
-  expenseId: item.id,
-  stage:
-    item.estado === "APLICADO"
-      ? "cerrado"
-      : item.estado === "OBSERVADO"
-        ? "pendiente_rendicion"
-        : "pendiente_asiento",
-  owner: item.responsable,
-  nextStep:
-    item.estado === "APLICADO"
-      ? "Mantener soporte y conciliacion del egreso aplicado."
-      : item.estado === "OBSERVADO"
-        ? "Completar rendicion y definir asiento final."
-        : "Emitir asiento e integrar el egreso al libro diario.",
-  updatedAt: item.fecha,
-}))
-
-function formatMoney(value: number) {
-  return value.toLocaleString("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    maximumFractionDigits: 0,
-  })
-}
+type StatusFilter = "todos" | "activos" | "anulados" | "otros"
 
 function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString("es-AR") : "-"
+  if (!value) return "-"
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).toLocaleDateString(
+      "es-AR"
+    )
+  }
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("es-AR")
 }
 
-function matchesTerm(item: LegacyAccountingExpense, tracker: LocalExpenseTracker, term: string) {
-  if (term === "") {
-    return true
-  }
+function formatDateTime(value?: string | null) {
+  if (!value) return "-"
 
-  return [
-    item.id,
-    item.destino,
-    item.tercero,
-    item.caja,
-    item.concepto,
-    item.referencia,
-    item.asientoReferencia,
-    item.circuito,
-    item.responsable,
-    item.observacion,
-    tracker.owner,
-    tracker.nextStep,
-    ...item.items.map((line) => `${line.concepto} ${line.cuenta}`),
-  ]
-    .join(" ")
-    .toLowerCase()
-    .includes(term)
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleString("es-AR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
 }
 
-function getExpenseHealth(item: LegacyAccountingExpense, tracker: LocalExpenseTracker) {
-  if (tracker.stage === "cerrado") {
-    return "Egreso conciliado con caja, soporte y asiento"
+function formatMoney(value: number, symbol = "$") {
+  return `${symbol} ${Number(value ?? 0).toLocaleString("es-AR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+function getStatusFilterValue(status?: string | null): Exclude<StatusFilter, "todos"> {
+  const normalized = (status ?? "").trim().toUpperCase()
+  if (normalized === "ACTIVO" || normalized === "REGISTRADO") return "activos"
+  if (normalized === "ANULADO") return "anulados"
+  return "otros"
+}
+
+function getStatusBadge(status?: string | null) {
+  const normalized = (status ?? "").trim().toUpperCase()
+
+  if (normalized === "ACTIVO" || normalized === "REGISTRADO") {
+    return <Badge>Activo</Badge>
   }
-  if (tracker.stage === "pendiente_rendicion") {
-    return "Faltan comprobantes o rendicion del egreso operativo"
+
+  if (normalized === "ANULADO") {
+    return <Badge variant="destructive">Anulado</Badge>
   }
-  if (tracker.stage === "pendiente_asiento") {
-    return "El movimiento existe pero aun no se integro al diario"
-  }
-  return "Egreso relevado localmente y pendiente de circuito formal"
+
+  return <Badge variant="outline">{status || "Sin estado"}</Badge>
 }
 
 function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
@@ -156,77 +112,98 @@ function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: str
 
 export default function ContabilidadEgresosPage() {
   const sucursalId = useDefaultSucursalId()
-  const { pagos } = usePagos({ sucursalId })
   const { cajas } = useCajas(sucursalId)
-  const {
-    rows: trackers,
-    setRows: setTrackers,
-    reset: resetTrackers,
-  } = useLegacyLocalCollection<LocalExpenseTracker>(EXPENSE_TRACKER_STORAGE_KEY, DEFAULT_TRACKERS)
-  const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState<"todos" | LegacyAccountingExpense["estado"]>(
-    "todos"
-  )
-  const [stageFilter, setStageFilter] = useState<"todos" | ExpenseStage>("todos")
-  const [selectedId, setSelectedId] = useState<string | null>(
-    legacyAccountingExpenses[0]?.id ?? null
-  )
+  const { pagos, loading, error, totalCount, getById, refetch } = usePagos({ sucursalId })
 
-  const trackerMap = useMemo(
-    () => new Map(trackers.map((tracker) => [tracker.expenseId, tracker])),
-    [trackers]
-  )
-  const expenses = useMemo(
-    () =>
-      legacyAccountingExpenses.map((item) => ({
-        ...item,
-        tracker:
-          trackerMap.get(item.id) ??
-          DEFAULT_TRACKERS.find((tracker) => tracker.expenseId === item.id)!,
-      })),
-    [trackerMap]
-  )
+  const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos")
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selectedDetail, setSelectedDetail] = useState<PagoDetalle | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  useEffect(() => {
+    if (pagos.length === 0) {
+      setSelectedId(null)
+      setSelectedDetail(null)
+      return
+    }
+
+    setSelectedId((current) =>
+      current && pagos.some((pago) => pago.id === current) ? current : pagos[0].id
+    )
+  }, [pagos])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!selectedId) {
+      setSelectedDetail(null)
+      return
+    }
+
+    setDetailLoading(true)
+    getById(selectedId)
+      .then((detail) => {
+        if (!cancelled) {
+          setSelectedDetail(detail)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDetailLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [getById, selectedId])
+
+  const cajaMap = useMemo(() => {
+    return new Map(
+      cajas.map((caja) => [
+        caja.id,
+        caja.descripcion?.trim() || caja.nombre?.trim() || `Caja ${caja.id}`,
+      ])
+    )
+  }, [cajas])
 
   const filtered = useMemo(() => {
-    const term = search.toLowerCase().trim()
-    return expenses.filter(
-      (item) =>
-        matchesTerm(item, item.tracker, term) &&
-        (statusFilter === "todos" || item.estado === statusFilter) &&
-        (stageFilter === "todos" || item.tracker.stage === stageFilter)
-    )
-  }, [expenses, search, statusFilter, stageFilter])
+    const term = search.trim().toLowerCase()
 
-  const selected = expenses.find((item) => item.id === selectedId) ?? filtered[0] ?? null
-  const highlighted = filtered.find((item) => item.estado === "OBSERVADO") ?? filtered[0] ?? null
+    return pagos.filter((pago) => {
+      const mappedStatus = getStatusFilterValue(pago.estado)
+      if (statusFilter !== "todos" && mappedStatus !== statusFilter) return false
+
+      if (!term) return true
+
+      return [String(pago.id), pago.terceroRazonSocial, pago.monedaSimbolo, pago.estado]
+        .join(" ")
+        .toLowerCase()
+        .includes(term)
+    })
+  }, [pagos, search, statusFilter])
+
+  const selected =
+    filtered.find((pago) => pago.id === selectedId) ??
+    pagos.find((pago) => pago.id === selectedId) ??
+    filtered[0] ??
+    pagos[0] ??
+    null
+
+  const selectedSummary: Pago | PagoDetalle | null = selectedDetail ?? selected
+
   const kpis = useMemo(
     () => ({
-      observed: expenses.filter((item) => item.estado === "OBSERVADO").length,
-      applied: expenses.filter((item) => item.estado === "APLICADO").length,
-      withoutEntry: expenses.filter((item) => item.asientoReferencia === "Pendiente").length,
-      total: expenses.reduce((acc, item) => acc + item.importe, 0),
+      activos: pagos.filter((pago) => getStatusFilterValue(pago.estado) === "activos").length,
+      anulados: pagos.filter((pago) => getStatusFilterValue(pago.estado) === "anulados").length,
+      montoTotal: pagos
+        .filter((pago) => getStatusFilterValue(pago.estado) !== "anulados")
+        .reduce((acc, pago) => acc + Number(pago.total ?? 0), 0),
+      retenciones: pagos.length,
     }),
-    [expenses]
+    [pagos]
   )
-
-  const updateTracker = (expenseId: string, patch: Partial<LocalExpenseTracker>) => {
-    setTrackers((current) => {
-      const index = current.findIndex((row) => row.expenseId === expenseId)
-      const base =
-        index >= 0 ? current[index] : DEFAULT_TRACKERS.find((row) => row.expenseId === expenseId)!
-      const nextRow = {
-        ...base,
-        ...patch,
-        updatedAt: new Date().toISOString(),
-      }
-
-      if (index >= 0) {
-        return current.map((row, rowIndex) => (rowIndex === index ? nextRow : row))
-      }
-
-      return [...current, nextRow]
-    })
-  }
 
   return (
     <div className="space-y-6 pb-6">
@@ -234,13 +211,13 @@ export default function ContabilidadEgresosPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Egresos</h1>
           <p className="mt-1 text-muted-foreground">
-            Consola operativa para egresos menores, adelantos y salidas urgentes que en el legacy
-            quedaban fuera del circuito formal de pagos.
+            Vista real de egresos sobre <span className="font-medium">/api/pagos</span>, con lectura
+            directa de pagos publicados por backend para la sucursal activa.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="bg-transparent" onClick={() => resetTrackers()}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Restablecer seguimiento
+          <Button variant="outline" className="bg-transparent" onClick={() => refetch()}>
+            <RefreshCw className="mr-2 h-4 w-4" /> Actualizar
           </Button>
           <Button asChild variant="outline" className="bg-transparent">
             <Link href="/contabilidad/pagos">Pagos</Link>
@@ -254,106 +231,68 @@ export default function ContabilidadEgresosPage() {
       <Alert>
         <ShieldAlert className="h-4 w-4" />
         <AlertDescription>
-          El contrato actual publica pagos formales, pero no egresos menores, adelantos ni caja
-          chica con rendicion posterior. Esta pantalla cubre esos circuitos desde el frontend.
+          La consola deja de proyectar egresos simulados y pasa a mostrar pagos reales con su
+          detalle y medios desde backend.
         </AlertDescription>
       </Alert>
+
+      {error ? (
+        <Alert>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Observados</p>
-            <p className="mt-2 text-2xl font-bold text-amber-600">{kpis.observed}</p>
+            <p className="text-xs text-muted-foreground">Total real</p>
+            <p className="mt-2 text-2xl font-bold">{totalCount}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Aplicados</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-600">{kpis.applied}</p>
+            <p className="text-xs text-muted-foreground">Activos</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-600">{kpis.activos}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Sin asiento</p>
-            <p className="mt-2 text-2xl font-bold">{kpis.withoutEntry}</p>
+            <p className="text-xs text-muted-foreground">Anulados</p>
+            <p className="mt-2 text-2xl font-bold text-destructive">{kpis.anulados}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Monto visible</p>
-            <p className="mt-2 text-2xl font-bold">{formatMoney(kpis.total)}</p>
+            <p className="text-xs text-muted-foreground">Monto total</p>
+            <p className="mt-2 text-2xl font-bold">{formatMoney(kpis.montoTotal)}</p>
           </CardContent>
         </Card>
       </div>
 
-      {highlighted ? (
-        <Card className="border-primary/20 bg-primary/5">
-          <CardHeader>
-            <CardDescription>Egreso priorizado</CardDescription>
-            <CardTitle className="mt-1 text-xl">{highlighted.id.toUpperCase()}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-lg bg-background/70 p-3">
-              <p className="text-xs text-muted-foreground">Destino</p>
-              <p className="text-sm font-medium">{highlighted.destino}</p>
-            </div>
-            <div className="rounded-lg bg-background/70 p-3">
-              <p className="text-xs text-muted-foreground">Tercero</p>
-              <p className="text-sm font-medium">{highlighted.tercero}</p>
-            </div>
-            <div className="rounded-lg bg-background/70 p-3">
-              <p className="text-xs text-muted-foreground">Seguimiento</p>
-              <p className="text-sm font-medium">{STAGE_CONFIG[highlighted.tracker.stage].label}</p>
-            </div>
-            <div className="rounded-lg bg-background/70 p-3">
-              <p className="text-xs text-muted-foreground">Importe</p>
-              <p className="text-sm font-medium">{formatMoney(highlighted.importe)}</p>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
       <Card>
         <CardContent className="pt-6">
-          <div className="grid gap-4 lg:grid-cols-[1.8fr_1fr_1fr]">
+          <div className="grid gap-4 lg:grid-cols-[1.8fr_1fr]">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="pl-10"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar por destino, tercero, referencia o cuenta..."
+                placeholder="Buscar por tercero, moneda, estado o identificador..."
               />
             </div>
             <Select
               value={statusFilter}
-              onValueChange={(value) =>
-                setStatusFilter(value as "todos" | LegacyAccountingExpense["estado"])
-              }
+              onValueChange={(value) => setStatusFilter(value as StatusFilter)}
             >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Estado legacy" />
+              <SelectTrigger>
+                <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Todo el estado legacy</SelectItem>
-                <SelectItem value="REGISTRADO">Registrado</SelectItem>
-                <SelectItem value="APLICADO">Aplicado</SelectItem>
-                <SelectItem value="OBSERVADO">Observado</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={stageFilter}
-              onValueChange={(value) => setStageFilter(value as "todos" | ExpenseStage)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Seguimiento local" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todo el seguimiento</SelectItem>
-                <SelectItem value="relevado">Relevado</SelectItem>
-                <SelectItem value="pendiente_rendicion">Pendiente de rendicion</SelectItem>
-                <SelectItem value="pendiente_asiento">Pendiente de asiento</SelectItem>
-                <SelectItem value="cerrado">Cerrado</SelectItem>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="activos">Activos</SelectItem>
+                <SelectItem value="anulados">Anulados</SelectItem>
+                <SelectItem value="otros">Otros estados</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -364,10 +303,10 @@ export default function ContabilidadEgresosPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <ArrowUpRight className="h-4 w-4" /> Egresos operativos visibles
+              <ArrowUpRight className="h-4 w-4" /> Egresos reales visibles
             </CardTitle>
             <CardDescription>
-              Salidas de caja, adelantos y consumos urgentes con trazabilidad y estado operativo.
+              Proyeccion operacional de pagos reales, sin consola local de seguimiento manual.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
@@ -375,43 +314,36 @@ export default function ContabilidadEgresosPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>ID</TableHead>
-                  <TableHead>Destino</TableHead>
+                  <TableHead>Fecha</TableHead>
                   <TableHead>Tercero</TableHead>
                   <TableHead>Estado</TableHead>
-                  <TableHead>Caja</TableHead>
-                  <TableHead className="text-right">Importe</TableHead>
+                  <TableHead>Moneda</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.id.toUpperCase()}</TableCell>
-                    <TableCell>{item.destino}</TableCell>
-                    <TableCell>{item.tercero}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant={STATUS_CONFIG[item.estado].variant}>
-                          {STATUS_CONFIG[item.estado].label}
-                        </Badge>
-                        <Badge variant={STAGE_CONFIG[item.tracker.stage].variant}>
-                          {STAGE_CONFIG[item.tracker.stage].label}
-                        </Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>{item.caja}</TableCell>
-                    <TableCell className="text-right">{formatMoney(item.importe)}</TableCell>
+                {filtered.map((pago) => (
+                  <TableRow key={pago.id}>
+                    <TableCell className="font-medium">#{pago.id}</TableCell>
+                    <TableCell>{formatDate(pago.fecha)}</TableCell>
+                    <TableCell>{pago.terceroRazonSocial}</TableCell>
+                    <TableCell>{getStatusBadge(pago.estado)}</TableCell>
+                    <TableCell>{pago.monedaSimbolo ?? "$"}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => setSelectedId(item.id)}>
+                      {formatMoney(pago.total, pago.monedaSimbolo ?? "$")}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" onClick={() => setSelectedId(pago.id)}>
                         <Eye className="h-4 w-4" />
                       </Button>
                     </TableCell>
                   </TableRow>
                 ))}
-                {filtered.length === 0 ? (
+                {!loading && filtered.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                      No hay egresos que coincidan con los filtros actuales.
+                      No hay egresos reales para los filtros actuales.
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -420,248 +352,157 @@ export default function ContabilidadEgresosPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Contexto real del backend</CardTitle>
-            <CardDescription>
-              Referencias vivas del circuito financiero formal sobre el que se apoya el overlay
-              local.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Wallet className="h-4 w-4" /> Pagos visibles
-              </div>
-              <p className="mt-2 text-2xl font-bold">{pagos.length}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Wallet className="h-4 w-4" /> Cajas disponibles
-              </div>
-              <p className="mt-2 text-2xl font-bold">{cajas.length}</p>
-            </div>
-            {selected ? (
-              <div className="rounded-lg bg-muted/40 p-3 text-sm">
-                <p className="text-xs text-muted-foreground">Gap activo</p>
-                <p className="mt-1 font-medium">{selected.backendGap}</p>
-              </div>
-            ) : null}
-            <p className="text-sm text-muted-foreground">
-              La vista ahora separa caja chica, adelantos y gastos urgentes del pago formal, sin
-              inventar endpoints que hoy no existen en el backend.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Detalle del egreso</CardTitle>
+              <CardDescription>
+                {selectedSummary
+                  ? `Pago #${selectedSummary.id} a ${selectedSummary.terceroRazonSocial}.`
+                  : "Selecciona un egreso real para ver su detalle."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {selectedSummary ? (
+                <div className="space-y-4">
+                  <DetailFieldGrid
+                    fields={[
+                      { label: "Tercero", value: selectedSummary.terceroRazonSocial },
+                      { label: "Fecha", value: formatDate(selectedSummary.fecha) },
+                      { label: "Estado", value: selectedSummary.estado || "Sin estado" },
+                      { label: "Moneda", value: selectedSummary.monedaSimbolo ?? "$" },
+                      {
+                        label: "Cotizacion",
+                        value: Number(
+                          ("cotizacion" in selectedSummary ? selectedSummary.cotizacion : 1) ?? 1
+                        ).toLocaleString("es-AR"),
+                      },
+                      {
+                        label: "Total",
+                        value: formatMoney(
+                          selectedSummary.total,
+                          selectedSummary.monedaSimbolo ?? "$"
+                        ),
+                      },
+                      { label: "Creado", value: formatDateTime(selectedSummary.createdAt) },
+                      {
+                        label: "Retenciones",
+                        value:
+                          "retenciones" in selectedSummary
+                            ? String(selectedSummary.retenciones.length)
+                            : "-",
+                      },
+                    ]}
+                  />
 
-      <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelectedId(null)}>
-        <DialogContent className="max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>{selected ? `Egreso ${selected.id.toUpperCase()}` : "Egreso"}</DialogTitle>
-            <DialogDescription>
-              {selected
-                ? `${selected.destino} · ${selected.tercero} · ${selected.referencia}`
-                : "Detalle operativo del egreso"}
-            </DialogDescription>
-          </DialogHeader>
-          {selected ? (
-            <Tabs defaultValue="circuito">
-              <TabsList className="grid h-auto w-full grid-cols-4">
-                <TabsTrigger value="circuito">Circuito</TabsTrigger>
-                <TabsTrigger value="items">Impacto</TabsTrigger>
-                <TabsTrigger value="timeline">Timeline</TabsTrigger>
-                <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
-              </TabsList>
+                  {"observacion" in selectedSummary ? (
+                    <div className="rounded-lg border bg-muted/20 p-3">
+                      <p className="text-xs text-muted-foreground">Observacion</p>
+                      <p className="mt-1 text-sm font-medium">
+                        {selectedSummary.observacion || "Sin observaciones"}
+                      </p>
+                    </div>
+                  ) : null}
 
-              <TabsContent value="circuito" className="pt-2">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Cabecera operativa</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <DetailFieldGrid
-                        fields={[
-                          { label: "Destino", value: selected.destino },
-                          { label: "Circuito", value: selected.circuito },
-                          { label: "Tercero", value: selected.tercero },
-                          { label: "Caja", value: selected.caja },
-                          { label: "Medio", value: selected.medio },
-                          { label: "Centro de costo", value: selected.centroCosto },
-                          { label: "Referencia", value: selected.referencia },
-                          { label: "Asiento", value: selected.asientoReferencia },
-                          {
-                            label: "Responsable",
-                            value: selected.tracker.owner || selected.responsable,
-                          },
-                          {
-                            label: "Salud del circuito",
-                            value: getExpenseHealth(selected, selected.tracker),
-                          },
-                        ]}
-                      />
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Observaciones</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm">
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Concepto</p>
-                        <p className="mt-1 font-medium">{selected.concepto}</p>
-                      </div>
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Observacion</p>
-                        <p className="mt-1 text-muted-foreground">{selected.observacion}</p>
-                      </div>
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Backend faltante</p>
-                        <p className="mt-1 text-muted-foreground">{selected.backendGap}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Lectura operativa</p>
+                    <p className="mt-1 text-sm font-medium">
+                      {detailLoading
+                        ? "Cargando medios y retenciones del pago..."
+                        : selectedDetail
+                          ? `${selectedDetail.medios.length} medio(s) y ${selectedDetail.retenciones.length} retencion(es) expuestos por backend.`
+                          : "Selecciona un pago para cargar su detalle real."}
+                    </p>
+                  </div>
                 </div>
-              </TabsContent>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No hay egresos reales cargados para esta sucursal.
+                </p>
+              )}
+            </CardContent>
+          </Card>
 
-              <TabsContent value="items" className="pt-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Impacto contable visible</CardTitle>
-                    <CardDescription>
-                      Apertura local de cuentas y centros de costo del egreso relevado.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Concepto</TableHead>
-                          <TableHead>Cuenta</TableHead>
-                          <TableHead>Centro costo</TableHead>
-                          <TableHead className="text-right">Importe</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {selected.items.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.concepto}</TableCell>
-                            <TableCell>{item.cuenta}</TableCell>
-                            <TableCell>{item.centroCosto}</TableCell>
-                            <TableCell className="text-right">
-                              {formatMoney(item.importe)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="timeline" className="pt-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Secuencia operativa</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {selected.timeline.map((event) => (
-                      <div key={event.id} className="rounded-lg border bg-muted/20 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="font-medium">{event.title}</p>
-                          <span className="text-xs text-muted-foreground">{event.at}</span>
-                        </div>
-                        <p className="mt-1 text-sm text-muted-foreground">{event.detail}</p>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="seguimiento" className="space-y-4 pt-2">
-                <Alert>
-                  <ShieldAlert className="h-4 w-4" />
-                  <AlertDescription>
-                    El seguimiento local cubre rendicion, asiento y cierre del egreso hasta que el
-                    backend publique estos circuitos operativos de tesoreria.
-                  </AlertDescription>
-                </Alert>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Seguimiento local</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Estado operativo</label>
-                        <Select
-                          value={selected.tracker.stage}
-                          onValueChange={(value) =>
-                            updateTracker(selected.id, { stage: value as ExpenseStage })
-                          }
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Seleccionar estado" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="relevado">Relevado</SelectItem>
-                            <SelectItem value="pendiente_rendicion">
-                              Pendiente de rendicion
-                            </SelectItem>
-                            <SelectItem value="pendiente_asiento">Pendiente de asiento</SelectItem>
-                            <SelectItem value="cerrado">Cerrado</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Responsable</label>
-                        <Input
-                          value={selected.tracker.owner}
-                          onChange={(event) =>
-                            updateTracker(selected.id, { owner: event.target.value })
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Proximo paso</label>
-                        <Textarea
-                          rows={5}
-                          value={selected.tracker.nextStep}
-                          onChange={(event) =>
-                            updateTracker(selected.id, { nextStep: event.target.value })
-                          }
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Continuidad</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm">
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Estado actual</p>
-                        <p className="mt-1 font-medium">
-                          {getExpenseHealth(selected, selected.tracker)}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <CreditCard className="h-4 w-4" /> Medios del pago
+              </CardTitle>
+              <CardDescription>
+                Detalle real obtenido desde <span className="font-medium">/api/pagos/:id</span>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {detailLoading ? (
+                <p className="text-sm text-muted-foreground">Cargando detalle del pago...</p>
+              ) : selectedDetail?.medios.length ? (
+                selectedDetail.medios.map((medio) => (
+                  <div key={medio.id} className="rounded-lg border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {medio.formaPagoDescripcion} ·{" "}
+                          {medio.cajaDescripcion ||
+                            cajaMap.get(medio.cajaId) ||
+                            `Caja ${medio.cajaId}`}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Moneda {medio.monedaSimbolo} · Cotizacion{" "}
+                          {Number(medio.cotizacion ?? 1).toLocaleString("es-AR")}
                         </p>
                       </div>
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Ultima actualizacion local</p>
-                        <p className="mt-1 font-medium">{formatDate(selected.tracker.updatedAt)}</p>
-                      </div>
-                      <div className="rounded-lg bg-muted/40 p-3">
-                        <p className="text-xs text-muted-foreground">Paso sugerido</p>
-                        <p className="mt-1 font-medium">{selected.tracker.nextStep}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      <span className="text-sm font-medium">
+                        {formatMoney(medio.importe, medio.monedaSimbolo || "$")}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Selecciona un pago para revisar sus medios reales.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Landmark className="h-4 w-4" /> Retenciones y contexto
+              </CardTitle>
+              <CardDescription>
+                El circuito conserva el nexo con cajas reales y muestra retenciones informadas.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Wallet className="h-4 w-4" /> Cajas visibles
                 </div>
-              </TabsContent>
-            </Tabs>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+                <p className="mt-2 text-2xl font-bold">{cajas.length}</p>
+              </div>
+              {detailLoading ? (
+                <p className="text-sm text-muted-foreground">Cargando retenciones...</p>
+              ) : selectedDetail?.retenciones.length ? (
+                selectedDetail.retenciones.map((retencion) => (
+                  <div key={retencion.id} className="rounded-lg border p-3">
+                    <p className="text-sm font-medium">{retencion.tipo}</p>
+                    <p className="text-xs text-muted-foreground">{formatDate(retencion.fecha)}</p>
+                    <p className="mt-1 text-sm font-medium">{formatMoney(retencion.importe)}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  El pago seleccionado no informa retenciones.
+                </p>
+              )}
+              <Button asChild className="w-full">
+                <Link href="/contabilidad/pagos">Ir a pagos</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   )
 }

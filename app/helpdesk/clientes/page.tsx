@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
 import {
   Table,
   TableBody,
@@ -21,6 +22,25 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Textarea } from "@/components/ui/textarea"
+import {
   Search,
   X,
   Users,
@@ -34,10 +54,12 @@ import {
   FileText,
   ShieldCheck,
   Ticket,
+  Settings2,
+  Trash2,
 } from "lucide-react"
 import { useCrmClientes } from "@/lib/hooks/useCrm"
 import { useHdClientes, useHdContratos, useHdSlas, useHdTickets } from "@/lib/hooks/useHelpdesk"
-import type { CRMClient, HDContrato, HDTicket } from "@/lib/types"
+import type { CRMClient, HDCliente, HDContrato, HDTicket } from "@/lib/types"
 import Link from "next/link"
 
 function mapClienteToHDType(cliente: CRMClient): "vip" | "estandar" | "basico" {
@@ -78,16 +100,95 @@ function pickActiveContrato(contratos: HDContrato[]) {
     )[0]
 }
 
+type HdProfileFormState = {
+  codigo: string
+  tipoCliente: "vip" | "estandar" | "basico"
+  email: string
+  telefono: string
+  direccion: string
+  slaId: string
+  contratoActivo: "si" | "no"
+  fechaInicioContrato: string
+  fechaFinContrato: string
+  limiteTicketsMes: string
+  ticketsUsadosMes: string
+  notas: string
+}
+
+function toInputDate(value?: Date | string) {
+  if (!value) return ""
+
+  const normalized = typeof value === "string" ? value : value.toISOString()
+  return normalized.slice(0, 10)
+}
+
+function buildHdProfileFormState(
+  cliente: CRMClient,
+  hdProfile?: HDCliente | null
+): HdProfileFormState {
+  return {
+    codigo: hdProfile?.codigo ?? cliente.cuit ?? cliente.id,
+    tipoCliente: hdProfile?.tipoCliente ?? mapClienteToHDType(cliente),
+    email: hdProfile?.email ?? cliente.emailPrincipal ?? "",
+    telefono: hdProfile?.telefono ?? cliente.telefonoPrincipal ?? "",
+    direccion: hdProfile?.direccion ?? cliente.direccion ?? "",
+    slaId: hdProfile?.slaId ?? "none",
+    contratoActivo: hdProfile?.contratoActivo ? "si" : "no",
+    fechaInicioContrato: toInputDate(hdProfile?.fechaInicioContrato),
+    fechaFinContrato: toInputDate(hdProfile?.fechaFinContrato),
+    limiteTicketsMes:
+      hdProfile?.limiteTicketsMes !== undefined
+        ? String(hdProfile.limiteTicketsMes)
+        : mapClienteToHDType(cliente) === "vip"
+          ? "100"
+          : mapClienteToHDType(cliente) === "estandar"
+            ? "50"
+            : "20",
+    ticketsUsadosMes: String(hdProfile?.ticketsUsadosMes ?? 0),
+    notas: hdProfile?.notas ?? "",
+  }
+}
+
 function ClientesHDContent() {
   const [searchTerm, setSearchTerm] = useState("")
   const [filterTipo, setFilterTipo] = useState<string>("all")
   const [filterContrato, setFilterContrato] = useState<string>("all")
 
   const { clientes: crmClients } = useCrmClientes()
-  const { clientes: hdClientes } = useHdClientes()
+  const { clientes: hdClientes, createCliente, updateCliente, deleteCliente } = useHdClientes()
   const { tickets } = useHdTickets()
   const { contratos } = useHdContratos()
   const { slas } = useHdSlas()
+  const [isProfileFormOpen, setIsProfileFormOpen] = useState(false)
+  const [profileSaveError, setProfileSaveError] = useState<string | null>(null)
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [editingCliente, setEditingCliente] = useState<{
+    crmClient: CRMClient
+    hdProfile: HDCliente | null
+  } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null)
+  const [profileForm, setProfileForm] = useState<HdProfileFormState>({
+    codigo: "",
+    tipoCliente: "estandar",
+    email: "",
+    telefono: "",
+    direccion: "",
+    slaId: "none",
+    contratoActivo: "no",
+    fechaInicioContrato: "",
+    fechaFinContrato: "",
+    limiteTicketsMes: "0",
+    ticketsUsadosMes: "0",
+    notas: "",
+  })
+
+  const hdClientByTerceroId = useMemo(
+    () =>
+      new Map(
+        hdClientes.map((hdCliente) => [hdCliente.terceroId ?? hdCliente.id, hdCliente] as const)
+      ),
+    [hdClientes]
+  )
 
   const clientesActivos = useMemo(
     () =>
@@ -99,10 +200,10 @@ function ClientesHDContent() {
 
   const clientesConHD = useMemo(() => {
     return clientesActivos.map((cliente) => {
-      const tipoHD = mapClienteToHDType(cliente)
+      const hdProfile = hdClientByTerceroId.get(cliente.id)
+      const tipoHD = hdProfile?.tipoCliente ?? mapClienteToHDType(cliente)
       const contratosCliente = contratos.filter((contrato) => contrato.clienteId === cliente.id)
       const contratoPrincipal = pickActiveContrato(contratosCliente)
-      const hdProfile = hdClientes.find((hdCliente) => hdCliente.id === cliente.id)
       const ticketsCliente = tickets.filter((ticket) => ticket.clienteId === cliente.id)
       const ticketsMes = ticketsCliente.filter((ticket) =>
         isCurrentMonth(ticket.fechaCreacion)
@@ -124,13 +225,17 @@ function ClientesHDContent() {
       const limiteTickets =
         hdProfile?.limiteTicketsMes ?? (tipoHD === "vip" ? 100 : tipoHD === "estandar" ? 50 : 20)
       const ticketsUsados = hdProfile?.ticketsUsadosMes ?? ticketsMes
+      const hasHdProfile = Boolean(hdProfile)
+      const hasContractCoverage = Boolean(contratoPrincipal) || Boolean(hdProfile?.contratoActivo)
 
       return {
         ...cliente,
         tipoHD,
+        hdProfile,
+        hasHdProfile,
         sla,
         contratosCliente,
-        contratoActivo: Boolean(contratoPrincipal),
+        contratoActivo: hasContractCoverage,
         contratoPrincipal,
         limiteTickets,
         ticketsUsados,
@@ -141,7 +246,7 @@ function ClientesHDContent() {
         porcentajeCumplimiento,
       }
     })
-  }, [clientesActivos, contratos, hdClientes, slas, tickets])
+  }, [clientesActivos, contratos, hdClientByTerceroId, slas, tickets])
 
   const filteredClientes = clientesConHD.filter((cliente) => {
     const matchesSearch =
@@ -172,6 +277,79 @@ function ClientesHDContent() {
     setFilterContrato("all")
   }
 
+  const openProfileForm = (cliente: (typeof clientesConHD)[number]) => {
+    setEditingCliente({
+      crmClient: cliente,
+      hdProfile: cliente.hdProfile ?? null,
+    })
+    setProfileForm(buildHdProfileFormState(cliente, cliente.hdProfile ?? null))
+    setProfileSaveError(null)
+    setIsProfileFormOpen(true)
+  }
+
+  const closeProfileForm = () => {
+    setIsProfileFormOpen(false)
+    setEditingCliente(null)
+    setProfileSaveError(null)
+  }
+
+  const handleProfileSave = async () => {
+    if (!editingCliente) return
+
+    try {
+      setProfileSaving(true)
+      setProfileSaveError(null)
+
+      const payload = {
+        terceroId: editingCliente.crmClient.id,
+        codigo:
+          profileForm.codigo.trim() || editingCliente.crmClient.cuit || editingCliente.crmClient.id,
+        nombre: editingCliente.crmClient.nombre,
+        tipoCliente: profileForm.tipoCliente,
+        email: profileForm.email.trim() || undefined,
+        telefono: profileForm.telefono.trim() || undefined,
+        direccion: profileForm.direccion.trim() || undefined,
+        slaId: profileForm.slaId === "none" ? undefined : profileForm.slaId,
+        contratoActivo: profileForm.contratoActivo === "si",
+        fechaInicioContrato: profileForm.fechaInicioContrato || undefined,
+        fechaFinContrato: profileForm.fechaFinContrato || undefined,
+        limiteTicketsMes: profileForm.limiteTicketsMes
+          ? Number(profileForm.limiteTicketsMes)
+          : undefined,
+        ticketsUsadosMes: Number(profileForm.ticketsUsadosMes || 0),
+        notas: profileForm.notas.trim() || undefined,
+        contactos: editingCliente.hdProfile?.contactos ?? [],
+      }
+
+      if (editingCliente.hdProfile?.id) {
+        await updateCliente(editingCliente.hdProfile.id, payload)
+      } else {
+        await createCliente(payload)
+      }
+
+      closeProfileForm()
+    } catch (error) {
+      setProfileSaveError(
+        error instanceof Error ? error.message : "No se pudo guardar el perfil Help Desk."
+      )
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  const handleDeleteProfile = async () => {
+    if (!deleteTarget) return
+
+    try {
+      await deleteCliente(deleteTarget.id)
+      setDeleteTarget(null)
+    } catch (error) {
+      setProfileSaveError(
+        error instanceof Error ? error.message : "No se pudo eliminar el perfil Help Desk."
+      )
+    }
+  }
+
   const hasActiveFilters = searchTerm || filterTipo !== "all" || filterContrato !== "all"
 
   return (
@@ -183,13 +361,224 @@ function ClientesHDContent() {
             Clientes del CRM con información de soporte y contratos
           </p>
         </div>
-        <Link href="/crm/clientes">
-          <Button variant="outline">
-            <ExternalLink className="mr-2 h-4 w-4" />
-            Gestionar en CRM
-          </Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/crm/clientes">
+            <Button variant="outline">
+              <ExternalLink className="mr-2 h-4 w-4" />
+              Gestionar en CRM
+            </Button>
+          </Link>
+        </div>
       </div>
+
+      <Dialog
+        open={isProfileFormOpen}
+        onOpenChange={(open) => (open ? setIsProfileFormOpen(true) : closeProfileForm())}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {editingCliente?.hdProfile ? "Editar perfil Help Desk" : "Crear perfil Help Desk"}
+            </DialogTitle>
+            <DialogDescription>
+              {editingCliente
+                ? `Cliente base: ${editingCliente.crmClient.nombre}`
+                : "Completa la configuración operativa del cliente en Help Desk."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {profileSaveError && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {profileSaveError}
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="codigo">Código / CUIT</Label>
+                <Input
+                  id="codigo"
+                  value={profileForm.codigo}
+                  onChange={(e) => setProfileForm({ ...profileForm, codigo: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="tipoCliente">Tipo Help Desk</Label>
+                <Select
+                  value={profileForm.tipoCliente}
+                  onValueChange={(value) =>
+                    setProfileForm({
+                      ...profileForm,
+                      tipoCliente: value as HdProfileFormState["tipoCliente"],
+                    })
+                  }
+                >
+                  <SelectTrigger id="tipoCliente">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="vip">VIP</SelectItem>
+                    <SelectItem value="estandar">Estándar</SelectItem>
+                    <SelectItem value="basico">Básico</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email operativo</Label>
+                <Input
+                  id="email"
+                  value={profileForm.email}
+                  onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="telefono">Teléfono operativo</Label>
+                <Input
+                  id="telefono"
+                  value={profileForm.telefono}
+                  onChange={(e) => setProfileForm({ ...profileForm, telefono: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="direccion">Dirección de servicio</Label>
+                <Input
+                  id="direccion"
+                  value={profileForm.direccion}
+                  onChange={(e) => setProfileForm({ ...profileForm, direccion: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sla">SLA asignado</Label>
+                <Select
+                  value={profileForm.slaId}
+                  onValueChange={(value) => setProfileForm({ ...profileForm, slaId: value })}
+                >
+                  <SelectTrigger id="sla">
+                    <SelectValue placeholder="Selecciona un SLA" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin SLA</SelectItem>
+                    {slas.map((sla) => (
+                      <SelectItem key={sla.id} value={sla.id}>
+                        {sla.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="contratoActivo">Cobertura contractual</Label>
+                <Select
+                  value={profileForm.contratoActivo}
+                  onValueChange={(value) =>
+                    setProfileForm({
+                      ...profileForm,
+                      contratoActivo: value as HdProfileFormState["contratoActivo"],
+                    })
+                  }
+                >
+                  <SelectTrigger id="contratoActivo">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="si">Activo</SelectItem>
+                    <SelectItem value="no">Inactivo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fechaInicioContrato">Inicio de contrato</Label>
+                <Input
+                  id="fechaInicioContrato"
+                  type="date"
+                  value={profileForm.fechaInicioContrato}
+                  onChange={(e) =>
+                    setProfileForm({ ...profileForm, fechaInicioContrato: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fechaFinContrato">Fin de contrato</Label>
+                <Input
+                  id="fechaFinContrato"
+                  type="date"
+                  value={profileForm.fechaFinContrato}
+                  onChange={(e) =>
+                    setProfileForm({ ...profileForm, fechaFinContrato: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="limiteTicketsMes">Límite mensual de tickets</Label>
+                <Input
+                  id="limiteTicketsMes"
+                  type="number"
+                  min="0"
+                  value={profileForm.limiteTicketsMes}
+                  onChange={(e) =>
+                    setProfileForm({ ...profileForm, limiteTicketsMes: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ticketsUsadosMes">Tickets usados este mes</Label>
+                <Input
+                  id="ticketsUsadosMes"
+                  type="number"
+                  min="0"
+                  value={profileForm.ticketsUsadosMes}
+                  onChange={(e) =>
+                    setProfileForm({ ...profileForm, ticketsUsadosMes: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="notas">Notas operativas</Label>
+                <Textarea
+                  id="notas"
+                  value={profileForm.notas}
+                  onChange={(e) => setProfileForm({ ...profileForm, notas: e.target.value })}
+                  rows={4}
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeProfileForm} disabled={profileSaving}>
+              Cancelar
+            </Button>
+            <Button onClick={handleProfileSave} disabled={profileSaving || !editingCliente}>
+              {profileSaving
+                ? "Guardando..."
+                : editingCliente?.hdProfile
+                  ? "Guardar"
+                  : "Crear perfil"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar perfil Help Desk</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget
+                ? `Se eliminará el perfil Help Desk de ${deleteTarget.nombre}. La ficha CRM no se modifica.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteProfile}>Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -346,14 +735,16 @@ function ClientesHDContent() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-1 text-sm">
-                      {cliente.emailPrincipal && (
+                      {(cliente.hdProfile?.email ?? cliente.emailPrincipal) && (
                         <span className="flex items-center gap-1 text-muted-foreground">
-                          <Mail className="h-3 w-3" /> {cliente.emailPrincipal}
+                          <Mail className="h-3 w-3" />{" "}
+                          {cliente.hdProfile?.email ?? cliente.emailPrincipal}
                         </span>
                       )}
-                      {cliente.telefonoPrincipal && (
+                      {(cliente.hdProfile?.telefono ?? cliente.telefonoPrincipal) && (
                         <span className="flex items-center gap-1 text-muted-foreground">
-                          <Phone className="h-3 w-3" /> {cliente.telefonoPrincipal}
+                          <Phone className="h-3 w-3" />{" "}
+                          {cliente.hdProfile?.telefono ?? cliente.telefonoPrincipal}
                         </span>
                       )}
                     </div>
@@ -404,7 +795,11 @@ function ClientesHDContent() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-2 flex-wrap">
+                      <Button variant="ghost" size="sm" onClick={() => openProfileForm(cliente)}>
+                        <Settings2 className="h-4 w-4 mr-1" />
+                        {cliente.hasHdProfile ? "Editar HD" : "Configurar HD"}
+                      </Button>
                       <Link href={`/crm/clientes/detalle?id=${encodeURIComponent(cliente.id)}`}>
                         <Button variant="ghost" size="sm">
                           <ExternalLink className="h-4 w-4 mr-1" />
@@ -417,6 +812,18 @@ function ClientesHDContent() {
                           {cliente.contratoPrincipal ? "Contrato" : "Contratos"}
                         </Button>
                       </Link>
+                      {cliente.hdProfile && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setDeleteTarget({ id: cliente.hdProfile!.id, nombre: cliente.nombre })
+                          }
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Eliminar HD
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

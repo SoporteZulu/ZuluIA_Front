@@ -22,7 +22,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -46,7 +45,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  WmsDetailFieldGrid,
+  WmsDialogContent,
+  WmsTabsList,
+} from "@/components/almacenes/wms-responsive"
 import { useComprobantesConfig } from "@/lib/hooks/useComprobantes"
 import { useComprobantes } from "@/lib/hooks/useComprobantes"
 import { useOrdenesCompra } from "@/lib/hooks/useOrdenesCompra"
@@ -226,19 +231,6 @@ function formatProviderAddress(provider?: Tercero | null) {
   return parts.length > 0 ? parts.join(" · ") : "Sin domicilio visible"
 }
 
-function DetailFieldGrid({ fields }: { fields: Array<{ label: string; value: string }> }) {
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {fields.map((field) => (
-        <div key={field.label} className="rounded-lg bg-muted/40 p-3">
-          <Label>{field.label}</Label>
-          <p className="text-sm font-medium">{field.value}</p>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 function SummaryCard({
   title,
   value,
@@ -324,18 +316,25 @@ export default function RecepcionesPage() {
     })
   }, [comprobanteById, ordenes, proveedorById, search])
 
-  const pendientes = ordenes.filter((order) => order.estadoOc === "PENDIENTE").length
-  const parciales = ordenes.filter((order) => order.recepcionParcial).length
-  const recibidas = ordenes.filter((order) => order.estadoOc === "RECIBIDA").length
-  const canceladas = ordenes.filter((order) => order.estadoOc === "CANCELADA").length
-  const vencidas = ordenes.filter((order) => {
-    const daysOffset = getDaysOffset(order.fechaEntregaReq)
-    return order.estadoOc === "PENDIENTE" && daysOffset !== null && daysOffset < 0
-  }).length
-  const conCondiciones = ordenes.filter((order) => Boolean(order.condicionesEntrega?.trim())).length
-  const conDocumentoVisible = ordenes.filter((order) =>
-    Boolean(getComprobante(order.comprobanteId))
-  ).length
+  const visibleStats = useMemo(
+    () => ({
+      total: filteredOrders.length,
+      pendientes: filteredOrders.filter((order) => order.estadoOc === "PENDIENTE").length,
+      parciales: filteredOrders.filter((order) => order.recepcionParcial).length,
+      recibidas: filteredOrders.filter((order) => order.estadoOc === "RECIBIDA").length,
+      canceladas: filteredOrders.filter((order) => order.estadoOc === "CANCELADA").length,
+      vencidas: filteredOrders.filter((order) => {
+        const daysOffset = getDaysOffset(order.fechaEntregaReq)
+        return order.estadoOc === "PENDIENTE" && daysOffset !== null && daysOffset < 0
+      }).length,
+      conCondiciones: filteredOrders.filter((order) => Boolean(order.condicionesEntrega?.trim()))
+        .length,
+      conDocumentoVisible: filteredOrders.filter((order) =>
+        Boolean(comprobanteById.get(order.comprobanteId))
+      ).length,
+    }),
+    [comprobanteById, filteredOrders]
+  )
 
   const selectedProveedor = selectedOrder ? getProveedor(selectedOrder.proveedorId) : null
   const selectedComprobante = selectedOrder ? getComprobante(selectedOrder.comprobanteId) : null
@@ -353,6 +352,50 @@ export default function RecepcionesPage() {
       ),
     [tiposComprobante]
   )
+
+  const resetReceiveDialog = () => {
+    setReceiveDraft({
+      fechaRecepcion: new Date().toISOString().slice(0, 10),
+      cantidadRecibida: "",
+      tipoComprobanteRemitoId: remitoCompraTipos[0] ? String(remitoCompraTipos[0].id) : "auto",
+      remitoValorizado: false,
+      observacion: "",
+    })
+    setOrderToReceive(null)
+    setActionError(null)
+    setProcessingId(null)
+  }
+
+  const buildReceivePayload = (order: OrdenCompra, options?: { full?: boolean }) => {
+    if (!receiveDraft.fechaRecepcion) {
+      setActionError("Informá la fecha efectiva de recepción.")
+      return null
+    }
+
+    const saldoPendiente = Number(order.saldoPendiente ?? 0)
+    const cantidadRecibida = options?.full ? saldoPendiente : Number(receiveDraft.cantidadRecibida)
+
+    if (Number.isNaN(cantidadRecibida) || cantidadRecibida <= 0) {
+      setActionError("La cantidad recibida debe ser mayor a cero.")
+      return null
+    }
+
+    if (cantidadRecibida > saldoPendiente) {
+      setActionError("La cantidad recibida no puede superar el saldo pendiente de la orden.")
+      return null
+    }
+
+    return {
+      fechaRecepcion: receiveDraft.fechaRecepcion,
+      cantidadRecibida,
+      tipoComprobanteRemitoId:
+        receiveDraft.tipoComprobanteRemitoId === "auto"
+          ? undefined
+          : Number(receiveDraft.tipoComprobanteRemitoId),
+      remitoValorizado: receiveDraft.remitoValorizado,
+      observacion: receiveDraft.observacion || undefined,
+    }
+  }
 
   const openDetail = async (order: OrdenCompra) => {
     setActionError(null)
@@ -374,26 +417,16 @@ export default function RecepcionesPage() {
     setIsReceiveOpen(true)
   }
 
-  const handleReceive = async (order: OrdenCompra, payload?: { full?: boolean }) => {
+  const handleReceive = async (order: OrdenCompra, options?: { full?: boolean }) => {
+    const dto = buildReceivePayload(order, options)
+    if (!dto) {
+      return
+    }
+
     setProcessingId(order.id)
     setActionError(null)
 
-    const cantidadRecibida = Number(receiveDraft.cantidadRecibida)
-    const ok = await recibir(
-      order.id,
-      payload?.full
-        ? {}
-        : {
-            fechaRecepcion: receiveDraft.fechaRecepcion,
-            cantidadRecibida,
-            tipoComprobanteRemitoId:
-              receiveDraft.tipoComprobanteRemitoId === "auto"
-                ? undefined
-                : Number(receiveDraft.tipoComprobanteRemitoId),
-            remitoValorizado: receiveDraft.remitoValorizado,
-            observacion: receiveDraft.observacion || undefined,
-          }
-    )
+    const ok = await recibir(order.id, dto)
     if (!ok) {
       setActionError(`No se pudo registrar la recepción de la orden ${order.id}.`)
       setProcessingId(null)
@@ -406,26 +439,11 @@ export default function RecepcionesPage() {
       setSelectedOrder(detail)
     }
     setIsReceiveOpen(false)
-    setOrderToReceive(null)
-    setProcessingId(null)
+    resetReceiveDialog()
   }
 
   const handleReceiveSubmit = async () => {
     if (!orderToReceive) return
-
-    const cantidad = Number(receiveDraft.cantidadRecibida)
-    if (!receiveDraft.fechaRecepcion) {
-      setActionError("Informá la fecha efectiva de recepción.")
-      return
-    }
-    if (Number.isNaN(cantidad) || cantidad <= 0) {
-      setActionError("La cantidad recibida debe ser mayor a cero.")
-      return
-    }
-    if (cantidad > Number(orderToReceive.saldoPendiente ?? 0)) {
-      setActionError("La cantidad recibida no puede superar el saldo pendiente de la orden.")
-      return
-    }
 
     await handleReceive(orderToReceive)
   }
@@ -486,38 +504,38 @@ export default function RecepcionesPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Órdenes visibles"
-          value={ordenes.length}
-          description="Resultado del filtro backend por estado"
+          value={visibleStats.total}
+          description="Resultado del filtro backend y la búsqueda actual"
           icon={<Truck className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Pendientes"
-          value={pendientes}
-          description="Listas para recepción"
+          value={visibleStats.pendientes}
+          description="Listas para recepción dentro de la selección actual"
           icon={<PackageCheck className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Parciales"
-          value={parciales}
-          description="Con recepción iniciada y saldo pendiente"
+          value={visibleStats.parciales}
+          description="Con recepción iniciada y saldo pendiente en la vista actual"
           icon={<ClipboardList className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Recibidas"
-          value={recibidas}
-          description="Procesadas correctamente"
+          value={visibleStats.recibidas}
+          description="Procesadas correctamente dentro de la vista actual"
           icon={<CheckCircle2 className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Canceladas"
-          value={canceladas}
-          description="Fuera de circuito operativo"
+          value={visibleStats.canceladas}
+          description="Fuera de circuito operativo dentro de la vista actual"
           icon={<XCircle className="h-4 w-4 text-muted-foreground" />}
         />
         <SummaryCard
           title="Pendientes vencidas"
-          value={vencidas}
-          description="Requieren seguimiento de entrega"
+          value={visibleStats.vencidas}
+          description="Requieren seguimiento de entrega dentro de la vista actual"
           icon={<CalendarClock className="h-4 w-4 text-muted-foreground" />}
         />
       </div>
@@ -530,9 +548,10 @@ export default function RecepcionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {pendientes} órdenes siguen abiertas para ingreso, {parciales} ya tienen recepción
-            parcial y {conDocumentoVisible} ya pueden leerse con documento base visible dentro del
-            frontend actual.
+            {visibleStats.pendientes} órdenes visibles siguen abiertas para ingreso,{" "}
+            {visibleStats.parciales} ya tienen recepción parcial y{" "}
+            {visibleStats.conDocumentoVisible} ya pueden leerse con documento base visible dentro
+            del frontend actual.
           </CardContent>
         </Card>
         <Card>
@@ -542,8 +561,9 @@ export default function RecepcionesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {conCondiciones} órdenes informan condiciones de entrega. Eso permite recuperar parte
-            del contexto logístico que en el sistema viejo se veía junto al remito de compra.
+            {visibleStats.conCondiciones} órdenes visibles informan condiciones de entrega. Eso
+            permite recuperar parte del contexto logístico que en el sistema viejo se veía junto al
+            remito de compra.
           </CardContent>
         </Card>
         <Card>
@@ -723,7 +743,7 @@ export default function RecepcionesPage() {
       </Card>
 
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-w-3xl">
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Truck className="h-5 w-5" />
@@ -736,14 +756,14 @@ export default function RecepcionesPage() {
 
           {selectedOrder && (
             <Tabs defaultValue="general" className="py-2">
-              <TabsList className="grid w-full grid-cols-3">
+              <WmsTabsList className="md:grid-cols-3">
                 <TabsTrigger value="general">General</TabsTrigger>
                 <TabsTrigger value="proveedor">Proveedor</TabsTrigger>
                 <TabsTrigger value="circuito">Circuito</TabsTrigger>
-              </TabsList>
+              </WmsTabsList>
 
               <TabsContent value="general" className="space-y-4">
-                <DetailFieldGrid
+                <WmsDetailFieldGrid
                   fields={[
                     { label: "Estado", value: selectedOrder.estadoOc },
                     {
@@ -785,7 +805,7 @@ export default function RecepcionesPage() {
               </TabsContent>
 
               <TabsContent value="proveedor" className="space-y-4">
-                <DetailFieldGrid
+                <WmsDetailFieldGrid
                   fields={[
                     {
                       label: "Razón social",
@@ -831,7 +851,7 @@ export default function RecepcionesPage() {
                     <CardDescription>{selectedOperationalStatus?.detail}</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <DetailFieldGrid
+                    <WmsDetailFieldGrid
                       fields={[
                         {
                           label: "Circuito recepción",
@@ -921,30 +941,49 @@ export default function RecepcionesPage() {
               Cerrar
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
-      <Dialog open={isReceiveOpen} onOpenChange={setIsReceiveOpen}>
-        <DialogContent>
+      <Dialog
+        open={isReceiveOpen}
+        onOpenChange={(open) => {
+          setIsReceiveOpen(open)
+          if (!open) {
+            resetReceiveDialog()
+          }
+        }}
+      >
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Registrar recepción</DialogTitle>
             <DialogDescription>
               Podés registrar una recepción parcial o total con fecha, remito y observación
-              operativa.
+              operativa. El cierre completo conserva los mismos metadatos del formulario.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-lg border p-3 text-sm">
-                <p className="text-muted-foreground">Orden</p>
-                <p className="font-medium">#{orderToReceive?.id ?? "-"}</p>
-              </div>
-              <div className="rounded-lg border p-3 text-sm">
-                <p className="text-muted-foreground">Saldo pendiente</p>
-                <p className="font-medium">{formatQuantity(orderToReceive?.saldoPendiente)}</p>
-              </div>
-            </div>
+            <WmsDetailFieldGrid
+              columns="2"
+              fields={[
+                { label: "Orden", value: orderToReceive ? `#${orderToReceive.id}` : "-" },
+                {
+                  label: "Saldo pendiente",
+                  value: formatQuantity(orderToReceive?.saldoPendiente),
+                },
+                {
+                  label: "Proveedor",
+                  value: orderToReceive ? getProveedorLabel(orderToReceive.proveedorId) : "-",
+                },
+                {
+                  label: "Documento base",
+                  value: orderToReceive
+                    ? (getComprobante(orderToReceive.comprobanteId)?.nroComprobante ??
+                      `#${orderToReceive.comprobanteId}`)
+                    : "-",
+                },
+              ]}
+            />
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -1016,7 +1055,8 @@ export default function RecepcionesPage() {
 
             <div className="space-y-2">
               <Label>Observación</Label>
-              <Input
+              <Textarea
+                rows={3}
                 value={receiveDraft.observacion}
                 onChange={(event) =>
                   setReceiveDraft((current) => ({ ...current, observacion: event.target.value }))
@@ -1044,7 +1084,7 @@ export default function RecepcionesPage() {
               {processingId === orderToReceive?.id ? "Procesando..." : "Registrar recepción"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

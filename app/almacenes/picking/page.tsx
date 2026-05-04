@@ -21,7 +21,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -44,8 +43,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  WmsDetailFieldGrid,
+  WmsDialogContent,
+  WmsTabsList,
+} from "@/components/almacenes/wms-responsive"
 import { toast } from "@/hooks/use-toast"
 import { useDepositos } from "@/lib/hooks/useDepositos"
 import { useItems } from "@/lib/hooks/useItems"
@@ -132,8 +136,9 @@ function getEstadoLabel(estado?: string) {
   }
 }
 
-function getOperationalStatus(orden?: OrdenPreparacion | null) {
+function getOperationalStatus(orden?: OrdenPreparacion | null, hasActiveTransfer = false) {
   if (!orden) return "-"
+  if (orden.estado === "COMPLETADA" && hasActiveTransfer) return "Transferencia ya generada"
   const daysOpen = getDaysOpen(orden.fecha)
   if (orden.estado === "COMPLETADA") return "Lista para despacho"
   if (orden.estado === "ANULADA") return "Fuera de circuito"
@@ -264,6 +269,36 @@ export default function PickingPage() {
     [filteredOrdenes, selectedOrdenId]
   )
 
+  const activeTransfer = useMemo(
+    () =>
+      (selectedTrazabilidad?.transferencias ?? []).find(
+        (transferencia) => transferencia.estado.toUpperCase() !== "ANULADA"
+      ) ?? null,
+    [selectedTrazabilidad]
+  )
+
+  const timelineEntries = useMemo(() => {
+    const seen = new Set<string>()
+
+    return (selectedTrazabilidad?.timeline ?? []).filter((evento) => {
+      const key = [
+        evento.id,
+        evento.ordenPreparacionId ?? 0,
+        evento.transferenciaDepositoId ?? 0,
+        evento.tipo,
+        evento.fecha,
+        evento.descripcion ?? "",
+      ].join("|")
+
+      if (seen.has(key)) {
+        return false
+      }
+
+      seen.add(key)
+      return true
+    })
+  }, [selectedTrazabilidad])
+
   const reloadSelectedData = useCallback(
     async (ordenId: number) => {
       setDetailLoading(true)
@@ -303,6 +338,20 @@ export default function PickingPage() {
       detalles: [createEmptyDetailDraft()],
     })
     setItemSearch("")
+  }
+
+  const resetPickingDialog = () => {
+    setPickingDraft({})
+    setActionError(null)
+  }
+
+  const resetDispatchDialog = () => {
+    setDispatchDraft({
+      depositoDestinoId: "",
+      fecha: new Date().toISOString().slice(0, 10),
+      observacion: "",
+    })
+    setActionError(null)
   }
 
   const handleRefresh = async () => {
@@ -362,6 +411,20 @@ export default function PickingPage() {
       )
     ) {
       setActionError("Las cantidades entregadas deben ser numéricas y no negativas.")
+      return
+    }
+
+    const requestedByDetailId = new Map(
+      selectedDetail.detalles.map((detalle) => [detalle.id, Number(detalle.cantidad ?? 0)])
+    )
+
+    if (
+      payload.some(
+        (detalle) =>
+          detalle.cantidadEntregada > (requestedByDetailId.get(detalle.detalleId) ?? 0)
+      )
+    ) {
+      setActionError("La cantidad entregada no puede superar la cantidad solicitada del renglón.")
       return
     }
 
@@ -426,6 +489,32 @@ export default function PickingPage() {
       return
     }
 
+    const incompleteRows = createDraft.detalles.filter((detalle) => {
+      const started = Boolean(
+        detalle.itemId || detalle.depositoId || detalle.cantidad || detalle.observacion.trim()
+      )
+
+      if (!started) {
+        return false
+      }
+
+      const cantidad = Number(detalle.cantidad)
+      return (
+        !detalle.itemId ||
+        !detalle.depositoId ||
+        !detalle.cantidad ||
+        Number.isNaN(cantidad) ||
+        cantidad <= 0
+      )
+    })
+
+    if (incompleteRows.length > 0) {
+      setActionError(
+        "Revisá los renglones de picking: cada línea iniciada debe tener ítem, depósito y cantidad válida."
+      )
+      return
+    }
+
     const detalles: CreateOrdenPreparacionDetalleDto[] = createDraft.detalles
       .filter((detalle) => detalle.itemId && detalle.depositoId && detalle.cantidad)
       .map((detalle) => ({
@@ -473,7 +562,7 @@ export default function PickingPage() {
   const canStart = selectedDetail?.estado === "PENDIENTE"
   const canPick = selectedDetail?.estado === "PENDIENTE" || selectedDetail?.estado === "EN_PROCESO"
   const canConfirm = selectedDetail?.estado === "EN_PROCESO"
-  const canDispatch = selectedDetail?.estado === "COMPLETADA"
+  const canDispatch = selectedDetail?.estado === "COMPLETADA" && !activeTransfer
   const canCancel =
     selectedDetail?.estado === "PENDIENTE" || selectedDetail?.estado === "EN_PROCESO"
 
@@ -648,7 +737,7 @@ export default function PickingPage() {
                         <TableCell>
                           {orden.cantidadRenglones ?? orden.detalles?.length ?? "-"}
                         </TableCell>
-                        <TableCell className="max-w-[220px] truncate text-sm text-muted-foreground">
+                        <TableCell className="max-w-55 truncate text-sm text-muted-foreground">
                           {orden.observacion ?? "-"}
                         </TableCell>
                         <TableCell className="text-right">
@@ -702,7 +791,7 @@ export default function PickingPage() {
             </CardTitle>
             <CardDescription>
               {selectedOrden
-                ? `${getTerceroName(selectedOrden.terceroId)} · ${getOperationalStatus(selectedDetail ?? selectedOrden)}`
+                ? `${getTerceroName(selectedOrden.terceroId)} · ${getOperationalStatus(selectedDetail ?? selectedOrden, Boolean(activeTransfer))}`
                 : "Seleccioná una orden para operar el circuito de preparación."}
             </CardDescription>
           </CardHeader>
@@ -781,62 +870,82 @@ export default function PickingPage() {
                   </Button>
                 </div>
 
+                {activeTransfer ? (
+                  <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+                    La orden ya tiene asociada la transferencia #{activeTransfer.id} en estado {activeTransfer.estado}. Revisá la pestaña de trazabilidad para continuar el circuito.
+                  </div>
+                ) : null}
+
                 {detailLoading ? (
                   <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                     Cargando detalle, eventos y trazabilidad...
                   </div>
                 ) : selectedDetail ? (
                   <Tabs defaultValue="general" className="space-y-4">
-                    <TabsList className="grid w-full grid-cols-4">
+                    <WmsTabsList className="md:grid-cols-4">
                       <TabsTrigger value="general">General</TabsTrigger>
                       <TabsTrigger value="renglones">Renglones</TabsTrigger>
                       <TabsTrigger value="eventos">Eventos</TabsTrigger>
                       <TabsTrigger value="trazabilidad">Trazabilidad</TabsTrigger>
-                    </TabsList>
+                    </WmsTabsList>
 
                     <TabsContent value="general" className="space-y-4">
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">Estado</p>
-                          <div className="mt-2 flex items-center gap-2">
-                            <Badge variant={estadoVariant(selectedDetail.estado)}>
-                              {getEstadoLabel(selectedDetail.estado)}
-                            </Badge>
-                          </div>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">Fecha</p>
-                          <p className="mt-2 font-medium">{formatDate(selectedDetail.fecha)}</p>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">Fecha confirmación</p>
-                          <p className="mt-2 font-medium">
-                            {formatDate(selectedDetail.fechaConfirmacion)}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">Tercero</p>
-                          <p className="mt-2 font-medium">
-                            {getTerceroName(selectedDetail.terceroId)}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">Renglones</p>
-                          <p className="mt-2 text-lg font-semibold">
-                            {selectedTrazabilidad?.cantidadRenglones ??
+                      <WmsDetailFieldGrid
+                        fields={[
+                          {
+                            label: "Estado",
+                            value: (
+                              <Badge variant={estadoVariant(selectedDetail.estado)}>
+                                {getEstadoLabel(selectedDetail.estado)}
+                              </Badge>
+                            ),
+                          },
+                          { label: "Fecha", value: formatDate(selectedDetail.fecha) },
+                          {
+                            label: "Fecha confirmación",
+                            value: formatDate(selectedDetail.fechaConfirmacion),
+                          },
+                          {
+                            label: "Tercero",
+                            value: getTerceroName(selectedDetail.terceroId),
+                          },
+                          {
+                            label: "Comprobante origen",
+                            value: selectedDetail.comprobanteOrigenId ?? "Sin vincular",
+                          },
+                          {
+                            label: "Días abiertos",
+                            value: `${getDaysOpen(selectedDetail.fecha) ?? 0} día(s)`,
+                          },
+                          {
+                            label: "Renglones",
+                            value:
+                              selectedTrazabilidad?.cantidadRenglones ??
                               selectedDetail.detalles?.length ??
-                              0}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">Cumplimiento</p>
-                          <p className="mt-2 text-lg font-semibold">
-                            {selectedTrazabilidad
-                              ? `${formatQuantity(selectedTrazabilidad.cantidadEntregada)} / ${formatQuantity(selectedTrazabilidad.cantidadSolicitada)}`
-                              : `${formatQuantity(selectedDetail.detalles?.reduce((acc, detalle) => acc + detalle.cantidadEntregada, 0))} / ${formatQuantity(selectedDetail.detalles?.reduce((acc, detalle) => acc + detalle.cantidad, 0))}`}
-                          </p>
-                        </div>
-                      </div>
+                              0,
+                          },
+                          {
+                            label: "Solicitado",
+                            value: formatQuantity(
+                              selectedTrazabilidad?.cantidadSolicitada ??
+                                selectedDetail.detalles?.reduce(
+                                  (acc, detalle) => acc + detalle.cantidad,
+                                  0
+                                )
+                            ),
+                          },
+                          {
+                            label: "Entregado",
+                            value: formatQuantity(
+                              selectedTrazabilidad?.cantidadEntregada ??
+                                selectedDetail.detalles?.reduce(
+                                  (acc, detalle) => acc + detalle.cantidadEntregada,
+                                  0
+                                )
+                            ),
+                          },
+                        ]}
+                      />
 
                       <div className="rounded-lg border p-4">
                         <p className="text-sm text-muted-foreground">Observación</p>
@@ -858,6 +967,7 @@ export default function PickingPage() {
                               <TableHead>Solicitado</TableHead>
                               <TableHead>Entregado</TableHead>
                               <TableHead>Estado</TableHead>
+                              <TableHead>Observación</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -890,13 +1000,16 @@ export default function PickingPage() {
                                         {detalle.estaCompleto ? "Completo" : "Pendiente"}
                                       </Badge>
                                     </TableCell>
+                                    <TableCell className="max-w-55 text-sm text-muted-foreground">
+                                      {detalle.observacion ?? "-"}
+                                    </TableCell>
                                   </TableRow>
                                 )
                               })
                             ) : (
                               <TableRow>
                                 <TableCell
-                                  colSpan={6}
+                                  colSpan={7}
                                   className="py-6 text-center text-muted-foreground"
                                 >
                                   La orden no tiene renglones cargados.
@@ -955,11 +1068,41 @@ export default function PickingPage() {
                         </div>
                       </div>
 
+                      {(selectedTrazabilidad?.transferencias ?? []).length ? (
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          {selectedTrazabilidad?.transferencias.map((transferencia) => (
+                            <div key={transferencia.id} className="rounded-xl border bg-muted/20 p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-medium">Transferencia #{transferencia.id}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {depositoNameById.get(transferencia.depositoOrigenId) ?? `#${transferencia.depositoOrigenId}`}{" -> "}{depositoNameById.get(transferencia.depositoDestinoId) ?? `#${transferencia.depositoDestinoId}`}
+                                  </p>
+                                </div>
+                                <Badge variant="outline">{transferencia.estado}</Badge>
+                              </div>
+                              <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                                <div>
+                                  <p className="text-muted-foreground">Fecha</p>
+                                  <p className="font-medium">{formatDate(transferencia.fecha)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">Confirmación</p>
+                                  <p className="font-medium">
+                                    {formatDate(transferencia.fechaConfirmacion)}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
                       <div className="space-y-3">
-                        {(selectedTrazabilidad?.timeline ?? []).length ? (
-                          selectedTrazabilidad?.timeline.map((evento) => (
+                        {timelineEntries.length ? (
+                          timelineEntries.map((evento, index) => (
                             <div
-                              key={`${evento.id}-${evento.transferenciaDepositoId ?? 0}`}
+                              key={`${evento.id}-${evento.transferenciaDepositoId ?? evento.ordenPreparacionId ?? 0}-${index}`}
                               className="rounded-lg border p-3"
                             >
                               <div className="flex items-start justify-between gap-3">
@@ -1003,8 +1146,17 @@ export default function PickingPage() {
         </Card>
       </div>
 
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-w-4xl">
+      <Dialog
+        open={isCreateOpen}
+        onOpenChange={(open) => {
+          setIsCreateOpen(open)
+          if (!open) {
+            resetCreateDraft()
+            setActionError(null)
+          }
+        }}
+      >
+        <WmsDialogContent size="xl">
           <DialogHeader>
             <DialogTitle>Nueva orden de preparación</DialogTitle>
             <DialogDescription>
@@ -1250,15 +1402,24 @@ export default function PickingPage() {
               {busyAction === "crear" ? "Guardando..." : "Crear orden"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
-      <Dialog open={isPickingOpen} onOpenChange={setIsPickingOpen}>
-        <DialogContent className="max-w-3xl">
+      <Dialog
+        open={isPickingOpen}
+        onOpenChange={(open) => {
+          setIsPickingOpen(open)
+          if (!open) {
+            resetPickingDialog()
+          }
+        }}
+      >
+        <WmsDialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Registrar picking</DialogTitle>
             <DialogDescription>
-              Las cantidades se envían como valores entregados acumulados por renglón.
+              Las cantidades se envían como valores entregados acumulados por renglón y no pueden
+              superar lo solicitado.
             </DialogDescription>
           </DialogHeader>
 
@@ -1299,6 +1460,9 @@ export default function PickingPage() {
                         }))
                       }
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Máximo visible: {formatQuantity(detalle.cantidad)}.
+                    </p>
                   </div>
                 </div>
               )
@@ -1313,11 +1477,19 @@ export default function PickingPage() {
               {busyAction === "picking" ? "Guardando..." : "Registrar"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
-      <Dialog open={isDispatchOpen} onOpenChange={setIsDispatchOpen}>
-        <DialogContent>
+      <Dialog
+        open={isDispatchOpen}
+        onOpenChange={(open) => {
+          setIsDispatchOpen(open)
+          if (!open) {
+            resetDispatchDialog()
+          }
+        }}
+      >
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Despachar orden</DialogTitle>
             <DialogDescription>
@@ -1385,7 +1557,7 @@ export default function PickingPage() {
               {busyAction === "despachar" ? "Despachando..." : "Generar despacho"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

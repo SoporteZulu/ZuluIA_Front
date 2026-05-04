@@ -5,8 +5,23 @@ export type HDDepartmentOption = {
   nombre: string
 }
 
+const KNOWN_HD_DEPARTMENT_LABELS: Record<string, string> = {
+  "1": "Soporte Tecnico",
+  "2": "Atencion al Cliente",
+  "3": "Servicios en Campo",
+  "dep-001": "Soporte Tecnico",
+  "dep-002": "Atencion al Cliente",
+  "dep-003": "Servicios en Campo",
+}
+
 function formatHdDepartmentLabel(id: string) {
   const normalized = id.trim()
+  const knownLabel = KNOWN_HD_DEPARTMENT_LABELS[normalized.toLowerCase()]
+
+  if (knownLabel) {
+    return knownLabel
+  }
+
   const numericMatch = normalized.match(/^dep[-_ ]?(\d+)$/i)
 
   if (numericMatch) {

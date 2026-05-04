@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -47,8 +46,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  WmsDetailFieldGrid,
+  WmsDialogContent,
+  WmsTabsList,
+} from "@/components/almacenes/wms-responsive"
 import { toast } from "@/hooks/use-toast"
 import { useCartaPorte } from "@/lib/hooks/useCartaPorte"
 import { useTransportistas } from "@/lib/hooks/useTransportistas"
@@ -235,6 +239,15 @@ export default function CartaPortePage() {
   const transportistaById = useMemo(
     () => new Map(transportistas.map((transportista) => [transportista.id, transportista])),
     [transportistas]
+  )
+
+  const getTransportistaCuit = useCallback(
+    (transportistaId?: number) => {
+      if (!transportistaId) return ""
+      const transportista = transportistaById.get(transportistaId)
+      return transportista?.nroCuitTransportista ?? transportista?.terceroCuit ?? ""
+    },
+    [transportistaById]
   )
 
   const transportistaName = useCallback(
@@ -852,59 +865,68 @@ export default function CartaPortePage() {
                   </div>
                 ) : selectedDetail ? (
                   <Tabs defaultValue="general" className="space-y-4">
-                    <TabsList className="grid w-full grid-cols-3">
+                    <WmsTabsList className="md:grid-cols-3">
                       <TabsTrigger value="general">General</TabsTrigger>
                       <TabsTrigger value="orden-carga">Orden de carga</TabsTrigger>
                       <TabsTrigger value="historial">Historial</TabsTrigger>
-                    </TabsList>
+                    </WmsTabsList>
 
                     <TabsContent value="general" className="space-y-4">
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">Estado</p>
-                          <div className="mt-2 flex items-center gap-2">
-                            <Badge variant={estadoVariant(selectedDetail.estado)}>
-                              {estadoLabel(selectedDetail.estado)}
-                            </Badge>
-                          </div>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">CTG</p>
-                          <p className="mt-2 font-mono text-lg font-semibold">
-                            {selectedDetail.nroCtg ?? "Pendiente"}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">Comprobante origen</p>
-                          <p className="mt-2 font-medium">
-                            {selectedDetail.comprobanteId ?? "Sin vincular"}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">Fecha de emisión</p>
-                          <p className="mt-2 font-medium">
-                            {formatDate(selectedDetail.fechaEmision)}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">CUIT remitente</p>
-                          <p className="mt-2 font-medium">{selectedDetail.cuitRemitente}</p>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">CUIT destinatario</p>
-                          <p className="mt-2 font-medium">{selectedDetail.cuitDestinatario}</p>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">CUIT transportista</p>
-                          <p className="mt-2 font-medium">
-                            {selectedDetail.cuitTransportista ?? "Sin informar"}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border p-3">
-                          <p className="text-sm text-muted-foreground">Intentos CTG</p>
-                          <p className="mt-2 text-lg font-semibold">{selectedDetail.intentosCtg}</p>
-                        </div>
-                      </div>
+                      <WmsDetailFieldGrid
+                        fields={[
+                          {
+                            label: "Estado",
+                            value: (
+                              <Badge variant={estadoVariant(selectedDetail.estado)}>
+                                {estadoLabel(selectedDetail.estado)}
+                              </Badge>
+                            ),
+                          },
+                          {
+                            label: "CTG",
+                            value: (
+                              <span className="font-mono text-base font-semibold">
+                                {selectedDetail.nroCtg ?? "Pendiente"}
+                              </span>
+                            ),
+                          },
+                          {
+                            label: "Comprobante origen",
+                            value: selectedDetail.comprobanteId ?? "Sin vincular",
+                          },
+                          {
+                            label: "Orden de carga",
+                            value: selectedDetail.ordenCargaId ?? "Sin orden asociada",
+                          },
+                          {
+                            label: "Transportista base",
+                            value: transportistaName(selectedDetail.transportistaId),
+                          },
+                          {
+                            label: "Fecha de emisión",
+                            value: formatDate(selectedDetail.fechaEmision),
+                          },
+                          {
+                            label: "Fecha solicitud CTG",
+                            value: formatDate(selectedDetail.fechaSolicitudCtg),
+                          },
+                          { label: "CUIT remitente", value: selectedDetail.cuitRemitente },
+                          { label: "CUIT destinatario", value: selectedDetail.cuitDestinatario },
+                          {
+                            label: "CUIT transportista",
+                            value: selectedDetail.cuitTransportista ?? "Sin informar",
+                          },
+                          { label: "Intentos CTG", value: selectedDetail.intentosCtg },
+                          {
+                            label: "Alta",
+                            value: formatDateTime(selectedDetail.createdAt),
+                          },
+                          {
+                            label: "Última actualización",
+                            value: formatDateTime(selectedDetail.updatedAt),
+                          },
+                        ]}
+                      />
 
                       {selectedDetail.ultimoErrorCtg && (
                         <Alert variant="destructive">
@@ -923,45 +945,35 @@ export default function CartaPortePage() {
 
                     <TabsContent value="orden-carga" className="space-y-4">
                       {ordenCarga ? (
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="rounded-lg border p-3">
-                            <p className="text-sm text-muted-foreground">Transportista</p>
-                            <p className="mt-2 font-medium">
-                              {ordenCarga.transportistaRazonSocial ??
-                                transportistaName(ordenCarga.transportistaId)}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-sm text-muted-foreground">Fecha de carga</p>
-                            <p className="mt-2 font-medium">{formatDate(ordenCarga.fechaCarga)}</p>
-                          </div>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-sm text-muted-foreground">Origen</p>
-                            <p className="mt-2 font-medium">{ordenCarga.origen}</p>
-                          </div>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-sm text-muted-foreground">Destino</p>
-                            <p className="mt-2 font-medium">{ordenCarga.destino}</p>
-                          </div>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-sm text-muted-foreground">Patente</p>
-                            <p className="mt-2 font-medium">
-                              {ordenCarga.patente ?? "Sin informar"}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-sm text-muted-foreground">Confirmada</p>
-                            <p className="mt-2 font-medium">
-                              {ordenCarga.confirmada ? "Sí" : "No"}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-3 sm:col-span-2">
+                        <>
+                          <WmsDetailFieldGrid
+                            fields={[
+                              {
+                                label: "Transportista",
+                                value:
+                                  ordenCarga.transportistaRazonSocial ??
+                                  transportistaName(ordenCarga.transportistaId),
+                              },
+                              {
+                                label: "Fecha de carga",
+                                value: formatDate(ordenCarga.fechaCarga),
+                              },
+                              { label: "Origen", value: ordenCarga.origen },
+                              { label: "Destino", value: ordenCarga.destino },
+                              { label: "Patente", value: ordenCarga.patente ?? "Sin informar" },
+                              {
+                                label: "Confirmada",
+                                value: ordenCarga.confirmada ? "Sí" : "No",
+                              },
+                            ]}
+                          />
+                          <div className="rounded-lg border p-4">
                             <p className="text-sm text-muted-foreground">Observación</p>
                             <p className="mt-2 font-medium">
                               {ordenCarga.observacion ?? "Sin observaciones"}
                             </p>
                           </div>
-                        </div>
+                        </>
                       ) : (
                         <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                           La carta todavía no tiene orden de carga asociada.
@@ -984,6 +996,11 @@ export default function CartaPortePage() {
                                     ? `${estadoLabel(evento.estadoAnterior)} -> ${estadoLabel(evento.estadoNuevo)}`
                                     : estadoLabel(evento.estadoNuevo)}
                                 </p>
+                                {evento.nroCtg ? (
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    CTG {evento.nroCtg}
+                                  </p>
+                                ) : null}
                               </div>
                               <div className="text-right text-xs text-muted-foreground">
                                 <p>{formatDate(evento.fechaEvento)}</p>
@@ -1015,12 +1032,13 @@ export default function CartaPortePage() {
       </div>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Nueva carta de porte</DialogTitle>
             <DialogDescription>
               El alta usa el contrato real del backend: comprobante opcional, CUITs, fecha de
-              emisión y observación.
+              emisión y observación. La vinculación directa del transportista se completa luego en
+              la orden de carga; acá la selección solo sirve para autocompletar el CUIT.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1060,20 +1078,36 @@ export default function CartaPortePage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Transportista</Label>
+              <Label>Transportista (autocompleta CUIT)</Label>
               <Select
                 value={createDraft.transportistaId}
                 onValueChange={(value) => {
-                  const transportista =
-                    value === "none" ? null : transportistaById.get(Number(value))
-                  setCreateDraft((current) => ({
-                    ...current,
-                    transportistaId: value,
-                    cuitTransportista:
-                      transportista?.nroCuitTransportista ??
-                      transportista?.terceroCuit ??
-                      current.cuitTransportista,
-                  }))
+                  setCreateDraft((current) => {
+                    if (value === "none") {
+                      const previousTransportistaId =
+                        current.transportistaId === "none"
+                          ? undefined
+                          : Number(current.transportistaId)
+                      const previousAutoFilledCuit = getTransportistaCuit(previousTransportistaId)
+
+                      return {
+                        ...current,
+                        transportistaId: value,
+                        cuitTransportista:
+                          current.cuitTransportista === previousAutoFilledCuit
+                            ? ""
+                            : current.cuitTransportista,
+                      }
+                    }
+
+                    const autoFilledCuit = getTransportistaCuit(Number(value))
+
+                    return {
+                      ...current,
+                      transportistaId: value,
+                      cuitTransportista: autoFilledCuit || current.cuitTransportista,
+                    }
+                  })
                 }}
               >
                 <SelectTrigger>
@@ -1131,11 +1165,11 @@ export default function CartaPortePage() {
               {busyAction === "crear" ? "Guardando..." : "Crear carta"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
-        <DialogContent>
+        <WmsDialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Asignar CTG</DialogTitle>
             <DialogDescription>
@@ -1159,11 +1193,11 @@ export default function CartaPortePage() {
               {busyAction === "ctg" ? "Guardando..." : "Asignar"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
       <Dialog open={orderOpen} onOpenChange={setOrderOpen}>
-        <DialogContent>
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Crear orden de carga</DialogTitle>
             <DialogDescription>
@@ -1250,11 +1284,11 @@ export default function CartaPortePage() {
               {busyAction === "orden-carga" ? "Guardando..." : "Crear orden"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
       <Dialog open={solicitarOpen} onOpenChange={setSolicitarOpen}>
-        <DialogContent>
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Solicitar CTG</DialogTitle>
             <DialogDescription>
@@ -1298,11 +1332,11 @@ export default function CartaPortePage() {
                 : "Registrar solicitud"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
       <Dialog open={consultarOpen} onOpenChange={setConsultarOpen}>
-        <DialogContent>
+        <WmsDialogContent size="md">
           <DialogHeader>
             <DialogTitle>Consultar CTG</DialogTitle>
             <DialogDescription>
@@ -1362,11 +1396,11 @@ export default function CartaPortePage() {
               {busyAction === "consultar-ctg" ? "Guardando..." : "Registrar consulta"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
 
       <Dialog open={anularOpen} onOpenChange={setAnularOpen}>
-        <DialogContent>
+        <WmsDialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Anular carta de porte</DialogTitle>
             <DialogDescription>
@@ -1406,7 +1440,7 @@ export default function CartaPortePage() {
               {busyAction === "anular" ? "Anulando..." : "Anular carta"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </WmsDialogContent>
       </Dialog>
     </div>
   )

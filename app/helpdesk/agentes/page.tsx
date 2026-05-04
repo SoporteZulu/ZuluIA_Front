@@ -59,9 +59,10 @@ import { useHdAgentes } from "@/lib/hooks/useHelpdesk"
 import { buildHdDepartmentOptions, getHdDepartmentLabel } from "@/lib/helpdesk-departments"
 import type { HDAgente } from "@/lib/types"
 
-const rolLabels = {
+const rolLabels: Record<string, string> = {
   administrador: "Administrador",
   supervisor: "Supervisor",
+  coordinador: "Coordinador",
   agente: "Agente",
   tecnico: "Tecnico",
 }
@@ -76,6 +77,21 @@ const estadoColors = {
   activo: "bg-green-500/10 text-green-500",
   inactivo: "bg-slate-500/10 text-slate-500",
   vacaciones: "bg-amber-500/10 text-amber-500",
+}
+
+function humanizeLabel(value?: string | null) {
+  if (!value) return "-"
+
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ")
+}
+
+function getRolLabel(rol?: string | null) {
+  if (!rol) return "Sin rol"
+  return rolLabels[rol] ?? humanizeLabel(rol)
 }
 
 function formatMinutes(minutes: number): string {
@@ -200,7 +216,7 @@ function AgentesContent() {
               Nuevo Agente
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingAgente ? "Editar Agente" : "Nuevo Agente"}</DialogTitle>
               <DialogDescription>
@@ -266,6 +282,7 @@ function AgentesContent() {
                     <SelectContent>
                       <SelectItem value="administrador">Administrador</SelectItem>
                       <SelectItem value="supervisor">Supervisor</SelectItem>
+                      <SelectItem value="coordinador">Coordinador</SelectItem>
                       <SelectItem value="agente">Agente</SelectItem>
                       <SelectItem value="tecnico">Tecnico</SelectItem>
                     </SelectContent>
@@ -401,6 +418,7 @@ function AgentesContent() {
                 <SelectItem value="all">Todos</SelectItem>
                 <SelectItem value="administrador">Administrador</SelectItem>
                 <SelectItem value="supervisor">Supervisor</SelectItem>
+                <SelectItem value="coordinador">Coordinador</SelectItem>
                 <SelectItem value="agente">Agente</SelectItem>
                 <SelectItem value="tecnico">Tecnico</SelectItem>
               </SelectContent>
@@ -458,7 +476,7 @@ function AgentesContent() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{rolLabels[agente.rol]}</Badge>
+                      <Badge variant="outline">{getRolLabel(agente.rol)}</Badge>
                     </TableCell>
                     <TableCell>
                       {departamento || <span className="text-muted-foreground">Sin asignar</span>}

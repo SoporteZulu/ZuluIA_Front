@@ -17,6 +17,8 @@ interface UseOrdenesTrabajOptions {
   hasta?: string
 }
 
+const ORDENES_TRABAJO_API_BASE = "/api/produccion/ordenes-trabajo"
+
 export function useOrdenesTrabajo(options: UseOrdenesTrabajOptions = {}) {
   const [ordenes, setOrdenes] = useState<OrdenTrabajo[]>([])
   const [loading, setLoading] = useState(true)
@@ -36,7 +38,9 @@ export function useOrdenesTrabajo(options: UseOrdenesTrabajOptions = {}) {
       if (options.desde) params.set("desde", options.desde)
       if (options.hasta) params.set("hasta", options.hasta)
 
-      const result = await apiGet<OrdenesTrabajoPaged>(`/api/ordenes-trabajos?${params.toString()}`)
+      const result = await apiGet<OrdenesTrabajoPaged>(
+        `${ORDENES_TRABAJO_API_BASE}?${params.toString()}`
+      )
       const items = Array.isArray(result) ? result : (result.items ?? [])
       setOrdenes(
         items.map((o) => ({
@@ -59,7 +63,7 @@ export function useOrdenesTrabajo(options: UseOrdenesTrabajOptions = {}) {
 
   const getById = async (id: number): Promise<OrdenTrabajo | null> => {
     try {
-      return await apiGet<OrdenTrabajo>(`/api/ordenes-trabajos/${id}`)
+      return await apiGet<OrdenTrabajo>(`${ORDENES_TRABAJO_API_BASE}/${id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar orden de trabajo")
       return null
@@ -68,7 +72,7 @@ export function useOrdenesTrabajo(options: UseOrdenesTrabajOptions = {}) {
 
   const crear = async (dto: CreateOrdenTrabajoDto): Promise<boolean> => {
     try {
-      await apiPost<{ id: number }>("/api/ordenes-trabajos", dto)
+      await apiPost<{ id: number }>(ORDENES_TRABAJO_API_BASE, dto)
       await fetchOrdenes()
       return true
     } catch (e) {
@@ -79,7 +83,7 @@ export function useOrdenesTrabajo(options: UseOrdenesTrabajOptions = {}) {
 
   const iniciar = async (id: number): Promise<boolean> => {
     try {
-      await apiPost(`/api/ordenes-trabajos/${id}/iniciar`, {})
+      await apiPost(`${ORDENES_TRABAJO_API_BASE}/${id}/iniciar`, {})
       await fetchOrdenes()
       return true
     } catch (e) {
@@ -101,7 +105,7 @@ export function useOrdenesTrabajo(options: UseOrdenesTrabajOptions = {}) {
 
   const cancelar = async (id: number): Promise<boolean> => {
     try {
-      await apiPost(`/api/ordenes-trabajos/${id}/cancelar`, {})
+      await apiPost(`${ORDENES_TRABAJO_API_BASE}/${id}/cancelar`, {})
       await fetchOrdenes()
       return true
     } catch (e) {
