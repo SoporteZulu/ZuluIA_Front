@@ -895,7 +895,7 @@ function ClientesContent() {
               </CardDescription>
             </div>
             {highlightedClient && (
-              <Link href={`/crm/clientes/${highlightedClient.client.id}`}>
+              <Link href={`/crm/clientes/detalle?id=${encodeURIComponent(highlightedClient.client.id)}`}>
                 <Button variant="ghost" size="sm">
                   Ver detalle
                   <ArrowRight className="ml-2 h-4 w-4" />
@@ -1042,7 +1042,7 @@ function ClientesContent() {
                         </div>
                         <div className="min-w-0">
                           <Link
-                            href={`/crm/clientes/${client.id}`}
+                            href={`/crm/clientes/detalle?id=${encodeURIComponent(client.id)}`}
                             className="font-medium hover:underline block truncate"
                           >
                             {client.nombre}
@@ -1122,7 +1122,7 @@ function ClientesContent() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem asChild>
-                            <Link href={`/crm/clientes/${client.id}`}>
+                            <Link href={`/crm/clientes/detalle?id=${encodeURIComponent(client.id)}`}>
                               <Eye className="mr-2 h-4 w-4" />
                               Ver detalle
                             </Link>

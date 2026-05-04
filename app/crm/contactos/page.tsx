@@ -597,7 +597,9 @@ function ContactosContent() {
               </CardDescription>
             </div>
             {highlightedContact?.cliente && (
-              <Link href={`/crm/clientes/${highlightedContact.cliente.id}`}>
+              <Link
+                href={`/crm/clientes/detalle?id=${encodeURIComponent(highlightedContact.cliente.id)}`}
+              >
                 <Button variant="ghost" size="sm">
                   Ver cliente
                   <ArrowRight className="ml-2 h-4 w-4" />
@@ -756,7 +758,7 @@ function ContactosContent() {
                     <TableCell>
                       {cliente ? (
                         <Link
-                          href={`/crm/clientes/${cliente.id}`}
+                          href={`/crm/clientes/detalle?id=${encodeURIComponent(cliente.id)}`}
                           className="hover:underline flex items-center gap-1"
                         >
                           <Building2 className="h-3 w-3" />

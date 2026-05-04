@@ -800,7 +800,7 @@ function ClientesHDContent() {
                         <Settings2 className="h-4 w-4 mr-1" />
                         {cliente.hasHdProfile ? "Editar HD" : "Configurar HD"}
                       </Button>
-                      <Link href={`/crm/clientes/${cliente.id}`}>
+                      <Link href={`/crm/clientes/detalle?id=${encodeURIComponent(cliente.id)}`}>
                         <Button variant="ghost" size="sm">
                           <ExternalLink className="h-4 w-4 mr-1" />
                           Ver en CRM

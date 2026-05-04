@@ -29,5 +29,5 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", ".next", "vm-package"]
+  "exclude": ["node_modules", ".next", "iis-package", "vm-package"]
 }

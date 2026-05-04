@@ -9,6 +9,7 @@
 
 # production
 /build
+/iis-package
 /vm-package
 
 # debug
