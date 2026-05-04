@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -42,7 +43,17 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Search, MoreHorizontal, Edit, Trash2, Eye, Send, X } from "lucide-react"
+import {
+  Plus,
+  Search,
+  MoreHorizontal,
+  Edit,
+  Trash2,
+  Eye,
+  Send,
+  X,
+  AlertTriangle,
+} from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -94,18 +105,32 @@ const canalLabels: Record<string, string> = {
   presencial: "Presencial",
 }
 
+function describeDataError(message: string) {
+  if (/42P01|no existe la relaci[oó]n/i.test(message)) {
+    return "La API Help Desk está respondiendo sin las tablas necesarias en la base local. Hace falta inicializar el esquema Help Desk del backend para operar Tickets, Clientes y Agentes."
+  }
+
+  if (/error interno del servidor/i.test(message)) {
+    return "La API Help Desk devolvió un error interno. Revisá el backend y el esquema local antes de operar esta vista."
+  }
+
+  return message
+}
+
 function TicketsContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const {
     tickets: ticketsList,
+    loading: ticketsLoading,
+    error: ticketsError,
     createTicket,
     updateTicket,
     deleteTicket,
     addComment,
   } = useHdTickets()
-  const { clientes: clientesHD } = useHdClientes()
-  const { agentes } = useHdAgentes()
+  const { clientes: clientesHD, loading: clientesLoading, error: clientesError } = useHdClientes()
+  const { agentes, loading: agentesLoading, error: agentesError } = useHdAgentes()
 
   const getClienteById = (id: string) => clientesHD.find((c) => c.id === id)
   const getAgenteById = (id: string) => agentes.find((a) => a.id === id)
@@ -253,13 +278,22 @@ function TicketsContent() {
   const handleAddComment = async () => {
     if (!selectedTicket || !newComment.trim()) return
 
+    const commentAuthorId = selectedTicket.asignadoAId || agentes[0]?.id
+
+    if (!commentAuthorId) {
+      setCommentFeedback(
+        "No hay agentes disponibles para registrar el comentario con un usuario valido."
+      )
+      return
+    }
+
     try {
       await addComment(selectedTicket.id, {
-        ticketId: selectedTicket.id,
-        usuarioId: "ag-001",
+        usuarioId: commentAuthorId,
         texto: newComment,
         esInterno: isInternalComment,
         fechaHora: new Date(),
+        adjuntos: [],
       })
       setNewComment("")
       setIsInternalComment(false)
@@ -289,6 +323,12 @@ function TicketsContent() {
     resueltos: ticketsList.filter((t) => ["resuelto", "cerrado"].includes(t.estado)).length,
   }
 
+  const loadErrors = Array.from(
+    new Set([ticketsError, clientesError, agentesError].filter(Boolean) as string[])
+  )
+  const isInitialLoading = ticketsLoading || clientesLoading || agentesLoading
+  const hasBlockingError = loadErrors.length > 0
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -296,11 +336,32 @@ function TicketsContent() {
           <h1 className="text-2xl font-bold tracking-tight">Tickets</h1>
           <p className="text-muted-foreground">Gestion de tickets de soporte</p>
         </div>
-        <Button onClick={() => openForm()}>
+        <Button onClick={() => openForm()} disabled={hasBlockingError}>
           <Plus className="mr-2 h-4 w-4" />
           Nuevo Ticket
         </Button>
       </div>
+
+      {hasBlockingError && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Help Desk no pudo cargar su padrón operativo</AlertTitle>
+          <AlertDescription>
+            {loadErrors.map((message) => (
+              <p key={message}>{describeDataError(message)}</p>
+            ))}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {isInitialLoading && !hasBlockingError && (
+        <Alert>
+          <AlertTitle>Cargando Tickets</AlertTitle>
+          <AlertDescription>
+            <p>Se está consultando Tickets, Clientes y Agentes desde la API Help Desk.</p>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Estadisticas */}
       <div className="grid gap-4 md:grid-cols-4">
@@ -505,7 +566,11 @@ function TicketsContent() {
               {filteredTickets.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    No se encontraron tickets
+                    {hasBlockingError
+                      ? "No se pudieron cargar tickets por un error de backend."
+                      : isInitialLoading
+                        ? "Cargando tickets..."
+                        : "No se encontraron tickets"}
                   </TableCell>
                 </TableRow>
               )}

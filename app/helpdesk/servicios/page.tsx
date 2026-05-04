@@ -94,10 +94,27 @@ function buildCategoriaOptions(
 }
 
 const tipoPrecioLabels: Record<string, string> = {
+  mensual: "Mensual",
+  evento: "Por Evento",
   fijo: "Precio Fijo",
   por_hora: "Por Hora",
   por_proyecto: "Por Proyecto",
   escalonado: "Escalonado",
+}
+
+function humanizeLabel(value?: string | null) {
+  if (!value) return "-"
+
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ")
+}
+
+function getTipoPrecioLabel(tipo?: string | null) {
+  if (!tipo) return "Sin tipo"
+  return tipoPrecioLabels[tipo] ?? humanizeLabel(tipo)
 }
 
 function ServiciosContent() {
@@ -126,7 +143,7 @@ function ServiciosContent() {
     categoriaId: "",
     duracionEstimada: 60,
     precioBase: 0,
-    tipoPrecio: "fijo" as HDServicio["tipoPrecio"],
+    tipoPrecio: "mensual" as HDServicio["tipoPrecio"],
     garantiaDias: 0,
     condiciones: "",
     estado: "activo" as HDServicio["estado"],
@@ -345,7 +362,7 @@ function ServiciosContent() {
         categoriaId: "",
         duracionEstimada: 60,
         precioBase: 0,
-        tipoPrecio: "fijo",
+        tipoPrecio: "mensual",
         garantiaDias: 0,
         condiciones: "",
         estado: "activo",
@@ -391,6 +408,10 @@ function ServiciosContent() {
   const formatPrice = (price: number, tipo: string) => {
     const formatted = price.toLocaleString("es-AR", { style: "currency", currency: "USD" })
     switch (tipo) {
+      case "mensual":
+        return `${formatted}/mes`
+      case "evento":
+        return `${formatted}/evento`
       case "por_hora":
         return `${formatted}/hora`
       case "por_proyecto":
@@ -532,7 +553,7 @@ function ServiciosContent() {
                       <p className="font-medium">{entry.servicio.nombre}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {getCategoriaName(entry.servicio.categoriaId)} ·{" "}
-                        {tipoPrecioLabels[entry.servicio.tipoPrecio]}
+                        {getTipoPrecioLabel(entry.servicio.tipoPrecio)}
                       </p>
                     </div>
                     <Badge
@@ -804,7 +825,7 @@ function ServiciosContent() {
 
       {/* Dialog Formulario */}
       <Dialog open={isFormOpen} onOpenChange={(open) => (open ? setIsFormOpen(true) : closeForm())}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedServicio ? "Editar Servicio" : "Nuevo Servicio"}</DialogTitle>
             <DialogDescription>
@@ -905,6 +926,8 @@ function ServiciosContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="mensual">Mensual</SelectItem>
+                    <SelectItem value="evento">Por Evento</SelectItem>
                     <SelectItem value="fijo">Precio Fijo</SelectItem>
                     <SelectItem value="por_hora">Por Hora</SelectItem>
                     <SelectItem value="por_proyecto">Por Proyecto</SelectItem>

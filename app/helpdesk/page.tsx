@@ -1,5 +1,6 @@
 "use client"
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,6 +30,8 @@ import {
   useHdContratos,
   useHdFacturacion,
   useHdSlas,
+  useHdDashboard,
+  useHdSegmentedDashboard,
 } from "@/lib/hooks/useHelpdesk"
 
 const prioridadColors = {
@@ -56,6 +59,35 @@ const estadoLabels: Record<string, string> = {
   cerrado: "Cerrado",
 }
 
+const severidadLabels: Record<string, string> = {
+  vencido: "Vencido",
+  critico: "Critico",
+  en_riesgo: "En riesgo",
+  normal: "Normal",
+  sin_sla: "Sin SLA",
+}
+
+function formatMinutes(value?: number | null) {
+  if (value === null || value === undefined) return "-"
+  if (value < 60) return `${value} min`
+  const hours = Math.floor(value / 60)
+  const minutes = value % 60
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`
+}
+
+function getSeverityLabel(value?: string | null) {
+  if (!value) return "Sin dato"
+  return severidadLabels[value] ?? value.replace(/_/g, " ")
+}
+
+function describeDashboardError(message: string) {
+  if (/error interno del servidor/i.test(message)) {
+    return "La API Help Desk devolvió un error interno. Revisá el backend y el esquema local antes de operar esta vista."
+  }
+
+  return message
+}
+
 export default function HelpDeskDashboard() {
   const [today] = useState(() => new Date())
   const { tickets } = useHdTickets()
@@ -65,6 +97,8 @@ export default function HelpDeskDashboard() {
   const { contratos } = useHdContratos()
   const { facturas } = useHdFacturacion()
   const { slas } = useHdSlas()
+  const { dashboard, error: dashboardError } = useHdDashboard()
+  const { segmentedDashboard, error: segmentedDashboardError } = useHdSegmentedDashboard()
 
   const getClienteById = (id: string) => clientes.find((c) => c.id === id)
   const getAgenteById = (id: string) => agentes.find((a) => a.id === id)
@@ -183,6 +217,27 @@ export default function HelpDeskDashboard() {
   const dashboardAlerts = useMemo(() => {
     const alerts: Array<{ title: string; detail: string }> = []
 
+    if ((dashboard?.totalVencidos ?? 0) > 0) {
+      alerts.push({
+        title: "Tickets vencidos",
+        detail: `${dashboard?.totalVencidos ?? 0} tickets ya superaron su cobertura SLA visible.`,
+      })
+    }
+
+    if ((dashboard?.totalEscalados ?? 0) > 0) {
+      alerts.push({
+        title: "Casos escalados",
+        detail: `${dashboard?.totalEscalados ?? 0} tickets están marcados como escalados en el corte actual.`,
+      })
+    }
+
+    if ((dashboard?.totalSinAsignar ?? 0) > 0) {
+      alerts.push({
+        title: "Pendientes de asignación",
+        detail: `${dashboard?.totalSinAsignar ?? 0} tickets abiertos siguen sin agente responsable.`,
+      })
+    }
+
     if (ticketsCriticos > 0) {
       alerts.push({
         title: "Backlog crítico",
@@ -220,7 +275,82 @@ export default function HelpDeskDashboard() {
     }
 
     return alerts.slice(0, 4)
-  }, [contractStats.porVencer, ordenStats.atrasadas, slaRisk, ticketsCriticos])
+  }, [
+    contractStats.porVencer,
+    dashboard?.totalEscalados,
+    dashboard?.totalSinAsignar,
+    dashboard?.totalVencidos,
+    ordenStats.atrasadas,
+    slaRisk,
+    ticketsCriticos,
+  ])
+
+  const departmentPressure = useMemo(() => {
+    return [...(segmentedDashboard?.departamentos ?? [])]
+      .filter((department) => department.abiertos > 0 || department.criticos > 0)
+      .sort(
+        (left, right) =>
+          right.criticos - left.criticos ||
+          right.vencidos - left.vencidos ||
+          right.abiertos - left.abiertos
+      )
+      .slice(0, 3)
+  }, [segmentedDashboard])
+
+  const agentPressure = useMemo(() => {
+    return [...(segmentedDashboard?.agentes ?? [])]
+      .filter((agent) => agent.abiertos > 0 || agent.criticos > 0 || agent.vencidos > 0)
+      .sort(
+        (left, right) =>
+          right.criticos - left.criticos ||
+          right.vencidos - left.vencidos ||
+          right.abiertos - left.abiertos
+      )
+      .slice(0, 3)
+  }, [segmentedDashboard])
+
+  const openTicketsCount = dashboard?.totalAbiertos ?? ticketStats.total - ticketStats.resueltos
+  const unassignedTicketsCount =
+    dashboard?.totalSinAsignar ?? ticketsPendientes.filter((ticket) => !ticket.asignadoAId).length
+  const overdueTicketsCount = dashboard?.totalVencidos ?? 0
+  const escalatedTicketsCount = dashboard?.totalEscalados ?? 0
+  const pausedTicketsCount = dashboard?.totalPausados ?? 0
+  const criticalTicketsCount = dashboard?.totalCriticos ?? ticketsCriticos
+  const blockingDashboardError = dashboardError ?? segmentedDashboardError
+  const hasBlockingDashboardFailure =
+    Boolean(blockingDashboardError) &&
+    !dashboard &&
+    !segmentedDashboard &&
+    tickets.length === 0 &&
+    agentes.length === 0 &&
+    clientes.length === 0 &&
+    ordenes.length === 0 &&
+    contratos.length === 0 &&
+    facturas.length === 0 &&
+    slas.length === 0
+
+  if (hasBlockingDashboardFailure) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Help Desk</h1>
+            <p className="text-muted-foreground">
+              Panel de control del modulo de Servicio al Cliente
+            </p>
+          </div>
+        </div>
+
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>No se pudo construir el dashboard operativo</AlertTitle>
+          <AlertDescription>
+            <p>{describeDashboardError(blockingDashboardError!)}</p>
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -241,6 +371,16 @@ export default function HelpDeskDashboard() {
         </div>
       </div>
 
+      {(dashboardError || segmentedDashboardError) && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>La carga del dashboard es parcial o inconsistente</AlertTitle>
+          <AlertDescription>
+            <p>{describeDashboardError(dashboardError ?? segmentedDashboardError ?? "")}</p>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* KPIs Principales */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -249,50 +389,50 @@ export default function HelpDeskDashboard() {
             <Ticket className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{ticketStats.total - ticketStats.resueltos}</div>
+            <div className="text-2xl font-bold">{openTicketsCount}</div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="text-red-500">{ticketsCriticos} criticos</span>
+              <span className="text-red-500">{criticalTicketsCount} criticos</span>
               <span>|</span>
-              <span className="text-orange-500">{ticketsAlta} alta prioridad</span>
+              <span>{pausedTicketsCount} pausados</span>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Tiempo Prom. Respuesta</CardTitle>
+            <CardTitle className="text-sm font-medium">Tickets Sin Asignar</CardTitle>
             <Timer className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {ticketStats.avgResponse !== null ? `${ticketStats.avgResponse} min` : "-"}
-            </div>
+            <div className="text-2xl font-bold">{unassignedTicketsCount}</div>
             <p className="text-xs text-muted-foreground">
-              Derivado de tickets con tiempo de respuesta visible
+              Severidad dominante: {getSeverityLabel(dashboard?.severidadDominante)}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Cumplimiento SLA</CardTitle>
+            <CardTitle className="text-sm font-medium">Tickets Vencidos</CardTitle>
             <Target className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{ticketStats.tasaCumplimientoSLA}%</div>
-            <Progress value={Number(ticketStats.tasaCumplimientoSLA)} className="mt-2" />
+            <div className="text-2xl font-bold">{overdueTicketsCount}</div>
+            <p className="text-xs text-muted-foreground">
+              Margen mínimo restante: {formatMinutes(dashboard?.minutosMinimosRestantes)}
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Ordenes en Proceso</CardTitle>
+            <CardTitle className="text-sm font-medium">Tickets Escalados</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{ordenStats.enProceso}</div>
+            <div className="text-2xl font-bold">{escalatedTicketsCount}</div>
             <p className="text-xs text-muted-foreground">
-              {ordenStats.pendientes} programadas · {ordenStats.atrasadas} atrasadas
+              {dashboard?.totalTickets ?? ticketStats.total} tickets visibles en el corte
             </p>
           </CardContent>
         </Card>
@@ -364,6 +504,30 @@ export default function HelpDeskDashboard() {
                 <p className="mt-2 text-sm text-muted-foreground">{alert.detail}</p>
               </div>
             ))}
+
+            {(departmentPressure.length > 0 || agentPressure.length > 0) && (
+              <div className="grid gap-3 pt-2 md:grid-cols-2">
+                <div className="space-y-2 rounded-lg border p-4">
+                  <p className="text-sm font-medium">Departamentos bajo presión</p>
+                  {departmentPressure.map((department) => (
+                    <div key={department.id} className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">{department.nombre}</span>
+                      {` · ${department.abiertos} abiertos · ${department.criticos} criticos · ${department.vencidos} vencidos`}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-2 rounded-lg border p-4">
+                  <p className="text-sm font-medium">Agentes con menor margen</p>
+                  {agentPressure.map((agent) => (
+                    <div key={agent.id} className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">{agent.nombre}</span>
+                      {` · ${agent.abiertos} abiertos · ${formatMinutes(agent.minutosMinimosRestantes)}`}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
