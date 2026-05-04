@@ -6,9 +6,11 @@
   "scripts": {
     "build": "next build",
     "build:iis": "powershell -ExecutionPolicy Bypass -File scripts/build-iis.ps1",
+    "build:vm": "pnpm build && powershell -ExecutionPolicy Bypass -File scripts/prepare-vm.ps1",
     "dev": "next dev",
     "lint": "eslint .",
     "prepare:iis": "powershell -ExecutionPolicy Bypass -File scripts/prepare-iis.ps1",
+    "prepare:vm": "powershell -ExecutionPolicy Bypass -File scripts/prepare-vm.ps1",
     "start": "next start"
   },
   "dependencies": {
